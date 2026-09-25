@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<meta content="#145cf2" name="theme-color"/>
+<meta content="noindex,nofollow,noarchive,nosnippet" name="robots"/>
+<meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
+<title>Sign in to the RebataTrack Beta Portal</title>
+<link href="app-icon.png?v=115" rel="icon"/><link href="apple-touch-icon.png?v=97" rel="apple-touch-icon"/><link href="favicon-32.png?v=97" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=97" rel="icon" sizes="16x16"/>
+<link href="styles.css?v=97" rel="stylesheet"/>
+</head>
+<body class="portal-body">
+<main class="portal-auth-shell">
+<section class="portal-auth-card">
+<a aria-label="Back to RebataTrack Beta Program" class="portal-logo" href="beta.html"><img alt="RebataTrack app icon" src="app-icon.png?v=115"/></a>
+<div class="portal-kicker">RebataTrack Beta Portal</div>
+<h1>Sign in to the RebataTrack Beta Portal</h1>
+<p class="portal-auth-lead">Use the same email address that was approved for the RebataTrack Beta Program. We will email you a 6-digit verification code. There is no separate Beta Program password to remember.</p><p class="portal-auth-security-note">For security, Beta Portal sessions automatically end after 6 hours of inactivity.</p>
+<div class="portal-alert error" hidden="" id="portalLoginError"></div>
+<div class="portal-alert warning" hidden="" id="portalNotConnected">The tester portal has not been connected to the beta backend yet.</div>
+<form class="portal-login-form" id="portalLoginForm" method="post">
+<div class="beta-field">
+<label for="portalEmail">Approved beta email</label>
+<input autocomplete="email" id="portalEmail" name="email" placeholder="you@example.com" required="" type="email"/>
+</div>
+<button class="beta-submit" id="portalSendCode" type="submit">Send Verification Code <span aria-hidden="true">→</span></button>
+</form>
+<form class="portal-login-form portal-code-form" hidden="" id="portalCodeForm" method="post">
+<div class="portal-code-sent" id="portalCodeSent"></div>
+<div class="beta-field">
+<label for="portalCode">6-digit verification code</label>
+<input autocomplete="one-time-code" id="portalCode" inputmode="numeric" maxlength="6" minlength="6" pattern="[0-9]{6}" placeholder="123456" required="" type="text"/>
+</div>
+<button class="beta-submit" id="portalVerifyCode" type="submit">Verify &amp; Sign In <span aria-hidden="true">→</span></button>
+<button class="admin-text-button" id="portalUseDifferentEmail" type="button">Use a different email</button>
+</form>
+<div class="portal-login-support">
+<button class="admin-text-button portal-login-support-toggle" id="portalSupportToggle" type="button">Need help signing in?</button>
+<div class="portal-login-support-panel" id="portalSupportPanel" hidden>
+<div class="portal-login-support-heading"><strong>Account &amp; Access Help</strong><span>Use this only for Beta Portal access, verification, invitation, or account-email problems. Bugs and testing feedback belong in Help &amp; Feedback after you sign in.</span></div>
+<div class="portal-required-legend" aria-label="Required field legend"><span aria-hidden="true">*</span> Required Field</div><form class="portal-login-form" id="portalSupportForm" method="post">
+<div class="beta-field"><label for="portalSupportEmail">Approved beta email <span class="portal-required-asterisk" aria-hidden="true">*</span></label><input aria-required="true" autocapitalize="none" autocomplete="email" autocorrect="off" id="portalSupportEmail" name="email" placeholder="you@example.com" required spellcheck="false" type="email"/></div>
+<div class="beta-field"><label for="portalSupportIssue">What do you need help with? <span class="portal-required-asterisk" aria-hidden="true">*</span></label><select aria-required="true" id="portalSupportIssue" name="issue" required><option value="">Choose one</option><option>Can't sign in or receive a code</option><option>My beta account email is wrong</option><option>My beta access is disabled</option><option>Invitation or activation problem</option><option>Other account/access problem</option></select></div>
+<div class="beta-field"><label for="portalSupportDetails">Tell us what is happening <span class="portal-required-asterisk" aria-hidden="true">*</span></label><textarea aria-required="true" autocapitalize="sentences" autocorrect="on" id="portalSupportDetails" maxlength="5000" minlength="2" name="details" placeholder="Include enough detail for us to identify and fix the access problem." required spellcheck="true"></textarea></div>
+<button class="beta-submit" id="portalSupportSubmit" type="submit">Send Support Request <span aria-hidden="true">→</span></button>
+</form>
+<div class="portal-device-message" id="portalSupportMessage" aria-live="polite"></div>
+</div>
+</div>
+<div class="portal-auth-footer">
+<a href="beta.html">← Back to beta information</a>
+</div>
+</section>
+</main>
+<script src="firebase-config.js?v=97"></script><script src="beta-login-firebase.js?v=97" type="module"></script>
+</body>
+</html>

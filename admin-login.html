@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<meta content="#145cf2" name="theme-color"/>
+<meta content="noindex,nofollow,noarchive,nosnippet" name="robots"/>
+<meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
+<title>RebataTrack Admin Portal — Sign In</title>
+<link href="app-icon.png?v=115" rel="icon"/><link href="apple-touch-icon.png?v=97" rel="apple-touch-icon"/><link href="favicon-32.png?v=97" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=97" rel="icon" sizes="16x16"/>
+<link href="styles.css?v=97" rel="stylesheet"/>
+</head>
+<body class="admin-auth-body">
+<main class="admin-auth-shell">
+<section class="admin-auth-card">
+<div class="admin-auth-brand">
+<img alt="RebataTrack app icon" src="app-icon.png?v=115"/>
+<div><strong>RebataTrack</strong><span>Administration</span></div>
+</div>
+<div class="admin-eyebrow">Private Admin Portal</div>
+<h1>Welcome back.</h1>
+<p class="admin-auth-lead">Manage beta operations, production users, support, access, and administrative tools from one private workspace.</p>
+<div class="admin-alert admin-alert-error" hidden="" id="adminLoginError"></div>
+<div class="admin-alert admin-alert-warning" hidden="" id="adminNotConnected">The Admin Portal has not been connected to the RebataTrack backend yet.</div>
+<form class="admin-login-form" id="adminLoginForm" method="post">
+
+<div class="beta-field">
+<label for="adminEmail">Administrator email</label>
+<input autocomplete="username" id="adminEmail" name="email" required="" type="email" value="support.rebatifyapp@gmail.com"/>
+</div>
+<div class="beta-field">
+<label for="adminPassword">Password</label>
+<input autocomplete="current-password" id="adminPassword" name="password" placeholder="Admin password" required="" type="password"/>
+</div>
+<button class="admin-primary-button" type="submit">Sign In <span aria-hidden="true">→</span></button><button class="admin-text-button" id="adminForgotPassword" type="button">Reset Admin Password</button>
+</form>
+<div class="admin-auth-note">
+<div aria-hidden="true" class="admin-lock-dot"></div>
+<p>This portal is restricted to authorized RebataTrack administrators. Customer, tester, and administrative information is protected and is never embedded in the public website.</p>
+</div>
+</section>
+</main>
+
+
+<script src="firebase-config.js?v=97"></script><script src="admin-login-firebase.js?v=97" type="module"></script></body>
+</html>
