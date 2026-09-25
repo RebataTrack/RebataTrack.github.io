@@ -71,7 +71,7 @@ if (form) {
         platform,
         status: 'Applied',
         termsAccepted: true,
-        source: 'rebatifyapp.github.io/beta.html',
+        source: 'rebatatrack.github.io/beta.html',
         notes: '',
         portalAccess: 'Not Enabled',
         testerUid: '',

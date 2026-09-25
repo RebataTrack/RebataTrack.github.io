@@ -1,4 +1,4 @@
-import { firebaseConfigured, firebaseMissingFields, auth, isAdminUser, adminEmail, friendlyFirebaseError } from './firebase-core.js';
+import { firebaseConfigured, firebaseMissingFields, auth, isAdminUser, adminEmail, adminEmails, friendlyFirebaseError } from './firebase-core.js';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 
 const form = document.getElementById('adminLoginForm');
@@ -52,7 +52,7 @@ if (form) {
       const credential = await signInWithEmailAndPassword(auth, email, password);
       if (!isAdminUser(credential.user)) {
         await signOut(auth);
-        showError('This account is not authorized for RebataTrack Beta Program administration.');
+        showError('This account is not authorized for the RebataTrack Admin Portal.');
         return;
       }
       location.replace('admin.html');
@@ -74,8 +74,10 @@ if (resetButton) {
     const original = resetButton.textContent;
     resetButton.textContent = 'Sending…';
     try {
-      await sendPasswordResetEmail(auth, adminEmail);
-      showError('A password-reset email has been requested for the RebataTrack support account.', 'warning');
+      const requestedEmail = String(document.getElementById('adminEmail')?.value || adminEmail).trim().toLowerCase();
+      const resetEmail = adminEmails.includes(requestedEmail) ? requestedEmail : adminEmail;
+      await sendPasswordResetEmail(auth, resetEmail);
+      showError('A password-reset email has been requested for the RebataTrack administrator account.', 'warning');
     } catch (error) {
       showError(friendlyFirebaseError(error));
     } finally {

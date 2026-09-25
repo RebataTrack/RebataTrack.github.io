@@ -13,9 +13,13 @@ const missing = required.filter(k => !String(config[k] || '').trim());
 
 export const firebaseConfigured = missing.length === 0;
 export const firebaseMissingFields = missing;
-export const adminEmail = String(settings.adminEmail || 'support.rebatifyapp@gmail.com').trim().toLowerCase();
+export const adminEmail = String(settings.adminEmail || 'app.rebatatrack@yahoo.com').trim().toLowerCase();
+export const adminEmails = [...new Set([
+  adminEmail,
+  ...(Array.isArray(settings.adminEmails) ? settings.adminEmails : [])
+]).map(value => String(value || '').trim().toLowerCase()).filter(Boolean)];
 export const emailAutomationEnabled = settings.emailAutomationEnabled === true;
-export const testerPortalUrl = String(settings.testerPortalUrl || 'https://rebatifyapp.github.io/beta-login.html').trim();
+export const testerPortalUrl = String(settings.testerPortalUrl || 'https://rebatatrack.github.io/beta-login.html').trim();
 
 let app = null;
 let auth = null;
@@ -32,7 +36,7 @@ if (firebaseConfigured) {
 export { app, auth, db, authPersistenceReady };
 
 export function isAdminUser(user) {
-  return !!user && String(user.email || '').trim().toLowerCase() === adminEmail;
+  return !!user && adminEmails.includes(String(user.email || '').trim().toLowerCase());
 }
 
 export function timestampToDate(value) {
