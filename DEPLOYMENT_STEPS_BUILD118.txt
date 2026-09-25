@@ -1,0 +1,15 @@
+RebataTrack Website Build 118 Deployment Steps
+
+1. Back up the currently deployed website files.
+2. Upload all files from "RebataTrack Website Build 118" to the website hosting environment, overwriting existing files.
+3. Confirm that the following pages display the refreshed screenshots:
+   - Public home page
+   - Support page upgrade FAQ
+   - Beta portal walkthrough / guides
+4. Hard refresh / clear CDN or browser cache if older screenshots still appear.
+5. Verify the Help & Learning card is using the approved More3 image.
+6. Verify the RebataTrack+ View Plans image matches the new More3 screenshot.
+7. Verify the Shared Profiles screenshot shows:
+   - alex@example.com
+   - DEEMONLY invite code
+8. Verify the public site still loads normally and all navigation links work.
