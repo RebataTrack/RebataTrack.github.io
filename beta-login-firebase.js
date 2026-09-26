@@ -7,6 +7,8 @@ import {
   browserSessionPersistence
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 
+window.__REBATRACK_BETA_LOGIN_MODULE_READY = true;
+
 const form = document.getElementById('portalLoginForm');
 const codeForm = document.getElementById('portalCodeForm');
 const errorBox = document.getElementById('portalLoginError');

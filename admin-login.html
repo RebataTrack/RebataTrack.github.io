@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal — Sign In</title>
 <link href="app-icon.png?v=121" rel="icon"/><link href="apple-touch-icon.png?v=97" rel="apple-touch-icon"/><link href="favicon-32.png?v=97" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=97" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=121" rel="stylesheet"/>
+<link href="styles.css?v=124" rel="stylesheet"/>
 </head>
 <body class="admin-auth-body">
 <main class="admin-auth-shell">
@@ -23,7 +23,7 @@
 <p class="admin-auth-lead">Manage beta operations, production users, support, access, and administrative tools from one private workspace.</p>
 <div class="admin-alert admin-alert-error" hidden="" id="adminLoginError"></div>
 <div class="admin-alert admin-alert-warning" hidden="" id="adminNotConnected">The Admin Portal has not been connected to the RebataTrack backend yet.</div>
-<form class="admin-login-form" id="adminLoginForm" onsubmit="return false;">
+<form class="admin-login-form" id="adminLoginForm">
 
 <div class="beta-field">
 <label for="adminEmail">Administrator email</label>
@@ -44,12 +44,38 @@
 
 
 <script>
-// GitHub Pages is static and rejects POST submissions. Always stop
-// the login form from navigating even if the Firebase module fails to load.
+// GitHub Pages is static. Never allow the admin form to navigate or POST.
+// Password visibility is intentionally bootstrapped here so it still works
+// even if the Firebase module cannot load.
 (function(){
-  const form=document.getElementById('adminLoginForm');
-  if(form){ form.addEventListener('submit', function(event){ event.preventDefault(); }, true); }
+  const form = document.getElementById('adminLoginForm');
+  const errorBox = document.getElementById('adminLoginError');
+
+  document.querySelectorAll('[data-password-toggle]').forEach(button => {
+    button.addEventListener('click', () => {
+      const input = document.getElementById(button.dataset.passwordToggle || '');
+      if (!input) return;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      button.setAttribute('aria-pressed', show ? 'true' : 'false');
+      button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      button.classList.toggle('is-visible', show);
+    });
+  });
+
+  if (form) {
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      window.setTimeout(() => {
+        if (window.__REBATRACK_ADMIN_LOGIN_MODULE_READY === true) return;
+        if (!errorBox) return;
+        errorBox.textContent = 'The Admin Portal sign-in service did not load. Refresh this page and try again.';
+        errorBox.className = 'admin-alert admin-alert-error';
+        errorBox.hidden = false;
+      }, 800);
+    }, true);
+  }
 })();
 </script>
-<script src="firebase-config.js?v=123"></script><script src="admin-login-firebase.js?v=123" type="module"></script></body>
+<script src="firebase-config.js?v=124"></script><script src="admin-login-firebase.js?v=124" type="module"></script></body>
 </html>
