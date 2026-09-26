@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>Sign in to the RebataTrack Beta Portal</title>
 <link href="app-icon.png?v=115" rel="icon"/><link href="apple-touch-icon.png?v=97" rel="apple-touch-icon"/><link href="favicon-32.png?v=97" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=97" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=124" rel="stylesheet"/>
+<link href="styles.css?v=126" rel="stylesheet"/>
 </head>
 <body class="portal-body">
 <main class="portal-auth-shell">
@@ -54,25 +54,157 @@
 </div>
 </section>
 </main>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script>
 (function(){
+  const CONFIG = {
+    apiKey: "AIzaSyCtOITprwIUbTH3DI3TXJwDYAUIOIrASf4",
+    authDomain: "rebatify-beta.firebaseapp.com",
+    projectId: "rebatify-beta",
+    storageBucket: "rebatify-beta.firebasestorage.app",
+    messagingSenderId: "671521571512",
+    appId: "1:671521571512:web:01f79bdb54c524dbc3aa4d"
+  };
+  const WORKER_URL = 'https://rebatify-beta-email.support-rebatifyapp.workers.dev';
+  const form = document.getElementById('portalLoginForm');
+  const codeForm = document.getElementById('portalCodeForm');
   const errorBox = document.getElementById('portalLoginError');
-  ['portalLoginForm','portalCodeForm','portalSupportForm'].forEach(id => {
-    const form = document.getElementById(id);
-    if (!form) return;
-    form.addEventListener('submit', event => {
-      event.preventDefault();
-      window.setTimeout(() => {
-        if (window.__REBATRACK_BETA_LOGIN_MODULE_READY === true) return;
-        if (!errorBox) return;
-        errorBox.textContent = 'The Beta Portal sign-in service did not load. Refresh this page and try again.';
-        errorBox.className = 'portal-alert error';
-        errorBox.hidden = false;
-      }, 800);
-    }, true);
+  const notConnected = document.getElementById('portalNotConnected');
+  const emailInput = document.getElementById('portalEmail');
+  const codeInput = document.getElementById('portalCode');
+  const codeSent = document.getElementById('portalCodeSent');
+  const useDifferent = document.getElementById('portalUseDifferentEmail');
+  const supportToggle = document.getElementById('portalSupportToggle');
+  const supportPanel = document.getElementById('portalSupportPanel');
+  const supportForm = document.getElementById('portalSupportForm');
+  const supportEmail = document.getElementById('portalSupportEmail');
+  const supportIssue = document.getElementById('portalSupportIssue');
+  const supportDetails = document.getElementById('portalSupportDetails');
+  const supportMessage = document.getElementById('portalSupportMessage');
+  let pendingEmail = '';
+  let isCompletingSignIn = false;
+
+  [form, codeForm, supportForm].filter(Boolean).forEach(f => f.addEventListener('submit', e => e.preventDefault(), true));
+
+  function showError(message, tone='error') {
+    if (!errorBox) return;
+    errorBox.textContent = message;
+    errorBox.className = 'portal-alert ' + tone;
+    errorBox.hidden = false;
+  }
+  function clearError(){ if (errorBox) errorBox.hidden = true; }
+  function setSupportMessage(message='', tone='') {
+    if (!supportMessage) return;
+    supportMessage.textContent = message;
+    supportMessage.className = 'portal-device-message' + (tone ? ` ${tone}` : '');
+  }
+  async function workerPost(payload){
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(WORKER_URL, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload), signal:controller.signal
+      });
+      let data = {};
+      try { data = await response.json(); } catch (_) {}
+      if (!response.ok || data.ok !== true) {
+        const error = new Error(data.error || 'The RebataTrack Beta Program sign-in service could not complete this request.');
+        error.retryAfter = data.retryAfter || 0;
+        throw error;
+      }
+      return data;
+    } finally { clearTimeout(timer); }
+  }
+
+  if (!window.firebase || !firebase.initializeApp || !firebase.auth) {
+    showError('The Beta Portal sign-in library could not load. Check the connection and refresh this page.');
+    if (form) form.querySelector('button[type="submit"]').disabled = true;
+    return;
+  }
+  const app = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(CONFIG);
+  const auth = firebase.auth(app);
+  auth.onAuthStateChanged(user => {
+    if (user && !isCompletingSignIn && location.pathname.endsWith('/beta-login.html')) location.replace('beta-portal.html');
+  });
+
+  const params = new URLSearchParams(location.search);
+  const prefill = String(params.get('email') || '').trim().toLowerCase();
+  if (prefill && emailInput) emailInput.value = prefill;
+  if (params.get('error') === 'access') showError('Your RebataTrack Beta Portal access is currently disabled.');
+  if (params.get('error') === 'session') showError('Your portal session ended. Enter your approved beta email to sign in again.');
+  if (params.get('error') === 'inactive') showError('For your security, you were signed out after 6 hours of inactivity. Enter your approved beta email to sign in again.');
+  if (params.get('notice') === 'email-changed') showError('Your RebataTrack Beta email was updated. Your previous portal session ended. Sign in again using the new approved beta email shown below.', 'success');
+
+  if (form) form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    clearError();
+    const button = document.getElementById('portalSendCode');
+    const original = button.innerHTML;
+    button.disabled = true; button.innerHTML = 'Sending Code…';
+    pendingEmail = emailInput.value.trim().toLowerCase();
+    try {
+      const result = await workerPost({type:'beta-login-request', email:pendingEmail});
+      form.hidden = true; codeForm.hidden = false;
+      codeSent.textContent = `If ${pendingEmail} has active RebataTrack Beta Program access, a 6-digit verification code has been sent. The code expires in 10 minutes.`;
+      codeInput.value = ''; codeInput.focus();
+      if (result.retryAfter) showError(`A verification code was sent recently. Wait ${result.retryAfter} seconds before requesting another.`, 'success');
+    } catch (error) { showError(error.message || 'We could not send a verification code. Please try again.'); }
+    finally { button.disabled = false; button.innerHTML = original; }
+  });
+
+  if (codeForm) codeForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!codeForm.checkValidity()) { codeForm.reportValidity(); return; }
+    clearError();
+    const button = document.getElementById('portalVerifyCode');
+    const original = button.innerHTML;
+    button.disabled = true; button.innerHTML = 'Verifying…';
+    try {
+      const result = await workerPost({type:'beta-login-verify', email:pendingEmail, code:String(codeInput.value || '').trim()});
+      if (!result.customToken) throw new Error('The sign-in service did not return a valid session.');
+      isCompletingSignIn = true;
+      try { await auth.signOut(); } catch (_) {}
+      await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+      const credential = await auth.signInWithCustomToken(result.customToken);
+      await credential.user.getIdToken(true);
+      sessionStorage.setItem('rebatifyBetaPortalLoginAt', String(Date.now()));
+      location.replace('beta-portal.html');
+    } catch (error) {
+      isCompletingSignIn = false;
+      showError(error.message || 'That verification code could not be verified.');
+    } finally { button.disabled = false; button.innerHTML = original; }
+  });
+
+  if (useDifferent) useDifferent.addEventListener('click', () => {
+    clearError(); pendingEmail=''; codeInput.value=''; codeForm.hidden=true; form.hidden=false; emailInput.focus();
+  });
+
+  if (supportToggle && supportPanel) supportToggle.addEventListener('click', () => {
+    supportPanel.hidden = !supportPanel.hidden;
+    supportToggle.textContent = supportPanel.hidden ? 'Need help signing in?' : 'Hide account & access help';
+    if (!supportPanel.hidden) {
+      if (supportEmail && !supportEmail.value) supportEmail.value = String(emailInput?.value || prefill || '').trim().toLowerCase();
+      setTimeout(() => supportEmail?.focus(), 50);
+    }
+  });
+
+  if (supportForm) supportForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!supportForm.checkValidity()) { supportForm.reportValidity(); return; }
+    const button = document.getElementById('portalSupportSubmit');
+    const original = button.innerHTML;
+    button.disabled = true; button.innerHTML = 'Sending…'; setSupportMessage('');
+    try {
+      await workerPost({type:'public-support-request', email:String(supportEmail?.value || '').trim().toLowerCase(), issue:String(supportIssue?.value || '').trim(), details:String(supportDetails?.value || '').trim()});
+      setSupportMessage('Your request was submitted. If this email matches your RebataTrack Beta application or tester account, you will receive a confirmation email and the RebataTrack team has been notified.', 'success');
+      supportIssue.value=''; supportDetails.value='';
+    } catch (error) { setSupportMessage(error.message || 'We could not send your support request right now. Please try again.', 'error'); }
+    finally { button.disabled=false; button.innerHTML=original; }
   });
 })();
 </script>
-<script src="firebase-config.js?v=125"></script><script src="beta-login-firebase.js?v=125" type="module"></script>
+<footer data-rebatatrack-website-build="126" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 126</footer>
 </body>
 </html>

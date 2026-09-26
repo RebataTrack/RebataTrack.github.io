@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal — Sign In</title>
 <link href="app-icon.png?v=121" rel="icon"/><link href="apple-touch-icon.png?v=97" rel="apple-touch-icon"/><link href="favicon-32.png?v=97" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=97" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=124" rel="stylesheet"/>
+<link href="styles.css?v=126" rel="stylesheet"/>
 </head>
 <body class="admin-auth-body">
 <main class="admin-auth-shell">
@@ -41,41 +41,139 @@
 </div>
 </section>
 </main>
-
-
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script>
-// GitHub Pages is static. Never allow the admin form to navigate or POST.
-// Password visibility is intentionally bootstrapped here so it still works
-// even if the Firebase module cannot load.
 (function(){
+  const CONFIG = {
+    apiKey: "AIzaSyCtOITprwIUbTH3DI3TXJwDYAUIOIrASf4",
+    authDomain: "rebatify-beta.firebaseapp.com",
+    projectId: "rebatify-beta",
+    storageBucket: "rebatify-beta.firebasestorage.app",
+    messagingSenderId: "671521571512",
+    appId: "1:671521571512:web:01f79bdb54c524dbc3aa4d"
+  };
+  const ADMIN_EMAILS = new Set(["app.rebatatrack@yahoo.com"]);
   const form = document.getElementById('adminLoginForm');
   const errorBox = document.getElementById('adminLoginError');
+  const notConnected = document.getElementById('adminNotConnected');
+  const resetButton = document.getElementById('adminForgotPassword');
+  const emailField = document.getElementById('adminEmail');
+  const passwordField = document.getElementById('adminPassword');
+  const submitButton = form && form.querySelector('button[type="submit"]');
 
-  window.rebataTrackTogglePassword = function(button, targetId) {
-    const input = document.getElementById(targetId || '');
-    if (!input) return false;
-    const show = input.getAttribute('type') === 'password';
-    input.setAttribute('type', show ? 'text' : 'password');
-    button.setAttribute('aria-pressed', show ? 'true' : 'false');
-    button.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
-    button.classList.toggle('is-visible', show);
-    try { input.focus({ preventScroll:true }); } catch (_) { input.focus(); }
-    return false;
-  };
+  function showError(message, tone='error') {
+    if (!errorBox) return;
+    errorBox.textContent = message;
+    errorBox.className = 'admin-alert admin-alert-' + tone;
+    errorBox.hidden = false;
+  }
+  function clearError(){ if (errorBox) errorBox.hidden = true; }
+  function friendly(error){
+    const code = String(error && error.code || '');
+    const map = {
+      'auth/invalid-credential':'That email or password was not recognized.',
+      'auth/invalid-login-credentials':'That email or password was not recognized.',
+      'auth/user-disabled':'This account is currently disabled.',
+      'auth/too-many-requests':'Too many attempts were made. Please wait a moment and try again.',
+      'auth/network-request-failed':'The connection could not be completed. Please check your connection and try again.'
+    };
+    return map[code] || (error && error.message ? error.message : 'The administrator sign-in could not be completed.');
+  }
+
+  // Password visibility is independent from Firebase loading.
+  document.querySelectorAll('[data-password-toggle]').forEach(button => {
+    button.addEventListener('click', () => {
+      const input = document.getElementById(button.getAttribute('data-password-toggle'));
+      if (!input) return;
+      const reveal = input.type === 'password';
+      input.type = reveal ? 'text' : 'password';
+      button.setAttribute('aria-pressed', reveal ? 'true' : 'false');
+      button.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+      button.classList.toggle('is-visible', reveal);
+      requestAnimationFrame(() => { try { input.setSelectionRange(input.value.length, input.value.length); } catch (_) {} });
+    });
+  });
+
+  if (form) form.addEventListener('submit', event => event.preventDefault(), true);
+
+  if (!window.firebase || !firebase.initializeApp || !firebase.auth) {
+    showError('The Admin Portal sign-in library could not load. Check the connection and refresh this page.');
+    if (submitButton) submitButton.disabled = true;
+    if (resetButton) resetButton.disabled = true;
+    return;
+  }
+
+  let app;
+  try {
+    app = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(CONFIG);
+  } catch (error) {
+    showError('The Admin Portal sign-in service could not initialize. ' + friendly(error));
+    return;
+  }
+  const auth = firebase.auth(app);
+  auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(() => {});
+
+  auth.onAuthStateChanged(async user => {
+    if (!user) return;
+    const email = String(user.email || '').trim().toLowerCase();
+    if (ADMIN_EMAILS.has(email)) {
+      location.replace('admin.html');
+    } else {
+      await auth.signOut().catch(() => {});
+    }
+  });
 
   if (form) {
-    form.addEventListener('submit', event => {
+    form.addEventListener('submit', async event => {
       event.preventDefault();
-      window.setTimeout(() => {
-        if (window.__REBATRACK_ADMIN_LOGIN_MODULE_READY === true) return;
-        if (!errorBox) return;
-        errorBox.textContent = 'The Admin Portal sign-in service did not load. Refresh this page and try again.';
-        errorBox.className = 'admin-alert admin-alert-error';
-        errorBox.hidden = false;
-      }, 4000);
-    }, true);
+      if (!form.checkValidity()) { form.reportValidity(); return; }
+      clearError();
+      const email = String(emailField && emailField.value || '').trim().toLowerCase();
+      const password = String(passwordField && passwordField.value || '');
+      const original = submitButton.innerHTML;
+      submitButton.disabled = true;
+      submitButton.innerHTML = 'Signing In…';
+      try {
+        const credential = await auth.signInWithEmailAndPassword(email, password);
+        const signedInEmail = String(credential.user && credential.user.email || '').trim().toLowerCase();
+        if (!ADMIN_EMAILS.has(signedInEmail)) {
+          await auth.signOut().catch(() => {});
+          showError('This account is not authorized for the RebataTrack Admin Portal.');
+          return;
+        }
+        location.replace('admin.html');
+      } catch (error) {
+        await auth.signOut().catch(() => {});
+        showError(friendly(error));
+      } finally {
+        submitButton.disabled = false;
+        submitButton.innerHTML = original;
+      }
+    });
+  }
+
+  if (resetButton) {
+    resetButton.addEventListener('click', async () => {
+      clearError();
+      resetButton.disabled = true;
+      const original = resetButton.textContent;
+      resetButton.textContent = 'Sending…';
+      try {
+        const requested = String(emailField && emailField.value || '').trim().toLowerCase();
+        const email = ADMIN_EMAILS.has(requested) ? requested : 'app.rebatatrack@yahoo.com';
+        await auth.sendPasswordResetEmail(email);
+        showError('A password-reset email has been requested for the RebataTrack administrator account.', 'warning');
+      } catch (error) {
+        showError(friendly(error));
+      } finally {
+        resetButton.disabled = false;
+        resetButton.textContent = original;
+      }
+    });
   }
 })();
 </script>
-<script src="firebase-config.js?v=125"></script><script src="admin-login-firebase.js?v=125" type="module"></script></body>
+<footer data-rebatatrack-website-build="126" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 126</footer>
+</body>
 </html>
