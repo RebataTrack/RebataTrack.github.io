@@ -1,8 +1,11 @@
-// RebataTrack Beta Tester Settings - Website Build 88
-import { firebaseConfigured, auth, db, friendlyFirebaseError } from './firebase-core.js?v=127';
-import { onAuthStateChanged, signOut } from './firebase-compat-shim.js?v=127';
-import { doc, getDoc, updateDoc, serverTimestamp, onSnapshot } from './firebase-compat-shim.js?v=127';
-
+(async function(){
+'use strict';
+var Core=window.RebataTrackFirebaseCore;
+var Compat=window.RebataTrackFirebaseCompat;
+if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
+const {firebaseConfigured,auth,db,friendlyFirebaseError}=Core;
+const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,serverTimestamp,onSnapshot}=Compat;
+// RebataTrack Beta Tester Settings - Website Build 128
 const loading=document.getElementById('settingsLoading');
 const app=document.getElementById('settingsApp');
 const form=document.getElementById('settingsDeviceForm');
@@ -113,4 +116,9 @@ if(form)form.addEventListener('submit',async e=>{
     setMessage(firstSetup?(ios?'Settings saved. Step 3 is complete and your Beta Program timeline advanced to Step 4.':'Settings saved. Step 2 is complete and your Beta Program timeline advanced to Step 3.'):'Settings saved.','success');
   }catch(err){setMessage('We could not save your settings. '+friendlyFirebaseError(err),'error');}
   finally{button.disabled=false;button.innerHTML=original;}
+});
+
+})().catch(function(error){
+  console.error('RebataTrack page runtime failed:',error);
+  if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });

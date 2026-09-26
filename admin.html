@@ -8,19 +8,19 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="robots"/>
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal</title>
-<link href="app-icon.png?v=115" rel="icon"/><link href="apple-touch-icon.png?v=112" rel="apple-touch-icon"/><link href="favicon-32.png?v=112" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=112" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=127" rel="stylesheet"/>
+<link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=112" rel="apple-touch-icon"/><link href="favicon-32.png?v=112" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=112" rel="icon" sizes="16x16"/>
+<link href="styles.css?v=128" rel="stylesheet"/>
 </head>
 <body class="admin-body">
 <div class="admin-loading-screen" id="adminLoading">
-<div class="admin-loading-mark"><img alt="" src="app-icon.png?v=115"/></div>
+<div class="admin-loading-mark"><img alt="" src="app-icon.png?v=128"/></div>
 <div class="portal-spinner"></div>
 <p id="adminLoadingStatus">Checking administrator access…</p>
 </div>
 <div class="admin-shell" hidden="" id="adminApp">
 <aside class="admin-sidebar">
 <div class="admin-sidebar-brand">
-<img alt="RebataTrack app icon" src="app-icon.png?v=115"/>
+<img alt="RebataTrack app icon" src="app-icon.png?v=128"/>
 <div><strong>RebataTrack</strong><span id="adminBrandScope">Administration</span></div>
 </div>
 <div class="admin-scope-switch" role="group" aria-label="Admin workspace">
@@ -299,13 +299,14 @@ setTimeout(function(){
   var loading=document.getElementById('adminLoading');
   if(!loading || loading.hidden) return;
   if(!boot.moduleLoaded){
-    loading.innerHTML='<div class="admin-loading-mark"><img src="app-icon.png?v=115" alt=""></div><div style="max-width:620px;text-align:center;padding:0 24px"><h2 style="margin:10px 0 8px;color:#0b1831">Admin portal could not start</h2><p style="margin:0 0 18px;color:#5f6f86;font-weight:700">The Firebase admin module did not finish loading. Hard refresh the page and try again.</p><div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button type="button" onclick="location.reload()" class="admin-primary-button">Try Again</button><a href="admin-login.html" class="admin-secondary-button" style="text-decoration:none;display:inline-flex;align-items:center">Return to Sign In</a></div></div>';
+    var detail=String(boot.lastError||window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'The Admin Portal runtime did not finish loading.');
+    loading.innerHTML='<div class="admin-loading-mark"><img src="app-icon.png?v=128" alt=""></div><div style="max-width:720px;text-align:center;padding:0 24px"><h2 style="margin:10px 0 8px;color:#0b1831">Admin portal could not start</h2><p style="margin:0 0 10px;color:#5f6f86;font-weight:700">The Admin Portal runtime could not initialize.</p><p style="margin:0 0 18px;color:#9b2c24;font-weight:700;font-size:14px;overflow-wrap:anywhere">'+detail.replace(/[&<>]/g,function(ch){return ({'&':'&amp;','<':'&lt;','>':'&gt;'})[ch];})+'</p><div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button type="button" onclick="location.reload()" class="admin-primary-button">Try Again</button><a href="admin-login.html" class="admin-secondary-button" style="text-decoration:none;display:inline-flex;align-items:center">Return to Sign In</a></div></div>';
   } else if(!boot.authResolved){
-    loading.innerHTML='<div class="admin-loading-mark"><img src="app-icon.png?v=115" alt=""></div><div style="max-width:620px;text-align:center;padding:0 24px"><h2 style="margin:10px 0 8px;color:#0b1831">Administrator sign-in is taking too long</h2><p style="margin:0 0 18px;color:#5f6f86;font-weight:700">Firebase Authentication did not finish restoring your session. Return to sign in and try again.</p><div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><a href="admin-login.html" class="admin-primary-button" style="text-decoration:none;display:inline-flex;align-items:center">Return to Sign In</a><button type="button" onclick="location.reload()" class="admin-secondary-button">Try Again</button></div></div>';
+    loading.innerHTML='<div class="admin-loading-mark"><img src="app-icon.png?v=128" alt=""></div><div style="max-width:620px;text-align:center;padding:0 24px"><h2 style="margin:10px 0 8px;color:#0b1831">Administrator sign-in is taking too long</h2><p style="margin:0 0 18px;color:#5f6f86;font-weight:700">Firebase Authentication did not finish restoring your session. Return to sign in and try again.</p><div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><a href="admin-login.html" class="admin-primary-button" style="text-decoration:none;display:inline-flex;align-items:center">Return to Sign In</a><button type="button" onclick="location.reload()" class="admin-secondary-button">Try Again</button></div></div>';
   }
 }, 12000);
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=127"></script><script src="admin-firebase.js?v=127" type="module"></script><script src="production-admin.js?v=127" type="module"></script>
-<footer data-rebatatrack-website-build="127" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 127</footer>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=128"></script><script src="firebase-runtime.js?v=128"></script><script src="admin-firebase.js?v=128"></script><script src="production-admin.js?v=128"></script>
+<footer data-rebatatrack-website-build="128" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 128</footer>
 </body>
 </html>

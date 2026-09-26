@@ -1,20 +1,11 @@
-// RebataTrack Beta Tester Portal - Website Build 110
-import { firebaseConfigured, auth, db, timestampToDate, friendlyFirebaseError } from './firebase-core.js?v=127';
-import { onAuthStateChanged, signOut } from './firebase-compat-shim.js?v=127';
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  addDoc,
-  collection,
-  serverTimestamp,
-  query,
-  where,
-  getDocs,
-  orderBy,
-  onSnapshot
-} from './firebase-compat-shim.js?v=127';
-
+(async function(){
+'use strict';
+var Core=window.RebataTrackFirebaseCore;
+var Compat=window.RebataTrackFirebaseCompat;
+if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
+const {firebaseConfigured,auth,db,timestampToDate,friendlyFirebaseError}=Core;
+const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,addDoc,collection,serverTimestamp,query,where,getDocs,orderBy,onSnapshot}=Compat;
+// RebataTrack Beta Tester Portal - Website Build 128
 const loading = document.getElementById('portalLoading');
 const app = document.getElementById('portalApp');
 const content = document.getElementById('portalContent');
@@ -945,3 +936,8 @@ function rebatifyPortalApplyHashOffset() {
 }
 window.addEventListener('hashchange', rebatifyPortalApplyHashOffset);
 window.addEventListener('load', () => setTimeout(rebatifyPortalApplyHashOffset, 80));
+
+})().catch(function(error){
+  console.error('RebataTrack page runtime failed:',error);
+  if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
+});

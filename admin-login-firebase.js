@@ -1,6 +1,10 @@
-import { firebaseConfigured, firebaseMissingFields, auth, isAdminUser, adminEmail, adminEmails, friendlyFirebaseError } from './firebase-core.js?v=127';
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from './firebase-compat-shim.js?v=127';
-
+(async function(){
+'use strict';
+var Core=window.RebataTrackFirebaseCore;
+var Compat=window.RebataTrackFirebaseCompat;
+if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
+const {firebaseConfigured,firebaseMissingFields,auth,isAdminUser,adminEmail,adminEmails,friendlyFirebaseError}=Core;
+const {onAuthStateChanged,signInWithEmailAndPassword,signOut,sendPasswordResetEmail}=Compat;
 window.__REBATRACK_ADMIN_LOGIN_MODULE_READY = true;
 
 const form = document.getElementById('adminLoginForm');
@@ -89,3 +93,8 @@ if (resetButton) {
   });
 }
 
+
+})().catch(function(error){
+  console.error('RebataTrack page runtime failed:',error);
+  if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
+});

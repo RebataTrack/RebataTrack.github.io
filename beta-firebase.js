@@ -1,6 +1,10 @@
-import { firebaseConfigured, firebaseMissingFields, db, sha256Hex, friendlyFirebaseError } from './firebase-core.js?v=127';
-import { doc, setDoc, serverTimestamp } from './firebase-compat-shim.js?v=127';
-
+(async function(){
+'use strict';
+var Core=window.RebataTrackFirebaseCore;
+var Compat=window.RebataTrackFirebaseCompat;
+if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
+const {firebaseConfigured,firebaseMissingFields,db,sha256Hex,friendlyFirebaseError}=Core;
+const {doc,setDoc,serverTimestamp}=Compat;
 const form = document.getElementById('betaApplicationForm');
 const message = document.getElementById('betaFormMessage');
 const success = document.getElementById('betaSuccess');
@@ -117,3 +121,8 @@ if (form) {
     }
   });
 }
+
+})().catch(function(error){
+  console.error('RebataTrack page runtime failed:',error);
+  if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
+});

@@ -1,12 +1,10 @@
-import { firebaseConfigured, firebaseMissingFields, auth } from './firebase-core.js?v=127';
-import {
-  onAuthStateChanged,
-  signInWithCustomToken,
-  signOut,
-  setPersistence,
-  browserSessionPersistence
-} from './firebase-compat-shim.js?v=127';
-
+(async function(){
+'use strict';
+var Core=window.RebataTrackFirebaseCore;
+var Compat=window.RebataTrackFirebaseCompat;
+if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
+const {firebaseConfigured,firebaseMissingFields,auth}=Core;
+const {onAuthStateChanged,signInWithCustomToken,signOut,setPersistence,browserSessionPersistence}=Compat;
 window.__REBATRACK_BETA_LOGIN_MODULE_READY = true;
 
 const form = document.getElementById('portalLoginForm');
@@ -204,3 +202,8 @@ if (supportForm) {
     }
   });
 }
+
+})().catch(function(error){
+  console.error('RebataTrack page runtime failed:',error);
+  if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
+});

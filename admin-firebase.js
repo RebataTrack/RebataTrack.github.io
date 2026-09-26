@@ -1,40 +1,11 @@
-// RebataTrack Admin Portal — Website Build 117
-import {
-  firebaseConfigured,
-  firebaseMissingFields,
-  auth,
-  db,
-  isAdminUser,
-  adminEmail,
-  emailAutomationEnabled,
-  timestampToDate,
-  friendlyFirebaseError
-} from './firebase-core.js?v=127';
-import {
-  onAuthStateChanged,
-  signOut
-} from './firebase-compat-shim.js?v=127';
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  getCountFromServer,
-  query,
-  where,
-  orderBy,
-  limit,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
-  deleteField,
-  writeBatch,
-  Timestamp,
-  addDoc,
-  onSnapshot
-} from './firebase-compat-shim.js?v=127';
-
+(async function(){
+'use strict';
+var Core=window.RebataTrackFirebaseCore;
+var Compat=window.RebataTrackFirebaseCompat;
+if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
+const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
+const {onAuthStateChanged,signOut,collection,doc,getDocs,getDoc,getCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
+// RebataTrack Admin Portal — Website Build 128
 'use strict';
 
 window.__REBATIFY_ADMIN_BOOT = window.__REBATIFY_ADMIN_BOOT || {};
@@ -1662,3 +1633,8 @@ const announcementPublishButton=document.getElementById('announcementPublishButt
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
 ['testerSearch','testerAccessFilter','testerActivityFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderTesters));
 ['feedbackSearch','feedbackStatusFilter','feedbackTypeFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderFeedback));
+
+})().catch(function(error){
+  console.error('RebataTrack page runtime failed:',error);
+  if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
+});
