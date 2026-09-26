@@ -11,7 +11,7 @@ window.REBATIFY_FIREBASE_CONFIG = {
 
 window.REBATIFY_BETA_SETTINGS = {
   adminEmail: "app.rebatatrack@yahoo.com",
-  adminEmails: ["app.rebatatrack@yahoo.com", "support.rebatifyapp@gmail.com"],
+  adminEmails: ["app.rebatatrack@yahoo.com"],
   testerPortalUrl: "https://rebatatrack.github.io/beta-login.html",
   emailWorkerUrl: "https://rebatify-beta-email.support-rebatifyapp.workers.dev",
   // Professional beta email is sent by a Cloudflare Worker while Firebase remains on Spark.
