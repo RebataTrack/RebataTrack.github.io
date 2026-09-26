@@ -1,6 +1,8 @@
 import { firebaseConfigured, firebaseMissingFields, auth, isAdminUser, adminEmail, adminEmails, friendlyFirebaseError } from './firebase-core.js';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 
+window.__REBATRACK_ADMIN_LOGIN_MODULE_READY = true;
+
 const form = document.getElementById('adminLoginForm');
 const errorBox = document.getElementById('adminLoginError');
 const notConnected = document.getElementById('adminNotConnected');
