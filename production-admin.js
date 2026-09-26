@@ -25,6 +25,7 @@ const state = {
   audit: [],
   selectedUser: null,
   selectedUserDetail: null,
+  selectedProductionUsers: new Set(),
   action: null,
   durationPreset: '14d'
 };
@@ -221,6 +222,47 @@ function userMatchesFilter(u,filter){
   if(filter==='expired')return !u.premiumActive&&!u.adminPremiumGrantActive&&!u.reviewAccessActive&&!u.trialActive&&!u.trialOverrideActive;
   return true;
 }
+async function bulkDeleteProductionUsers(){
+  const uids=[...state.selectedProductionUsers];
+  if(!uids.length)return;
+  const names=uids.map(uid=>{const u=state.users.find(u=>u.uid===uid);return u?.email||u?.name||shortId(uid);});
+  const preview=names.slice(0,3).join(', ')+(names.length>3?` and ${names.length-3} more`:'');
+  const confirmed=await confirmAction(
+    `Permanently delete ${uids.length} production account${uids.length===1?'':'s'}?`,
+    `This will delete: ${preview}. Firebase Authentication, profile data, and all orders will be permanently removed. Device trial history and the audit log are kept. This cannot be undone.`
+  );
+  if(!confirmed)return;
+  const reason=prompt('Enter a reason for this bulk deletion (required):','Bulk delete via admin portal');
+  if(!reason||!reason.trim()){showToast('A reason is required.','error');return;}
+  let deleted=0,failed=0,errors=[];
+  const btn=$('productionBulkDelete');
+  if(btn){btn.disabled=true;btn.textContent='Deleting…';}
+  for(const uid of uids){
+    try{
+      await callProduction('user-delete',{uid,reason:reason.trim()});
+      state.users=state.users.filter(u=>u.uid!==uid);
+      state.selectedProductionUsers.delete(uid);
+      deleted++;
+    }catch(err){failed++;errors.push(err.message||'Unknown error');}
+  }
+  renderUsers();
+  if(btn){btn.disabled=false;btn.textContent='Delete Selected';}
+  if(failed)showToast(`${deleted} deleted, ${failed} failed. ${errors[0]||''}`.trim(),'error');
+  else showToast(`${deleted} production account${deleted===1?'':'s'} permanently deleted.`,'success');
+}
+function updateProductionSelectionBar(){
+  const sel=state.selectedProductionUsers;
+  const bar=$('productionBulkBar');
+  const countEl=$('productionBulkCount');
+  if(bar)bar.hidden=sel.size===0;
+  if(countEl)countEl.textContent=sel.size===1?'1 user selected':`${sel.size} users selected`;
+  // Sync checkboxes
+  document.querySelectorAll('[data-production-select]').forEach(cb=>{cb.checked=sel.has(cb.dataset.productionSelect);});
+  const all=$('productionSelectAll');
+  const visibleUids=[...document.querySelectorAll('[data-production-select]')].map(cb=>cb.dataset.productionSelect);
+  if(all)all.indeterminate=sel.size>0&&visibleUids.some(uid=>!sel.has(uid));
+  if(all)all.checked=visibleUids.length>0&&visibleUids.every(uid=>sel.has(uid));
+}
 function renderUsers(){
   const q=String($('productionUserSearch')?.value||'').trim().toLowerCase(); const filter=$('productionUserFilter')?.value||'';
   const rows=state.users.filter(u=>{const hay=[u.name,u.email,u.uid].join(' ').toLowerCase();return (!q||hay.includes(q))&&userMatchesFilter(u,filter);});
@@ -229,9 +271,11 @@ function renderUsers(){
     const plus=u.adminPremiumGrantActive?'<span class="production-status green">Admin grant</span>':u.premiumActive?`<span class="production-status green">${esc(u.premiumSource||'Store entitlement')}</span>`:u.reviewAccessActive?'<span class="production-status blue">App Review access</span>':'<span class="production-status">None</span>';
     const review=u.reviewAccessActive?`<div class="production-user-cell"><span class="production-status blue" title="${esc(u.reviewAccessSource||'App Review access')}">${esc(u.reviewAccessSource==='Admin grant'?'Admin grant':'Active')}</span><span>${u.reviewAccessExpiresAt?`Until ${esc(fmtExactDateTime(u.reviewAccessExpiresAt))}`:'Indefinite'}</span></div>`:'<span class="production-status">None</span>';
     const linked=Number(u.deviceLinkedAccountCount||1)>1?`<span class="production-status blue">${esc(String(u.deviceLinkedAccountCount))} same-device</span>`:Number(u.manualLinkedAccountCount||1)>1?`<span class="production-status blue">${esc(String(u.manualLinkedAccountCount))} admin-linked</span>`:'<span class="production-status">None</span>';
-    return `<tr><td><div class="production-user-cell"><strong>${esc(u.name||'RebataTrack user')}</strong><span>${esc(u.email||'')}</span><span title="${esc(u.uid)}">${esc(shortId(u.uid))}</span></div></td><td>${esc(fmtDate(u.createdAt))}</td><td>${trial}</td><td>${plus}</td><td>${review}</td><td>${linked}</td><td>${esc(String(u.deviceCount??0))}</td><td><button class="admin-action-button" data-production-user="${esc(u.uid)}" type="button">Open</button></td></tr>`;
+    const checked=state.selectedProductionUsers.has(u.uid)?'checked':'';
+    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-production-select="${esc(u.uid)}" ${checked}/></label></td><td><div class="production-user-cell"><strong>${esc(u.name||'RebataTrack user')}</strong><span>${esc(u.email||'')}</span><span title="${esc(u.uid)}">${esc(shortId(u.uid))}</span></div></td><td>${esc(fmtDate(u.createdAt))}</td><td>${trial}</td><td>${plus}</td><td>${review}</td><td>${linked}</td><td>${esc(String(u.deviceCount??0))}</td><td><button class="admin-action-button" data-production-user="${esc(u.uid)}" type="button">Open</button></td></tr>`;
   }).join('');
   if($('productionUsersEmpty')){$('productionUsersEmpty').hidden=rows.length>0;$('productionUsersEmpty').textContent=state.users.length?'No production users match these filters.':'No production users found.';}
+  updateProductionSelectionBar();
 }
 
 async function loadDevices(force=false){
@@ -530,7 +574,13 @@ for(const b of document.querySelectorAll('[data-admin-scope]'))b.addEventListene
 for(const b of document.querySelectorAll('[data-production-view]'))b.addEventListener('click',()=>switchProductionView(b.dataset.productionView));
 document.addEventListener('click',event=>{
   const passwordToggle=event.target.closest('[data-password-toggle]');if(passwordToggle){const input=$(passwordToggle.dataset.passwordToggle);if(input){const show=input.type==='password';input.type=show?'text':'password';passwordToggle.setAttribute('aria-pressed',show?'true':'false');passwordToggle.setAttribute('aria-label',show?'Hide password':'Show password');passwordToggle.classList.toggle('is-visible',show);}return;}
-  const createSample=event.target.closest('[data-production-create-sample]');if(createSample){openCreateSampleAccountAction();return;}
+// Production user checkbox toggle
+  const productionSelectCb=event.target.closest('[data-production-select]');
+  if(productionSelectCb){const uid=productionSelectCb.dataset.productionSelect;if(productionSelectCb.checked)state.selectedProductionUsers.add(uid);else state.selectedProductionUsers.delete(uid);updateProductionSelectionBar();return;}
+  // Select-all checkbox
+  const selectAllCb=event.target.closest('#productionSelectAll');
+  if(selectAllCb){const visibleUids=[...document.querySelectorAll('[data-production-select]')].map(cb=>cb.dataset.productionSelect);if(selectAllCb.checked)visibleUids.forEach(uid=>state.selectedProductionUsers.add(uid));else visibleUids.forEach(uid=>state.selectedProductionUsers.delete(uid));updateProductionSelectionBar();return;}
+    const createSample=event.target.closest('[data-production-create-sample]');if(createSample){openCreateSampleAccountAction();return;}
   const jump=event.target.closest('[data-production-jump]');if(jump){switchProductionView(jump.dataset.productionJump,jump.dataset.productionFocus||'');return;}
   const user=event.target.closest('[data-production-user]');if(user){openUser(user.dataset.productionUser);return;}
   const quickLink=event.target.closest('[data-production-identity-quicklink]');if(quickLink){openAccessAction('identity',quickLink.dataset.baseUid);setTimeout(()=>renderIdentityAction(quickLink.dataset.productionIdentityQuicklink),0);return;}

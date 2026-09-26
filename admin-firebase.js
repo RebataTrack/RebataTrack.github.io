@@ -1207,7 +1207,13 @@ function normalizeAndroidTestingInviteUrl(value){
   if(!raw)return '';
   try{
     const u=new URL(raw);
-    if(u.protocol!=='https:'||u.hostname!=='play.google.com'||!u.pathname.startsWith('/apps/testing/'))return '';
+    if(u.protocol!=='https:'||u.hostname!=='play.google.com')return '';
+    // Accept both the internal beta opt-in path (/apps/testing/) and the
+    // public Play Store listing path (/store/apps/details) since some
+    // Play Console accounts surface the listing URL rather than the
+    // dedicated testing opt-in link.
+    const validPath=u.pathname.startsWith('/apps/testing/')||u.pathname.startsWith('/store/apps/details');
+    if(!validPath)return '';
     return u.toString();
   }catch(_){return '';}
 }
@@ -1244,7 +1250,7 @@ async function saveEmailServiceSettings(){
 async function saveAndroidTestingInviteSettings(){
   const input=document.getElementById('androidTestingInviteUrl');
   const value=normalizeAndroidTestingInviteUrl(input&&input.value);
-  if(!value)throw new Error('Enter the Google Play beta-testing opt-in URL from Play Console. It should begin with https://play.google.com/apps/testing/.');
+  if(!value)throw new Error('Enter the Google Play URL from Play Console. It should begin with https://play.google.com/apps/testing/ or https://play.google.com/store/apps/details.');
   await setDoc(doc(db,'betaSystem','emailService'),{androidTestingInviteUrl:value,androidTestingInviteUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()},{merge:true});
   androidTestingInviteUrl=value;
   renderAndroidInviteSettings();
