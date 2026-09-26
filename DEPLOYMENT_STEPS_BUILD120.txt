@@ -1,7 +1,0 @@
-RebataTrack Website Build 120 Deployment Steps
-
-1. Replace the website files with the contents of "RebataTrack Website Build 120".
-2. Ensure `help-learning-preview.png` is uploaded alongside the other preview assets.
-3. Publish `index.html` so the public site uses the `v=120` screenshot query strings.
-4. Clear/purge hosting cache if needed, then hard refresh the site to confirm the updated Help & Learning preview is visible.
-5. Verify the App Preview section still shows the separate RebataTrack+ subscription card and the refreshed Help & Learning card.
