@@ -246,22 +246,27 @@ async function bulkDeleteProductionUsers(){
     }catch(err){failed++;errors.push(err.message||'Unknown error');}
   }
   renderUsers();
-  if(btn){btn.disabled=false;btn.textContent='Delete Selected';}
+  updateProductionSelectionBar();  // resets button text and disabled state
   if(failed)showToast(`${deleted} deleted, ${failed} failed. ${errors[0]||''}`.trim(),'error');
   else showToast(`${deleted} production account${deleted===1?'':'s'} permanently deleted.`,'success');
 }
 function updateProductionSelectionBar(){
   const sel=state.selectedProductionUsers;
-  const bar=$('productionBulkBar');
-  const countEl=$('productionBulkCount');
-  if(bar)bar.hidden=sel.size===0;
-  if(countEl)countEl.textContent=sel.size===1?'1 user selected':`${sel.size} users selected`;
-  // Sync checkboxes
+  const btn=$('productionBulkDelete');
+  // Button is always visible; enabled only when at least one user is selected
+  if(btn){
+    btn.disabled=sel.size===0;
+    btn.textContent=sel.size>0?`Delete Selected (${sel.size})`:'Delete Selected';
+  }
+  // Sync row checkboxes
   document.querySelectorAll('[data-production-select]').forEach(cb=>{cb.checked=sel.has(cb.dataset.productionSelect);});
+  // Sync select-all header checkbox
   const all=$('productionSelectAll');
   const visibleUids=[...document.querySelectorAll('[data-production-select]')].map(cb=>cb.dataset.productionSelect);
-  if(all)all.indeterminate=sel.size>0&&visibleUids.some(uid=>!sel.has(uid));
-  if(all)all.checked=visibleUids.length>0&&visibleUids.every(uid=>sel.has(uid));
+  if(all){
+    all.indeterminate=sel.size>0&&visibleUids.some(uid=>!sel.has(uid));
+    all.checked=visibleUids.length>0&&visibleUids.every(uid=>sel.has(uid));
+  }
 }
 function renderUsers(){
   const q=String($('productionUserSearch')?.value||'').trim().toLowerCase(); const filter=$('productionUserFilter')?.value||'';
@@ -272,7 +277,7 @@ function renderUsers(){
     const review=u.reviewAccessActive?`<div class="production-user-cell"><span class="production-status blue" title="${esc(u.reviewAccessSource||'App Review access')}">${esc(u.reviewAccessSource==='Admin grant'?'Admin grant':'Active')}</span><span>${u.reviewAccessExpiresAt?`Until ${esc(fmtExactDateTime(u.reviewAccessExpiresAt))}`:'Indefinite'}</span></div>`:'<span class="production-status">None</span>';
     const linked=Number(u.deviceLinkedAccountCount||1)>1?`<span class="production-status blue">${esc(String(u.deviceLinkedAccountCount))} same-device</span>`:Number(u.manualLinkedAccountCount||1)>1?`<span class="production-status blue">${esc(String(u.manualLinkedAccountCount))} admin-linked</span>`:'<span class="production-status">None</span>';
     const checked=state.selectedProductionUsers.has(u.uid)?'checked':'';
-    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-production-select="${esc(u.uid)}" ${checked}/></label></td><td><div class="production-user-cell"><strong>${esc(u.name||'RebataTrack user')}</strong><span>${esc(u.email||'')}</span><span title="${esc(u.uid)}">${esc(shortId(u.uid))}</span></div></td><td>${esc(fmtDate(u.createdAt))}</td><td>${trial}</td><td>${plus}</td><td>${review}</td><td>${linked}</td><td>${esc(String(u.deviceCount??0))}</td><td><button class="admin-action-button" data-production-user="${esc(u.uid)}" type="button">Open</button></td></tr>`;
+    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-production-select="${esc(u.uid)}" ${checked}/><span></span></label></td><td><div class="production-user-cell"><strong>${esc(u.name||'RebataTrack user')}</strong><span>${esc(u.email||'')}</span><span title="${esc(u.uid)}">${esc(shortId(u.uid))}</span></div></td><td>${esc(fmtDate(u.createdAt))}</td><td>${trial}</td><td>${plus}</td><td>${review}</td><td>${linked}</td><td>${esc(String(u.deviceCount??0))}</td><td><button class="admin-action-button" data-production-user="${esc(u.uid)}" type="button">Open</button></td></tr>`;
   }).join('');
   if($('productionUsersEmpty')){$('productionUsersEmpty').hidden=rows.length>0;$('productionUsersEmpty').textContent=state.users.length?'No production users match these filters.':'No production users found.';}
   updateProductionSelectionBar();
