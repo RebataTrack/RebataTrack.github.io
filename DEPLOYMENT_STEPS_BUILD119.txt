@@ -1,9 +1,0 @@
-RebataTrack Website Build 119 Deployment Steps
-
-1. Back up the current live website files.
-2. Upload all files from "RebataTrack Website Build 119" to the website hosting environment, overwriting existing files.
-3. Confirm the public home page now shows:
-   - Help & Learning as a CORE screenshot card using the More3-based image.
-   - A separate RebataTrack+ subscription screenshot card using the More2 image.
-   - The updated More preview image.
-4. Hard refresh / clear CDN cache if the older screenshot assets still appear.
