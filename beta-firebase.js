@@ -1,5 +1,5 @@
-import { firebaseConfigured, firebaseMissingFields, db, sha256Hex, friendlyFirebaseError } from './firebase-core.js?v=125';
-import { doc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import { firebaseConfigured, firebaseMissingFields, db, sha256Hex, friendlyFirebaseError } from './firebase-core.js?v=127';
+import { doc, setDoc, serverTimestamp } from './firebase-compat-shim.js?v=127';
 
 const form = document.getElementById('betaApplicationForm');
 const message = document.getElementById('betaFormMessage');

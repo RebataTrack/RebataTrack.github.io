@@ -3,8 +3,8 @@
 // All privileged production reads/writes go through the Production Admin Worker.
 // No production service-account secret is ever present in browser code.
 
-import { auth, isAdminUser } from './firebase-core.js?v=125';
-import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+import { auth, isAdminUser } from './firebase-core.js?v=127';
+import { onAuthStateChanged } from './firebase-compat-shim.js?v=127';
 
 const WORKER_KEY = 'rebatify.productionAdmin.workerUrl';
 const state = {

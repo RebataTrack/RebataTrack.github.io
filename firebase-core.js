@@ -1,10 +1,10 @@
-import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+import { initializeApp, getApps } from './firebase-compat-shim.js?v=127';
 import {
   getAuth,
   setPersistence,
   browserSessionPersistence
-} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
-import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+} from './firebase-compat-shim.js?v=127';
+import { getFirestore } from './firebase-compat-shim.js?v=127';
 
 const config = window.REBATIFY_FIREBASE_CONFIG || {};
 const settings = window.REBATIFY_BETA_SETTINGS || {};

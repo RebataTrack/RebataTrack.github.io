@@ -1,11 +1,11 @@
-import { firebaseConfigured, firebaseMissingFields, auth } from './firebase-core.js?v=125';
+import { firebaseConfigured, firebaseMissingFields, auth } from './firebase-core.js?v=127';
 import {
   onAuthStateChanged,
   signInWithCustomToken,
   signOut,
   setPersistence,
   browserSessionPersistence
-} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+} from './firebase-compat-shim.js?v=127';
 
 window.__REBATRACK_BETA_LOGIN_MODULE_READY = true;
 

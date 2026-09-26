@@ -1,6 +1,6 @@
 // RebataTrack Beta Tester Portal - Website Build 110
-import { firebaseConfigured, auth, db, timestampToDate, friendlyFirebaseError } from './firebase-core.js?v=125';
-import { onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+import { firebaseConfigured, auth, db, timestampToDate, friendlyFirebaseError } from './firebase-core.js?v=127';
+import { onAuthStateChanged, signOut } from './firebase-compat-shim.js?v=127';
 import {
   doc,
   getDoc,
@@ -13,7 +13,7 @@ import {
   getDocs,
   orderBy,
   onSnapshot
-} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+} from './firebase-compat-shim.js?v=127';
 
 const loading = document.getElementById('portalLoading');
 const app = document.getElementById('portalApp');
