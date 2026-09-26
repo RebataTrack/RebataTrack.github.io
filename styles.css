@@ -2294,8 +2294,8 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 
 /* Production users bulk-select ------------------------------------------------ */
 .admin-page-heading-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
-.production-bulk-delete-btn{background:linear-gradient(135deg,#c0182a,#e02337)!important;box-shadow:0 10px 24px rgba(192,24,42,.19)!important}
-.production-bulk-delete-btn:hover:not(:disabled){box-shadow:0 14px 30px rgba(192,24,42,.28)!important}
-.production-bulk-delete-btn:disabled{background:linear-gradient(135deg,#b0b8c8,#c4cdd8)!important;box-shadow:none!important;opacity:.7!important}
+.production-bulk-delete-btn{background:linear-gradient(135deg,#c0182a,#e02337)!important;box-shadow:0 10px 24px rgba(192,24,42,.19)!important;color:#fff!important}
+.production-bulk-delete-btn:hover:not(:disabled){box-shadow:0 14px 30px rgba(192,24,42,.28)!important;color:#fff!important}
+.production-bulk-delete-btn:disabled{background:linear-gradient(135deg,#b0b8c8,#c4cdd8)!important;box-shadow:none!important;opacity:.7!important;color:#fff!important}
 /* Native checkbox style for production user rows */
 .admin-select-col input[type="checkbox"]{width:18px;height:18px;accent-color:#145cf2;cursor:pointer;border-radius:5px}

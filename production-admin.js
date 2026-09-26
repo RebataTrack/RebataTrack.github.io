@@ -579,12 +579,6 @@ for(const b of document.querySelectorAll('[data-admin-scope]'))b.addEventListene
 for(const b of document.querySelectorAll('[data-production-view]'))b.addEventListener('click',()=>switchProductionView(b.dataset.productionView));
 document.addEventListener('click',event=>{
   const passwordToggle=event.target.closest('[data-password-toggle]');if(passwordToggle){const input=$(passwordToggle.dataset.passwordToggle);if(input){const show=input.type==='password';input.type=show?'text':'password';passwordToggle.setAttribute('aria-pressed',show?'true':'false');passwordToggle.setAttribute('aria-label',show?'Hide password':'Show password');passwordToggle.classList.toggle('is-visible',show);}return;}
-// Production user checkbox toggle
-  const productionSelectCb=event.target.closest('[data-production-select]');
-  if(productionSelectCb){const uid=productionSelectCb.dataset.productionSelect;if(productionSelectCb.checked)state.selectedProductionUsers.add(uid);else state.selectedProductionUsers.delete(uid);updateProductionSelectionBar();return;}
-  // Select-all checkbox
-  const selectAllCb=event.target.closest('#productionSelectAll');
-  if(selectAllCb){const visibleUids=[...document.querySelectorAll('[data-production-select]')].map(cb=>cb.dataset.productionSelect);if(selectAllCb.checked)visibleUids.forEach(uid=>state.selectedProductionUsers.add(uid));else visibleUids.forEach(uid=>state.selectedProductionUsers.delete(uid));updateProductionSelectionBar();return;}
     const createSample=event.target.closest('[data-production-create-sample]');if(createSample){openCreateSampleAccountAction();return;}
   const jump=event.target.closest('[data-production-jump]');if(jump){switchProductionView(jump.dataset.productionJump,jump.dataset.productionFocus||'');return;}
   const user=event.target.closest('[data-production-user]');if(user){openUser(user.dataset.productionUser);return;}
@@ -595,6 +589,15 @@ document.addEventListener('click',event=>{
   if(event.target.closest('[data-production-cancel-action]')){closeAction();return;}
   const submit=event.target.closest('[data-production-submit]');if(submit){submitAction(submit.dataset.productionSubmit,submit);return;}
   const revoke=event.target.closest('[data-production-revoke]');if(revoke){revokeAction(revoke.dataset.productionRevoke,revoke);return;}
+});
+// Use 'change' instead of 'click' for checkboxes because the custom checkbox CSS
+// sets pointer-events:none on the real input — clicks land on the <span> visual,
+// but the browser still fires 'change' on the input when the label is activated.
+document.addEventListener('change',event=>{
+  const cb=event.target.closest('[data-production-select]');
+  if(cb){const uid=cb.dataset.productionSelect;if(cb.checked)state.selectedProductionUsers.add(uid);else state.selectedProductionUsers.delete(uid);updateProductionSelectionBar();return;}
+  const all=event.target.closest('#productionSelectAll');
+  if(all){const visibleUids=[...document.querySelectorAll('[data-production-select]')].map(c=>c.dataset.productionSelect);if(all.checked)visibleUids.forEach(uid=>state.selectedProductionUsers.add(uid));else visibleUids.forEach(uid=>state.selectedProductionUsers.delete(uid));updateProductionSelectionBar();return;}
 });
 $('productionDrawerClose')?.addEventListener('click',closeUserDrawer);$('productionDrawerBackdrop')?.addEventListener('click',closeUserDrawer);
 $('productionActionClose')?.addEventListener('click',closeAction);$('productionActionBackdrop')?.addEventListener('click',event=>{if(event.target===$('productionActionBackdrop'))closeAction();});
