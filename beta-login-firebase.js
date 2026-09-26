@@ -1,4 +1,4 @@
-import { firebaseConfigured, firebaseMissingFields, auth } from './firebase-core.js';
+import { firebaseConfigured, firebaseMissingFields, auth } from './firebase-core.js?v=125';
 import {
   onAuthStateChanged,
   signInWithCustomToken,

@@ -1,5 +1,5 @@
 // RebataTrack Beta Tester Portal - Website Build 110
-import { firebaseConfigured, auth, db, timestampToDate, friendlyFirebaseError } from './firebase-core.js';
+import { firebaseConfigured, auth, db, timestampToDate, friendlyFirebaseError } from './firebase-core.js?v=125';
 import { onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
   doc,

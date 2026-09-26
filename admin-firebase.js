@@ -9,7 +9,7 @@ import {
   emailAutomationEnabled,
   timestampToDate,
   friendlyFirebaseError
-} from './firebase-core.js';
+} from './firebase-core.js?v=125';
 import {
   onAuthStateChanged,
   signOut

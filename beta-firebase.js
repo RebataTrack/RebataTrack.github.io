@@ -1,4 +1,4 @@
-import { firebaseConfigured, firebaseMissingFields, db, sha256Hex, friendlyFirebaseError } from './firebase-core.js';
+import { firebaseConfigured, firebaseMissingFields, db, sha256Hex, friendlyFirebaseError } from './firebase-core.js?v=125';
 import { doc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 const form = document.getElementById('betaApplicationForm');

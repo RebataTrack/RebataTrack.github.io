@@ -1,4 +1,4 @@
-import { firebaseConfigured, firebaseMissingFields, auth, isAdminUser, adminEmail, adminEmails, friendlyFirebaseError } from './firebase-core.js';
+import { firebaseConfigured, firebaseMissingFields, auth, isAdminUser, adminEmail, adminEmails, friendlyFirebaseError } from './firebase-core.js?v=125';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 
 window.__REBATRACK_ADMIN_LOGIN_MODULE_READY = true;
