@@ -2353,3 +2353,33 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .portal-timeline-step.now .portal-timeline-status{background:rgba(59,158,74,.12)!important;color:#2F7E3B!important;border-color:rgba(59,158,74,.22)!important}
 .portal-google-play-button{width:fit-content}
 @media(max-width:700px){.portal-primary-action,.portal-google-play-button{width:100%}.portal-timeline-heading{padding:15px 16px}}
+
+
+/* Website Build 132 — clearer beta application status, blue timeline feature card, and tester bulk-delete layout */
+.beta-application-status-page{min-height:72vh;display:grid;align-items:center;padding:64px 0;background:linear-gradient(180deg,#f4f8ff 0%,#fff 100%)}
+.beta-application-status-wrap{display:flex;justify-content:center}
+.beta-application-status-card{width:min(720px,100%);padding:42px;border-radius:30px;background:#fff;border:1px solid #dce6f5;box-shadow:0 24px 60px rgba(30,61,104,.12);text-align:center}
+.beta-application-status-icon{width:76px;height:76px;border-radius:20px;box-shadow:0 8px 22px rgba(25,72,150,.18)}
+.beta-application-status-kicker{margin-top:20px;color:#145cf2;font-weight:850;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
+.beta-application-status-card h1{margin:10px 0 16px;color:#111d34;font-size:clamp(2rem,5vw,3.2rem)}
+.beta-application-status-pill{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border-radius:999px;background:#eaf2ff;color:#145cf2;font-weight:900}
+.beta-application-status-pill span{width:9px;height:9px;border-radius:50%;background:#145cf2}
+.beta-application-status-lead{margin:22px auto 0;max-width:58ch;color:#52667f;font-size:1.05rem;line-height:1.65}
+.beta-application-status-waiting{margin:26px 0 0;padding:22px 24px;border-radius:20px;background:#f7faff;border:1px solid #dce8fb;text-align:left;color:#425872}
+.beta-application-status-waiting strong{display:block;margin-bottom:8px;color:#172944;font-size:1.05rem}
+.beta-application-status-waiting p{margin:7px 0;line-height:1.6}
+.beta-application-status-note{margin-top:18px;color:#62758e;font-size:.9rem;line-height:1.55}
+.beta-application-status-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+.beta-status-primary,.beta-status-secondary{min-height:50px;padding:0 20px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-weight:850}
+.beta-status-primary{background:rgba(59,158,74,.10);border:1px solid rgba(59,158,74,.22);color:#2f7e3b}
+.beta-status-secondary{background:#fff;border:1px solid #d7e0eb;color:#273b54}
+.portal-timeline-blue{margin:30px auto;padding:38px 0;background:linear-gradient(135deg,#123a91 0%,#145cf2 58%,#1f99b8 100%);border-radius:34px;max-width:calc(100% - 32px);box-shadow:0 20px 48px rgba(20,92,242,.18)}
+.portal-timeline-blue .portal-timeline-heading .kicker,.portal-timeline-blue .portal-timeline-heading h2{color:#fff}
+.portal-timeline-blue .portal-timeline-heading .lead{color:rgba(255,255,255,.88)}
+.portal-timeline-blue .portal-program-timeline{background:#fff;border-color:rgba(255,255,255,.24);box-shadow:0 16px 34px rgba(3,24,65,.20)}
+.portal-timeline-blue .portal-timeline-step h3{color:#172944}
+.portal-timeline-blue .portal-timeline-step p{color:#53677e}
+.portal-timeline-blue .portal-timeline-footnote{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22);color:#fff}
+.admin-bulk-delete-testers{min-height:44px;padding:10px 16px;border-radius:12px;align-self:end}
+.admin-bulk-delete-testers:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:700px){.beta-application-status-card{padding:28px 20px}.portal-timeline-blue{max-width:calc(100% - 20px);border-radius:26px;padding:28px 0}.admin-bulk-delete-testers{width:100%}}

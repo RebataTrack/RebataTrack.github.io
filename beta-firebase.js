@@ -81,7 +81,7 @@ if (form) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.ok !== true) {
         if (data.code === 'APPLICATION_EXISTS') {
-          setMessage('An active beta application or tester profile already exists for this email. If you believe this is an error, contact RebataTrack Support.', 'error');
+          window.location.assign('beta-application-status.html?status=applied');
           return;
         }
         throw new Error(data.error || 'The Beta application service could not complete this request.');

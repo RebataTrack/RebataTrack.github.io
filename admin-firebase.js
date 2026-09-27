@@ -633,10 +633,12 @@ function testerTaskStateHtml(t){
   return `<div class="admin-tester-task-state"><span class="admin-status-pill status-pending">${pending.length} pending</span><small>Next: ${esc(formatDate(next.dueAt))}</small></div>`;
 }
 function updateTimelineSelectionUI(){
-  [...selectedTimelineTesters].forEach(uid=>{const t=findTester(uid);if(!t||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))selectedTimelineTesters.delete(uid);});
+  [...selectedTimelineTesters].forEach(uid=>{if(!findTester(uid))selectedTimelineTesters.delete(uid);});
   document.querySelectorAll('[data-timeline-tester]').forEach(box=>{box.checked=selectedTimelineTesters.has(box.dataset.timelineTester);});
   const count=document.getElementById('timelineSelectionCount');if(count)count.textContent=selectedTimelineTesters.size+' selected';
-  const apply=document.getElementById('bulkTimelineApply');if(apply)apply.disabled=selectedTimelineTesters.size===0;
+  const eligibleTimelineCount=[...selectedTimelineTesters].map(uid=>findTester(uid)).filter(Boolean).filter(t=>t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status)).length;
+  const apply=document.getElementById('bulkTimelineApply');if(apply)apply.disabled=eligibleTimelineCount===0;
+  const deleteBtn=document.getElementById('bulkTesterDelete');if(deleteBtn)deleteBtn.disabled=selectedTimelineTesters.size===0;
 }
 function selectTimelineTesters(platform='All'){
   selectedTimelineTesters.clear();
@@ -661,7 +663,7 @@ function renderTesters(){
     const inactiveText=activity.days===999?'No activity recorded':`${activity.days} day${activity.days===1?'':'s'} inactive`;
     const deviceLine=device||'Device not provided';
     const buildLine=build||'Build not provided';
-    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}${eligible?'':' disabled'}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
+    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
   }).join('');
   document.getElementById('testersEmpty').hidden=data.length>0;
   renderTesterActivityMetrics();
@@ -1314,6 +1316,23 @@ async function deleteTesterOnly(t){
   if(activeView==='testers')renderTesters();
   return result;
 }
+
+async function bulkDeleteSelectedTesters(){
+  const selected=[...selectedTimelineTesters].map(uid=>findTester(uid)).filter(Boolean);
+  if(!selected.length)throw new Error('Select at least one tester to delete.');
+  const names=selected.slice(0,4).map(t=>t.name||t.email||'Tester').join(', ');
+  const more=selected.length>4?` and ${selected.length-4} more`:'';
+  const message=`Permanently delete ${selected.length} selected tester${selected.length===1?'':'s'}? This removes each selected tester portal record and Firebase Authentication login, including matching tester records tied to the same email. This cannot be undone. Selected: ${names}${more}.`;
+  if(!(await confirmAction(message,'danger')))return {cancelled:true,deleted:0,failed:0};
+  const result=await callWorkerAdminAction('admin-delete-testers',{testers:selected.map(t=>({email:String(t.email||'').trim().toLowerCase(),uid:t.uid||''}))});
+  const deleted=Number(result.deleted||0),failed=Number(result.failed||0),errors=Array.isArray(result.errors)?result.errors:[];
+  selectedTimelineTesters.clear();
+  state.loaded.testers=false;state.loaded.tasks=false;state.loaded.applications=false;
+  await Promise.all([loadTesters(true),loadTasks(true),loadApplications(true)]);
+  await loadOverview();
+  if(activeView==='testers')renderTesters();
+  return {cancelled:false,deleted,failed,errors};
+}
 async function deleteApplication(a){return runApplicationAdminAction(a,'delete');}
 
 async function changeBetaEmail(applicationId,newEmail){
@@ -1620,6 +1639,7 @@ const androidInviteSendSelected=document.getElementById('androidInviteSendSelect
 const androidInviteSendAll=document.getElementById('androidInviteSendAll');if(androidInviteSendAll)androidInviteSendAll.addEventListener('click',async()=>{const recipients=androidInviteRecipientList('all');if(!recipients.length){showToast('There are no eligible Android testers who have completed Testing Setup.','error');return;}if(!(await confirmAction(`Send the Google Play beta-testing link and full installation instructions to all ${recipients.length} eligible Android tester${recipients.length===1?'':'s'}?`,'')))return;const original=androidInviteSendAll.textContent;androidInviteSendAll.disabled=true;androidInviteSendAll.textContent='Sending to All…';try{const url=await resolveAndroidInviteUrlForSend();const result=await sendAndroidTestingInvites(recipients,url);showToast(result.failed?`${result.sent} Android link${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Google Play link and instructions sent to all ${result.sent} eligible Android tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{androidInviteSendAll.disabled=false;androidInviteSendAll.textContent=original;}});
 const testersTableBody=document.getElementById('testersTableBody');if(testersTableBody)testersTableBody.addEventListener('change',e=>{if(!e.target.matches('[data-timeline-tester]'))return;const uid=e.target.dataset.timelineTester;if(e.target.checked)selectedTimelineTesters.add(uid);else selectedTimelineTesters.delete(uid);updateTimelineSelectionUI();});
 const bulkTimelineApply=document.getElementById('bulkTimelineApply');if(bulkTimelineApply)bulkTimelineApply.addEventListener('click',async()=>{const original=bulkTimelineApply.textContent;bulkTimelineApply.disabled=true;bulkTimelineApply.textContent='Updating…';try{const stage=document.getElementById('bulkTimelineStage').value;const result=await bulkSetTimelineStage(stage);if(!result.cancelled){let msg=`${result.count} tester timeline${result.count===1?'':'s'} updated.`;if(result.emailSent)msg+=` ${result.emailSent} testing-access email${result.emailSent===1?'':'s'} sent.`;if(result.emailFailed)msg+=` ${result.emailFailed} email${result.emailFailed===1?'':'s'} failed.`;showToast(msg,result.emailFailed?'error':'success');}}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{bulkTimelineApply.textContent=original;updateTimelineSelectionUI();}});
+const bulkTesterDelete=document.getElementById('bulkTesterDelete');if(bulkTesterDelete)bulkTesterDelete.addEventListener('click',async()=>{const original=bulkTesterDelete.textContent;bulkTesterDelete.disabled=true;bulkTesterDelete.textContent='Deleting Selected…';try{const result=await bulkDeleteSelectedTesters();if(!result.cancelled){let msg=`${result.deleted} tester${result.deleted===1?'':'s'} deleted.`;if(result.failed)msg+=` ${result.failed} could not be deleted.`;showToast(msg,result.failed?'error':'success');}}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{bulkTesterDelete.textContent=original;updateTimelineSelectionUI();}});
 document.getElementById('taskTemplateSelect').addEventListener('change',e=>applyTaskTemplate(e.target.value));
 document.getElementById('taskSelectAll').addEventListener('click',()=>selectTaskRecipients('All'));
 document.getElementById('taskSelectIOS').addEventListener('click',()=>selectTaskRecipients('iOS'));
