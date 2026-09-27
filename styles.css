@@ -1,4 +1,4 @@
-/* RebataTrack Website Build 140 dependency sync. */
+/* RebataTrack Website Build 141 dependency sync. */
 :root{
   --navy:#07132e;
   --deep:#052476;
@@ -2383,3 +2383,6 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 @media(max-width:700px){.beta-application-status-card{padding:28px 20px}.portal-timeline-heading-blue{padding:18px 18px;border-radius:20px}.admin-bulk-delete-testers{width:100%}}
 
 .portal-approved-login-notice{margin:18px 0 4px;background:#edf8f0!important;border:1px solid #b9dec1!important;color:#245f31!important;font-weight:800;line-height:1.55}
+
+/* Website Build 141: auditable production access summary */
+.production-access-breakdown{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}.production-access-breakdown article{background:#fff;border:1px solid #dfe8f3;border-radius:18px;padding:16px 18px;display:grid;grid-template-columns:auto 1fr;grid-template-areas:'label value' 'detail detail';gap:4px 12px;align-items:center}.production-access-breakdown span{grid-area:label;color:#657990;font-size:.72rem;font-weight:850;text-transform:uppercase;letter-spacing:.05em}.production-access-breakdown strong{grid-area:value;justify-self:end;color:#071b3b;font-size:1.45rem}.production-access-breakdown small{grid-area:detail;color:#6f8298;font-size:.72rem;font-weight:700}.production-bulk-delete-btn:not(:disabled){border-color:rgba(217,57,73,.22)!important;background:rgba(217,57,73,.10)!important;color:#b02c37!important}@media(max-width:720px){.production-access-breakdown{grid-template-columns:1fr}}

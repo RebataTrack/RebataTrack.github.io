@@ -1,4 +1,4 @@
-// RebataTrack Website Build 140 dependency sync.
+// RebataTrack Website Build 141 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -22,7 +22,7 @@ const state = {
   users: [],
   devices: [],
   identities: [],
-  access: { premiumGrants: [], trialOverrides: [], reviewAccess: [] },
+  access: { premiumGrants: [], trialOverrides: [], reviewAccess: [], summary: {} },
   audit: [],
   selectedUser: null,
   selectedUserDetail: null,
@@ -195,6 +195,9 @@ function renderOverview(){
   if($('productionMetricDevices'))$('productionMetricDevices').textContent=m.devices ?? '0';
   if($('productionMetricPlus'))$('productionMetricPlus').textContent=m.plusAccess ?? '0';
   if($('productionMetricTrials'))$('productionMetricTrials').textContent=m.activeTrials ?? '0';
+  const b=m.breakdown||{};
+  if($('productionMetricPlusDetail'))$('productionMetricPlusDetail').textContent=`${b.storePlus??0} store · ${b.adminPlus??0} complimentary · ${b.reviewOnly??0} reviewer-only`;
+  if($('productionMetricTrialsDetail'))$('productionMetricTrialsDetail').textContent=`${b.standardTrials??0} standard · ${b.adminTrials??0} admin reissues`;
   const users=o.recentUsers||[];
   if($('productionRecentUsers'))$('productionRecentUsers').innerHTML=users.length?users.map(u=>`<button class="production-recent-user" data-production-user="${esc(u.uid)}" type="button"><div><strong>${esc(u.name||u.email||'RebataTrack user')}</strong><span>${esc(u.email||u.uid)}</span></div><time>${esc(fmtDate(u.createdAt))}</time></button>`).join(''):'<div class="admin-empty-inline">No production users found.</div>';
   if($('productionUsersBadge')){$('productionUsersBadge').hidden=!(Number(m.users)>0);$('productionUsersBadge').textContent=Number(m.users)>999?'999+':String(m.users||0);}
@@ -234,22 +237,27 @@ async function bulkDeleteProductionUsers(){
   );
   if(!confirmed)return;
   const reason=prompt('Enter a reason for this bulk deletion (required):','Bulk delete via admin portal');
-  if(!reason||!reason.trim()){showToast('A reason is required.','error');return;}
-  let deleted=0,failed=0,errors=[];
+  if(!reason||!reason.trim()){showProdToast('A reason is required.','error');return;}
   const btn=$('productionBulkDelete');
   if(btn){btn.disabled=true;btn.textContent='Deleting…';}
-  for(const uid of uids){
-    try{
-      await callProduction('user-delete',{uid,reason:reason.trim()});
-      state.users=state.users.filter(u=>u.uid!==uid);
-      state.selectedProductionUsers.delete(uid);
-      deleted++;
-    }catch(err){failed++;errors.push(err.message||'Unknown error');}
-  }
-  renderUsers();
-  updateProductionSelectionBar();  // resets button text and disabled state
-  if(failed)showToast(`${deleted} deleted, ${failed} failed. ${errors[0]||''}`.trim(),'error');
-  else showToast(`${deleted} production account${deleted===1?'':'s'} permanently deleted.`,'success');
+  try{
+    const result=await callProduction('users-delete-bulk',{
+      uids,
+      reason:reason.trim(),
+      confirmation:`DELETE ${uids.length} ACCOUNTS`
+    });
+    const deletedUids=new Set((result.results||[]).filter(x=>x.deleted).map(x=>x.uid));
+    state.users=state.users.filter(u=>!deletedUids.has(u.uid));
+    deletedUids.forEach(uid=>state.selectedProductionUsers.delete(uid));
+    renderUsers();
+    updateProductionSelectionBar();
+    state.overview=null;state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
+    await Promise.all([loadOverview(true),loadAccess(true),loadAudit(true)]);
+    const deleted=Number(result.deletedCount||deletedUids.size),failed=Number(result.failedCount||0);
+    if(failed)showProdToast(`${deleted} deleted, ${failed} failed. ${(result.results||[]).find(x=>!x.deleted)?.error||''}`.trim(),'error');
+    else showProdToast(`${deleted} production account${deleted===1?'':'s'} permanently deleted.`,'success');
+  }catch(err){showProdToast(err.message||'Bulk deletion failed.','error');}
+  finally{updateProductionSelectionBar();}
 }
 function updateProductionSelectionBar(){
   const sel=state.selectedProductionUsers;
@@ -312,7 +320,7 @@ function renderIdentities(){
 
 async function loadAccess(force=false){
   if((state.access.premiumGrants.length||state.access.trialOverrides.length||state.access.reviewAccess.length)&&!force){renderAccess();return;}
-  const data=await callProduction('access-list',{limit:500}); state.access={premiumGrants:data.premiumGrants||[],trialOverrides:data.trialOverrides||[],reviewAccess:data.reviewAccess||[]}; renderAccess(); scheduleProductionExpiryRefresh();
+  const data=await callProduction('access-list',{limit:500}); state.access={premiumGrants:data.premiumGrants||[],trialOverrides:data.trialOverrides||[],reviewAccess:data.reviewAccess||[],summary:data.summary||{}}; renderAccess(); scheduleProductionExpiryRefresh();
 }
 function accessItemHtml(item,type){
   const title=item.name||item.email||item.userEmail||item.uid||item.deviceId||'Access record';
@@ -325,6 +333,11 @@ function accessItemHtml(item,type){
 }
 function renderAccess(){
   const p=state.access.premiumGrants.filter(x=>x.active),t=state.access.trialOverrides.filter(x=>x.active),r=state.access.reviewAccess.filter(x=>x.active);
+  const b=state.access.summary||{};
+  if($('productionAccessPlusTotal'))$('productionAccessPlusTotal').textContent=b.plusAccess??'0';
+  if($('productionAccessPlusBreakdown'))$('productionAccessPlusBreakdown').textContent=`${b.storePlus??0} store · ${b.adminPlus??0} complimentary · ${b.reviewOnly??0} reviewer-only`;
+  if($('productionAccessTrialTotal'))$('productionAccessTrialTotal').textContent=b.activeTrials??'0';
+  if($('productionAccessTrialBreakdown'))$('productionAccessTrialBreakdown').textContent=`${b.standardTrials??0} standard · ${b.adminTrials??0} admin reissues`;
   if($('productionGrantCount'))$('productionGrantCount').textContent=`${p.length} active`;
   if($('productionTrialOverrideCount'))$('productionTrialOverrideCount').textContent=`${t.length} active`;
   if($('productionReviewCount'))$('productionReviewCount').textContent=`${r.length} active`;
@@ -358,7 +371,7 @@ async function refreshProductionAfterExpiry(){
   const actionKind=state.action?.kind||'';
   const actionReason=String($('productionActionReason')?.value||'');
   try{
-    state.overview=null;state.users=[];state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[]};
+    state.overview=null;state.users=[];state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
     await loadOverview(true);
     if(state.view==='users') await loadUsers(true);
     else if(state.view==='devices') await loadDevices(true);
@@ -548,7 +561,7 @@ async function submitAction(kind,button){
     const successMessage=reset?'Password-reset email sent.':sampleRefresh?'Rolling sample data refreshed.':sampleCreate?'Sample account created with rolling data.':deleted?'Production account permanently deleted.':celebrationGrant?'Grant saved. The user will be greeted on their next supported app open.':'Production access updated.';
     setActionMessage(successMessage,'success');showProdToast(successMessage);
     const uid=sampleCreate?(actionResult.user?.uid||''):state.action.uid;
-    state.users=[];state.overview=null;state.identities=[];state.devices=[];state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[]};
+    state.users=[];state.overview=null;state.identities=[];state.devices=[];state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
     closeAction();
     await Promise.all([loadOverview(true),loadUsers(true),loadAudit(true),loadAccess(true)]);
     if(deleted){closeUserDrawer();return;}
@@ -563,14 +576,14 @@ async function revokeAction(kind,button){
     const map={premium:'premium-revoke',review:'review-revoke',trial:'trial-revoke'};
     const payload={uid:state.action.uid,reason};if(kind==='trial')payload.deviceId=$('productionTrialDevice')?.value||state.selectedUserDetail?.trial?.override?.deviceId||'';if(kind==='review')payload.source=button.dataset.reviewSource||'admin';
     await callProduction(map[kind],payload);showProdToast('Production access revoked.');
-    const uid=state.action.uid; closeAction();state.users=[];state.overview=null;state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[]};await Promise.all([loadOverview(true),loadUsers(true),loadAccess(true),loadAudit(true)]);await openUser(uid);
+    const uid=state.action.uid; closeAction();state.users=[];state.overview=null;state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};await Promise.all([loadOverview(true),loadUsers(true),loadAccess(true),loadAudit(true)]);await openUser(uid);
   }catch(error){setActionMessage(error.message,'error');}
   finally{button.disabled=false;button.textContent=original;}
 }
 
 async function refreshProduction(){
   const btn=$('productionAdminRefresh'); if(btn)btn.classList.add('is-spinning');
-  try{state.overview=null;await loadOverview(true);if(state.view==='users'){state.users=[];await loadUsers(true);}else if(state.view==='devices'){state.devices=[];await loadDevices(true);}else if(state.view==='identities'){state.identities=[];await loadIdentities(true);}else if(state.view==='access'){state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[]};await loadAccess(true);}else if(state.view==='audit'){state.audit=[];await loadAudit(true);}showProdToast('Production data refreshed.');}
+  try{state.overview=null;await loadOverview(true);if(state.view==='users'){state.users=[];await loadUsers(true);}else if(state.view==='devices'){state.devices=[];await loadDevices(true);}else if(state.view==='identities'){state.identities=[];await loadIdentities(true);}else if(state.view==='access'){state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};await loadAccess(true);}else if(state.view==='audit'){state.audit=[];await loadAudit(true);}showProdToast('Production data refreshed.');}
   catch(error){showProdToast(error.message,'error');}
   finally{if(btn)btn.classList.remove('is-spinning');}
 }
@@ -604,6 +617,7 @@ $('productionDrawerClose')?.addEventListener('click',closeUserDrawer);$('product
 $('productionActionClose')?.addEventListener('click',closeAction);$('productionActionBackdrop')?.addEventListener('click',event=>{if(event.target===$('productionActionBackdrop'))closeAction();});
 $('productionUserSearch')?.addEventListener('input',renderUsers);$('productionUserFilter')?.addEventListener('change',renderUsers);$('productionDeviceSearch')?.addEventListener('input',renderDevices);
 $('productionAdminRefresh')?.addEventListener('click',refreshProduction);
+$('productionBulkDelete')?.addEventListener('click',bulkDeleteProductionUsers);
 $('productionWorkerSave')?.addEventListener('click',async()=>{
   const value=String($('productionWorkerUrl')?.value||'').trim().replace(/\/$/,'');
   if(!/^https:\/\//i.test(value)){productionMessage('Enter the HTTPS URL for the Production Admin Worker.','error');return;}
