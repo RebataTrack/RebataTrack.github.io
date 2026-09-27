@@ -2373,13 +2373,10 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .beta-status-primary,.beta-status-secondary{min-height:50px;padding:0 20px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-weight:850}
 .beta-status-primary{background:rgba(59,158,74,.10);border:1px solid rgba(59,158,74,.22);color:#2f7e3b}
 .beta-status-secondary{background:#fff;border:1px solid #d7e0eb;color:#273b54}
-.portal-timeline-blue{margin:30px auto;padding:38px 0;background:linear-gradient(135deg,#123a91 0%,#145cf2 58%,#1f99b8 100%);border-radius:34px;max-width:calc(100% - 32px);box-shadow:0 20px 48px rgba(20,92,242,.18)}
-.portal-timeline-blue .portal-timeline-heading .kicker,.portal-timeline-blue .portal-timeline-heading h2{color:#fff}
-.portal-timeline-blue .portal-timeline-heading .lead{color:rgba(255,255,255,.88)}
-.portal-timeline-blue .portal-program-timeline{background:#fff;border-color:rgba(255,255,255,.24);box-shadow:0 16px 34px rgba(3,24,65,.20)}
-.portal-timeline-blue .portal-timeline-step h3{color:#172944}
-.portal-timeline-blue .portal-timeline-step p{color:#53677e}
-.portal-timeline-blue .portal-timeline-footnote{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22);color:#fff}
+.portal-timeline-heading-blue{padding:22px 24px;border-radius:22px;background:linear-gradient(135deg,#123a91 0%,#145cf2 66%,#1f99b8 100%);border:1px solid rgba(20,92,242,.18);box-shadow:0 14px 30px rgba(20,92,242,.14);margin-bottom:20px}
+.portal-timeline-heading-blue .kicker,.portal-timeline-heading-blue h2{color:#fff}
+.portal-timeline-heading-blue .lead{color:rgba(255,255,255,.92)}
+.portal-timeline-heading-blue .lead strong{color:#fff}
 .admin-bulk-delete-testers{min-height:44px;padding:10px 16px;border-radius:12px;align-self:end}
 .admin-bulk-delete-testers:disabled{opacity:.45;cursor:not-allowed}
-@media(max-width:700px){.beta-application-status-card{padding:28px 20px}.portal-timeline-blue{max-width:calc(100% - 20px);border-radius:26px;padding:28px 0}.admin-bulk-delete-testers{width:100%}}
+@media(max-width:700px){.beta-application-status-card{padding:28px 20px}.portal-timeline-heading-blue{padding:18px 18px;border-radius:20px}.admin-bulk-delete-testers{width:100%}}
