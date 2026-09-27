@@ -62,48 +62,37 @@ if (form) {
       setMessage('Please complete all required fields and acknowledge the beta terms.', 'error');
       return;
     }
-
     try {
       if (button) {
         button.disabled = true;
         button.innerHTML = 'Submitting…';
       }
       const endpoint = String(window.REBATIFY_BETA_SETTINGS?.emailWorkerUrl || '').trim();
-      if (!endpoint) throw new Error('The beta application service is not configured.');
+      if (!endpoint) throw new Error('The Beta application service is not available right now.');
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'beta-application-submit',
-          fullName,
-          email,
-          platform,
-          termsAccepted: true,
+          fullName, email, platform, termsAccepted: true,
           source: 'rebatatrack.github.io/beta.html'
         })
       });
-      const result = await response.json().catch(() => ({}));
-      if (response.status === 409 || result?.code === 'APPLICATION_EXISTS') {
-        const duplicateError = new Error(result?.error || 'An active beta application already exists for this email.');
-        duplicateError.code = 'application-exists';
-        throw duplicateError;
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true) {
+        if (data.code === 'APPLICATION_EXISTS') {
+          setMessage('An active beta application or tester profile already exists for this email. If you believe this is an error, contact RebataTrack Support.', 'error');
+          return;
+        }
+        throw new Error(data.error || 'The Beta application service could not complete this request.');
       }
-      if (!response.ok || result?.ok === false) {
-        throw new Error(result?.error || 'The beta application service could not complete this request.');
-      }
-
       form.hidden = true;
       if (success) {
         success.hidden = false;
         success.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     } catch (error) {
-      const code = String(error && error.code || '');
-      if (code === 'application-exists') {
-        setMessage('An active application or beta profile already exists for that email. If you believe this is an error, contact RebataTrack Support.', 'error');
-      } else {
-        setMessage('We could not submit your application right now. ' + friendlyFirebaseError(error), 'error');
-      }
+      setMessage('We could not submit your application right now. ' + (error?.message || friendlyFirebaseError(error)), 'error');
     } finally {
       if (button) {
         button.disabled = false;

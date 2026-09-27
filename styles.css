@@ -2299,3 +2299,57 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .production-bulk-delete-btn:disabled{background:linear-gradient(135deg,#b0b8c8,#c4cdd8)!important;box-shadow:none!important;opacity:.7!important;color:#fff!important}
 /* Native checkbox style for production user rows */
 .admin-select-col input[type="checkbox"]{width:18px;height:18px;accent-color:#145cf2;cursor:pointer;border-radius:5px}
+
+
+/* Website Build 131 — Beta Portal action visibility standard */
+.portal-primary-action,
+.portal-body .beta-submit,
+.portal-body .beta-submit-link,
+.portal-body .portal-settings-link,
+.portal-body .portal-logout,
+.portal-body .portal-testflight-button,
+.portal-body .portal-tile-testflight-button,
+.portal-body .portal-account-help-button,
+.portal-body .portal-conversation-open,
+.portal-body .portal-retest-button,
+.portal-body .portal-announcement-ack,
+.portal-body .portal-chat-event-action,
+.portal-body .portal-support-launcher-button,
+.portal-body .portal-support-launcher-action,
+.portal-body .portal-required-summary-item,
+.portal-body .portal-conversation-send,
+.portal-body .portal-conversation-close,
+.portal-body .portal-retest-close,
+.portal-body .portal-task-ack {
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  background:#3B9E4A!important;color:#fff!important;
+  border:1px solid rgba(59,158,74,.42)!important;
+  box-shadow:0 8px 20px rgba(59,158,74,.16)!important;
+  text-decoration:none;font-weight:850;
+}
+.portal-primary-action{margin-top:18px;min-height:48px;padding:0 18px;border-radius:12px;font-size:.86rem}
+.portal-body .portal-testflight-button:hover,
+.portal-body .portal-tile-testflight-button:hover,
+.portal-body .portal-account-help-button:hover,
+.portal-body .portal-conversation-open:hover,
+.portal-body .portal-retest-button:hover,
+.portal-body .portal-announcement-ack:hover,
+.portal-body .portal-chat-event-action:hover,
+.portal-body .portal-support-launcher-button:hover,
+.portal-body .portal-support-launcher-action:hover,
+.portal-body .portal-required-summary-item:hover,
+.portal-body .portal-conversation-send:hover,
+.portal-body .portal-conversation-close:hover,
+.portal-body .portal-retest-close:hover,
+.portal-body .portal-task-ack:hover,
+.portal-body .beta-submit:hover,
+.portal-body .portal-settings-link:hover,
+.portal-body .portal-logout:hover,
+.portal-primary-action:hover{background:#348c42!important;border-color:rgba(59,158,74,.52)!important;transform:translateY(-1px)}
+.portal-body button:disabled,.portal-body .beta-submit:disabled{background:#d8dde4!important;color:#7a8491!important;border-color:#cbd2db!important;box-shadow:none!important;cursor:not-allowed!important;transform:none!important}
+.portal-timeline-section{scroll-margin-top:132px}
+.portal-timeline-heading{padding:18px 20px;border-radius:20px;background:#f4fbf5;border:1px solid rgba(59,158,74,.20);margin-bottom:18px}
+.portal-timeline-step.now{border-color:rgba(59,158,74,.34)!important;box-shadow:0 10px 28px rgba(59,158,74,.10)!important}
+.portal-timeline-step.now .portal-timeline-status{background:rgba(59,158,74,.12)!important;color:#2F7E3B!important;border-color:rgba(59,158,74,.22)!important}
+.portal-google-play-button{width:fit-content}
+@media(max-width:700px){.portal-primary-action,.portal-google-play-button{width:100%}.portal-timeline-heading{padding:15px 16px}}

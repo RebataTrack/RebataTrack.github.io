@@ -5,7 +5,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,auth,db,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,addDoc,collection,serverTimestamp,query,where,getDocs,orderBy,onSnapshot}=Compat;
-// RebataTrack Beta Tester Portal - Website Build 128
+// RebataTrack Beta Tester Portal - Website Build 131
 const loading = document.getElementById('portalLoading');
 const app = document.getElementById('portalApp');
 const content = document.getElementById('portalContent');
@@ -587,13 +587,16 @@ function bindTestFlightButtons(scope=document){
 function renderProgramTimeline(profile){
   const timeline=document.getElementById('portalProgramTimeline');const footnote=document.getElementById('portalTimelineFootnote');if(!timeline)return;
   const ios=profile.platform==='iOS';const stage=normalizeProgramTimelineStage(profile.timelineStage);const setupDone=testingSetupComplete(profile);const tfDone=testFlightPrepared(profile);
+  const androidTestingUrl=!ios?safeAndroidTestingInviteUrl(profile.androidTestingInviteUrl):'';
   const accessCopy=ios
     ? (stage==='inviteSent'||stage==='activeTesting'?'Your <strong>RebataTrack TestFlight invitation has been sent</strong> to your approved beta email. Open it on the same iPhone or iPad where TestFlight is installed, accept it, and install RebataTrack.':'TestFlight and Testing Setup are complete. Watch your approved beta email for the RebataTrack TestFlight invitation. RebataTrack will advance this stage when testing access is released.')
-    : (stage==='inviteSent'||stage==='activeTesting'
-      ? 'Your <strong>Google Play beta-testing link has been sent</strong> to your approved beta email. Open it on your Android phone, opt in, and install RebataTrack.'
+    : (androidTestingUrl||stage==='inviteSent'||stage==='activeTesting'
+      ? 'Your <strong>Google Play beta-testing link is ready</strong>. Use the green button below on your Android phone, join the test, and install RebataTrack.'
       : 'Make sure Google Play uses the Google Account that matches your approved beta email, then watch for the beta-testing link. If your Google Play account email is different than your approved RebataTrack Beta program email, click here for help.');
-  const androidAccessHelpAction=!ios&&!(stage==='inviteSent'||stage==='activeTesting')
-    ? '<div class="portal-timeline-actions portal-timeline-account-mismatch"><button class="portal-account-help-button" data-account-mismatch type="button"><span>My Google Play email is different</span></button><small>RebataTrack will notify you via email and advance this stage when testing access is released to you.</small></div>'
+  const androidAccessHelpAction=!ios
+    ? (androidTestingUrl
+      ? `<div class="portal-timeline-actions"><a class="portal-testflight-button portal-google-play-button" href="${escapeHtml(androidTestingUrl)}" target="_blank" rel="noopener noreferrer"><span>Open Google Play Testing Link</span><span aria-hidden="true">↗</span></a><small>Your testing link is ready. Open it on your Android phone, join the test, then install RebataTrack from Google Play.</small></div>`
+      : '<div class="portal-timeline-actions portal-timeline-account-mismatch"><button class="portal-account-help-button" data-account-mismatch type="button"><span>My Google Play email is different</span></button><small>RebataTrack will notify you via email and update this timeline when testing access is released to you.</small></div>')
     : '';
   const setupAction=setupDone
     ? '<div class="portal-timeline-completed-note">Testing Setup is complete. You can update your saved device details later from <strong>Settings</strong>.</div>'
@@ -631,9 +634,7 @@ function renderProgramTimeline(profile){
   bindTestFlightButtons(timeline);
   timeline.querySelectorAll('[data-open-testing-setup]').forEach(btn=>btn.addEventListener('click',openTestingSetup));
   if(footnote){
-    footnote.innerHTML=(ios
-      ? '<strong>How progress works:</strong> Approval completes Step 1 automatically. Install and confirm TestFlight in Step 2, then complete Testing Setup in Step 3. RebataTrack controls the invitation and later testing-access stages.'
-      : '<strong>How progress works:</strong> Approval completes Step 1 automatically. Completing Testing Setup marks Step 2 complete. RebataTrack controls the later Google Play testing-access stages.')+`<br><span class="portal-timeline-current"><strong>Current program stage:</strong> ${currentLabel}</span>`;
+    footnote.innerHTML='<strong>Use this timeline as your checklist:</strong> complete the step marked Action Needed, then return here for the next step. RebataTrack updates invitation/testing-access stages when access is released.'+`<br><span class="portal-timeline-current"><strong>Current program stage:</strong> ${currentLabel}</span>`;
   }
 }
 
@@ -696,10 +697,10 @@ function renderProfile(profile) {
     if(installCopy)installCopy.textContent=copy;if(installMeta)installMeta.textContent=meta;if(installAction){installAction.innerHTML=actionHtml;bindTestFlightButtons(installAction);}
   } else if (profile.platform === 'Android') {
     const testingUrl=safeAndroidTestingInviteUrl(profile.androidTestingInviteUrl);
-    const copy=!setupDone?'Complete Testing Setup first, then prepare the correct Google Play account.':({approved:'Testing Setup is complete. Confirm the correct Google Play account and watch your approved beta email for the beta-testing link.',setupComplete:'Testing Setup is complete. Confirm the correct Google Play account and watch your approved beta email for the beta-testing link.',inviteSent:'Your Google Play testing link has been sent. Use the button below on your Android phone, join the test, and install RebataTrack.',activeTesting:'You are in active beta testing. Keep RebataTrack updated through Google Play.'}[stage]);
+    const copy=!setupDone?'Complete Testing Setup first, then prepare the correct Google Play account.':(testingUrl?'Your Google Play testing link is ready. Use the green button below on your Android phone, join the test, and install RebataTrack.':({approved:'Testing Setup is complete. Confirm the correct Google Play account and watch your approved beta email for the beta-testing link.',setupComplete:'Testing Setup is complete. Confirm the correct Google Play account and watch your approved beta email for the beta-testing link.',inviteSent:'Your Google Play testing link has been sent. Refresh this page if the button does not appear within a few seconds.',activeTesting:'You are in active beta testing. Keep RebataTrack updated through Google Play.'}[stage]));
     const meta=!setupDone?'Complete the required Testing Setup from Step 2 of your timeline.':({approved:'Google Play must be signed into the Google Account that matches your approved beta email.',setupComplete:'Google Play must be signed into the Google Account that matches your approved beta email.',inviteSent:'Before opening the link, confirm Google Play is using the Google Account that matches your approved beta email.',activeTesting:'Complete periodic Beta Program tasks, test real workflows, and keep sending meaningful feedback.'}[stage]);
     let actionHtml='';
-    if(testingUrl&&(stage==='inviteSent'||stage==='activeTesting')){
+    if(testingUrl){
       actionHtml=`<a class="portal-tile-testflight-button" href="${escapeHtml(testingUrl)}" target="_blank" rel="noopener noreferrer">Open Google Play Testing Link <span aria-hidden="true">↗</span></a><small class="portal-tile-shortcut-note"><strong>Android steps:</strong> use your approved Google Account → join the test → open the Play listing → install RebataTrack.</small>`;
     }
     if(installCopy)installCopy.textContent=copy;if(installMeta)installMeta.textContent=meta;if(installAction)installAction.innerHTML=actionHtml;

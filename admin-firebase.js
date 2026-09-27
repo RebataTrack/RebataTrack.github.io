@@ -709,22 +709,14 @@ async function sendAndroidTestingInvite(t,url){
       email:String(t.email||'').toLowerCase(),
       name:t.name||'Tester',
       platform:'Android',
+      testerUid:t.uid,
       approvedGoogleAccount:copy.approvedGoogleAccount,
       testingUrl:copy.testingUrl,
-      emailTemplateVersion:'android-beta-access-v2'
+      emailTemplateVersion:'android-beta-access-v3'
     });
     const currentStage=normalizeTimelineStage(t.timelineStage);
     const nextStage=timelineStageRank(currentStage)<timelineStageRank('inviteSent')?'inviteSent':currentStage;
     const sendCount=(Number(t.androidTestingInviteSendCount)||0)+1;
-    await updateDoc(doc(db,'betaUsers',t.uid),{
-      androidTestingInviteUrl:url,
-      androidTestingInviteSentAt:serverTimestamp(),
-      androidTestingInviteEmailStatus:'Sent',
-      androidTestingInviteSendCount:sendCount,
-      timelineStage:nextStage,
-      timelineUpdatedAt:serverTimestamp(),
-      updatedAt:serverTimestamp()
-    });
     const now=new Date();Object.assign(t,{androidTestingInviteUrl:url,androidTestingInviteSentAt:now,androidTestingInviteEmailStatus:'Sent',androidTestingInviteSendCount:sendCount,timelineStage:nextStage,timelineUpdatedAt:now,updatedAt:now});
     return {ok:true,tester:t};
   }catch(error){
