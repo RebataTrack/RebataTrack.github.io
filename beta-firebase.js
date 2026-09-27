@@ -68,37 +68,28 @@ if (form) {
         button.disabled = true;
         button.innerHTML = 'Submitting…';
       }
-      const id = await sha256Hex(email);
-      await setDoc(doc(db, 'betaApplications', id), {
-        fullName,
-        email,
-        platform,
-        status: 'Applied',
-        termsAccepted: true,
-        source: 'rebatatrack.github.io/beta.html',
-        notes: '',
-        portalAccess: 'Not Enabled',
-        testerUid: '',
-        submittedAt: serverTimestamp(),
-        lastUpdated: serverTimestamp(),
-        lastDecisionEmail: null
+      const endpoint = String(window.REBATIFY_BETA_SETTINGS?.emailWorkerUrl || '').trim();
+      if (!endpoint) throw new Error('The beta application service is not configured.');
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'beta-application-submit',
+          fullName,
+          email,
+          platform,
+          termsAccepted: true,
+          source: 'rebatatrack.github.io/beta.html'
+        })
       });
-
-      // Best-effort private notification to the RebataTrack owner. The application
-      // is already safely stored before this runs, so an email-delivery issue
-      // never causes the applicant to see a failed submission.
-      try {
-        const endpoint = String(window.REBATIFY_BETA_SETTINGS?.emailWorkerUrl || '').trim();
-        if (endpoint) {
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'beta-application-submitted', applicationId: id })
-          });
-          if (!response.ok) console.warn('Beta application owner notification could not be sent.', await response.text().catch(() => ''));
-        }
-      } catch (notifyError) {
-        console.warn('Beta application owner notification failed.', notifyError);
+      const result = await response.json().catch(() => ({}));
+      if (response.status === 409 || result?.code === 'APPLICATION_EXISTS') {
+        const duplicateError = new Error(result?.error || 'An active beta application already exists for this email.');
+        duplicateError.code = 'application-exists';
+        throw duplicateError;
+      }
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.error || 'The beta application service could not complete this request.');
       }
 
       form.hidden = true;
@@ -108,8 +99,8 @@ if (form) {
       }
     } catch (error) {
       const code = String(error && error.code || '');
-      if (code === 'permission-denied') {
-        setMessage('An application for that email may already exist. If you believe this is an error, contact RebataTrack Support.', 'error');
+      if (code === 'application-exists') {
+        setMessage('An active application or beta profile already exists for that email. If you believe this is an error, contact RebataTrack Support.', 'error');
       } else {
         setMessage('We could not submit your application right now. ' + friendlyFirebaseError(error), 'error');
       }
