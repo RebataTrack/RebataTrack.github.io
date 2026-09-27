@@ -1,4 +1,4 @@
-// RebataTrack Website Build 141 dependency sync.
+// RebataTrack Website Build 142 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {auth,isAdminUser}=Core;
 const {onAuthStateChanged}=Compat;
-// RebataTrack Production Admin Console — Website Build 128
+// RebataTrack Production Admin Console — Website Build 142
 // Uses the signed-in Admin Portal Firebase session only as the administrator identity.
 // All privileged production reads/writes go through the Production Admin Worker.
 // No production service-account secret is ever present in browser code.
@@ -229,7 +229,8 @@ function userMatchesFilter(u,filter){
 async function bulkDeleteProductionUsers(){
   const uids=[...state.selectedProductionUsers];
   if(!uids.length)return;
-  const names=uids.map(uid=>{const u=state.users.find(u=>u.uid===uid);return u?.email||u?.name||shortId(uid);});
+  const selectedUsers=uids.map(uid=>state.users.find(user=>user.uid===uid)).filter(Boolean);
+  const names=selectedUsers.map(user=>user.email||user.name||shortId(user.uid));
   const preview=names.slice(0,3).join(', ')+(names.length>3?` and ${names.length-3} more`:'');
   const confirmed=await confirmAction(
     `Permanently delete ${uids.length} production account${uids.length===1?'':'s'}?`,
@@ -239,25 +240,48 @@ async function bulkDeleteProductionUsers(){
   const reason=prompt('Enter a reason for this bulk deletion (required):','Bulk delete via admin portal');
   if(!reason||!reason.trim()){showProdToast('A reason is required.','error');return;}
   const btn=$('productionBulkDelete');
-  if(btn){btn.disabled=true;btn.textContent='Deleting…';}
+  if(btn){btn.disabled=true;btn.textContent=`Deleting 0 of ${uids.length}…`;}
+  const results=[];
   try{
-    const result=await callProduction('users-delete-bulk',{
-      uids,
-      reason:reason.trim(),
-      confirmation:`DELETE ${uids.length} ACCOUNTS`
-    });
-    const deletedUids=new Set((result.results||[]).filter(x=>x.deleted).map(x=>x.uid));
-    state.users=state.users.filter(u=>!deletedUids.has(u.uid));
+    for(let index=0;index<uids.length;index+=1){
+      const uid=uids[index];
+      const user=state.users.find(item=>item.uid===uid);
+      const email=String(user?.email||'').trim().toLowerCase();
+      if(btn)btn.textContent=`Deleting ${index+1} of ${uids.length}…`;
+      if(!email){
+        results.push({uid,deleted:false,error:'This production user does not have an email address available for secure deletion confirmation.'});
+        continue;
+      }
+      try{
+        const result=await callProduction('user-delete',{
+          uid,
+          reason:reason.trim(),
+          confirmation:`DELETE ${email}`
+        });
+        results.push({uid,deleted:result.deleted===true,error:''});
+      }catch(error){
+        results.push({uid,deleted:false,error:error?.message||'Deletion failed.'});
+      }
+    }
+    const deletedUids=new Set(results.filter(result=>result.deleted).map(result=>result.uid));
+    state.users=state.users.filter(user=>!deletedUids.has(user.uid));
     deletedUids.forEach(uid=>state.selectedProductionUsers.delete(uid));
     renderUsers();
     updateProductionSelectionBar();
     state.overview=null;state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
     await Promise.all([loadOverview(true),loadAccess(true),loadAudit(true)]);
-    const deleted=Number(result.deletedCount||deletedUids.size),failed=Number(result.failedCount||0);
-    if(failed)showProdToast(`${deleted} deleted, ${failed} failed. ${(result.results||[]).find(x=>!x.deleted)?.error||''}`.trim(),'error');
-    else showProdToast(`${deleted} production account${deleted===1?'':'s'} permanently deleted.`,'success');
-  }catch(err){showProdToast(err.message||'Bulk deletion failed.','error');}
-  finally{updateProductionSelectionBar();}
+    const deleted=deletedUids.size;
+    const failures=results.filter(result=>!result.deleted);
+    if(failures.length){
+      showProdToast(`${deleted} deleted, ${failures.length} failed. ${failures[0].error}`,'error');
+    }else{
+      showProdToast(`${deleted} production account${deleted===1?'':'s'} permanently deleted.`,'success');
+    }
+  }catch(err){
+    showProdToast(err.message||'Bulk deletion failed.','error');
+  }finally{
+    updateProductionSelectionBar();
+  }
 }
 function updateProductionSelectionBar(){
   const sel=state.selectedProductionUsers;
