@@ -1,3 +1,4 @@
+// RebataTrack Website Build 140 dependency sync.
 import { initializeApp, getApps } from './firebase-compat-shim.js?v=127';
 import {
   getAuth,
@@ -13,7 +14,7 @@ const missing = required.filter(k => !String(config[k] || '').trim());
 
 export const firebaseConfigured = missing.length === 0;
 export const firebaseMissingFields = missing;
-export const adminEmail = String(settings.adminEmail || 'app.rebatatrack@yahoo.com').trim().toLowerCase();
+export const adminEmail = String(settings.adminEmail || 'support.rebatatrack@gmail.com').trim().toLowerCase();
 export const adminEmails = [...new Set([
   adminEmail,
   ...(Array.isArray(settings.adminEmails) ? settings.adminEmails : [])

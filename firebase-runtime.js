@@ -1,3 +1,4 @@
+// RebataTrack Website Build 140 dependency sync.
 // RebataTrack Website Build 128 - classic Firebase runtime bridge.
 // This deliberately avoids ES-module imports on GitHub Pages. The page loads the
 // Firebase compat SDK first, then this file exposes the exact helpers used by the
@@ -82,7 +83,7 @@
     var required=['apiKey','authDomain','projectId','appId'];
     var missing=required.filter(function(k){ return !String(config[k]||'').trim(); });
     var firebaseConfigured=missing.length===0;
-    var adminEmail=String(settings.adminEmail||'app.rebatatrack@yahoo.com').trim().toLowerCase();
+    var adminEmail=String(settings.adminEmail||'support.rebatatrack@gmail.com').trim().toLowerCase();
     var adminEmails=Array.from(new Set([adminEmail].concat(Array.isArray(settings.adminEmails)?settings.adminEmails:[]).map(function(v){return String(v||'').trim().toLowerCase();}).filter(Boolean)));
     var emailAutomationEnabled=settings.emailAutomationEnabled===true;
     var testerPortalUrl=String(settings.testerPortalUrl||'https://rebatatrack.github.io/beta-login.html').trim();

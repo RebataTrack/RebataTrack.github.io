@@ -1,3 +1,4 @@
+// RebataTrack Website Build 140 dependency sync.
 // RebataTrack Website Build 127 Firebase compatibility bridge.
 // Uses the classic Firebase compat SDK loaded by the page and exposes the
 // modular-style helpers used by the existing Beta/Admin source files.
