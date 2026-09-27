@@ -2380,3 +2380,5 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-bulk-delete-testers{min-height:44px;padding:10px 16px;border-radius:12px;align-self:end}
 .admin-bulk-delete-testers:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:700px){.beta-application-status-card{padding:28px 20px}.portal-timeline-heading-blue{padding:18px 18px;border-radius:20px}.admin-bulk-delete-testers{width:100%}}
+
+.portal-approved-login-notice{margin:18px 0 4px;background:#edf8f0!important;border:1px solid #b9dec1!important;color:#245f31!important;font-weight:800;line-height:1.55}

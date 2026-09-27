@@ -81,7 +81,15 @@ if (form) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.ok !== true) {
         if (data.code === 'APPLICATION_EXISTS') {
-          window.location.assign('beta-application-status.html?status=applied');
+          const existingStatus = String(data.existingStatus || 'Applied');
+          if (data.portalAccess === true || ['Approved','Active'].includes(existingStatus)) {
+            try { sessionStorage.setItem('rebatatrackBetaApprovedEmail', email); } catch (_) {}
+            const loginStatus = existingStatus === 'Active' ? 'active' : 'approved';
+            window.location.assign(`beta-login.html?status=${encodeURIComponent(loginStatus)}`);
+          } else {
+            const status = existingStatus === 'Waitlist' ? 'waitlist' : 'applied';
+            window.location.assign(`beta-application-status.html?status=${encodeURIComponent(status)}`);
+          }
           return;
         }
         throw new Error(data.error || 'The Beta application service could not complete this request.');
