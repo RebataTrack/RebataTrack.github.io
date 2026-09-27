@@ -1,4 +1,4 @@
-// RebataTrack Website Build 142 dependency sync.
+// RebataTrack Website Build 143 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {auth,isAdminUser}=Core;
 const {onAuthStateChanged}=Compat;
-// RebataTrack Production Admin Console — Website Build 142
+// RebataTrack Production Admin Console — Website Build 143
 // Uses the signed-in Admin Portal Firebase session only as the administrator identity.
 // All privileged production reads/writes go through the Production Admin Worker.
 // No production service-account secret is ever present in browser code.
@@ -226,23 +226,53 @@ function userMatchesFilter(u,filter){
   if(filter==='expired')return !u.premiumActive&&!u.adminPremiumGrantActive&&!u.reviewAccessActive&&!u.trialActive&&!u.trialOverrideActive;
   return true;
 }
+function confirmProductionBulkDelete(count, preview){
+  return new Promise(resolve=>{
+    const back=$('adminConfirmBackdrop');
+    const msg=$('adminConfirmMessage');
+    const icon=$('adminConfirmIcon');
+    const ok=$('adminConfirmOk');
+    const cancel=$('adminConfirmCancel');
+    if(!back||!msg||!icon||!ok||!cancel){
+      resolve(window.confirm(`Permanently delete ${count} production account${count===1?'':'s'}?\n\n${preview}\n\nFirebase Authentication, profile data, and orders will be permanently removed. Device trial history and the Admin audit log are retained. This cannot be undone.`));
+      return;
+    }
+    msg.textContent=`Permanently delete ${count} production account${count===1?'':'s'}? ${preview} Firebase Authentication, profile data, and orders will be permanently removed. Device trial history and the Admin audit log are retained. This cannot be undone.`;
+    icon.textContent='!';
+    icon.className='admin-confirm-icon danger';
+    ok.textContent='Delete Selected';
+    ok.className='admin-primary-button admin-confirm-danger';
+    back.hidden=false;
+    function done(value){
+      back.hidden=true;
+      ok.removeEventListener('click',yes);
+      cancel.removeEventListener('click',no);
+      back.removeEventListener('click',outside);
+      resolve(value);
+    }
+    function yes(){done(true);}
+    function no(){done(false);}
+    function outside(event){if(event.target===back)done(false);}
+    ok.addEventListener('click',yes);
+    cancel.addEventListener('click',no);
+    back.addEventListener('click',outside);
+  });
+}
+
 async function bulkDeleteProductionUsers(){
-  const uids=[...state.selectedProductionUsers];
-  if(!uids.length)return;
-  const selectedUsers=uids.map(uid=>state.users.find(user=>user.uid===uid)).filter(Boolean);
-  const names=selectedUsers.map(user=>user.email||user.name||shortId(user.uid));
-  const preview=names.slice(0,3).join(', ')+(names.length>3?` and ${names.length-3} more`:'');
-  const confirmed=await confirmAction(
-    `Permanently delete ${uids.length} production account${uids.length===1?'':'s'}?`,
-    `This will delete: ${preview}. Firebase Authentication, profile data, and all orders will be permanently removed. Device trial history and the audit log are kept. This cannot be undone.`
-  );
-  if(!confirmed)return;
-  const reason=prompt('Enter a reason for this bulk deletion (required):','Bulk delete via admin portal');
-  if(!reason||!reason.trim()){showProdToast('A reason is required.','error');return;}
   const btn=$('productionBulkDelete');
-  if(btn){btn.disabled=true;btn.textContent=`Deleting 0 of ${uids.length}…`;}
-  const results=[];
   try{
+    const uids=[...state.selectedProductionUsers];
+    if(!uids.length){showProdToast('Select at least one production account first.','error');return;}
+    const selectedUsers=uids.map(uid=>state.users.find(user=>user.uid===uid)).filter(Boolean);
+    const names=selectedUsers.map(user=>user.email||user.name||shortId(user.uid));
+    const preview=names.slice(0,3).join(', ')+(names.length>3?` and ${names.length-3} more`:'.');
+    const confirmed=await confirmProductionBulkDelete(uids.length,preview);
+    if(!confirmed)return;
+    const reason=window.prompt('Enter a reason for this bulk deletion (required):','Bulk delete via admin portal');
+    if(!reason||!reason.trim()){showProdToast('A reason is required.','error');return;}
+    if(btn){btn.disabled=true;btn.textContent=`Deleting 0 of ${uids.length}…`;}
+    const results=[];
     for(let index=0;index<uids.length;index+=1){
       const uid=uids[index];
       const user=state.users.find(item=>item.uid===uid);
@@ -253,12 +283,8 @@ async function bulkDeleteProductionUsers(){
         continue;
       }
       try{
-        const result=await callProduction('user-delete',{
-          uid,
-          reason:reason.trim(),
-          confirmation:`DELETE ${email}`
-        });
-        results.push({uid,deleted:result.deleted===true,error:''});
+        const result=await callProduction('user-delete',{uid,reason:reason.trim(),confirmation:`DELETE ${email}`});
+        results.push({uid,deleted:result.deleted===true,error:result.deleted===true?'':'The Worker did not confirm deletion.'});
       }catch(error){
         results.push({uid,deleted:false,error:error?.message||'Deletion failed.'});
       }
@@ -268,7 +294,8 @@ async function bulkDeleteProductionUsers(){
     deletedUids.forEach(uid=>state.selectedProductionUsers.delete(uid));
     renderUsers();
     updateProductionSelectionBar();
-    state.overview=null;state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
+    state.overview=null;
+    state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
     await Promise.all([loadOverview(true),loadAccess(true),loadAudit(true)]);
     const deleted=deletedUids.size;
     const failures=results.filter(result=>!result.deleted);
@@ -277,8 +304,9 @@ async function bulkDeleteProductionUsers(){
     }else{
       showProdToast(`${deleted} production account${deleted===1?'':'s'} permanently deleted.`,'success');
     }
-  }catch(err){
-    showProdToast(err.message||'Bulk deletion failed.','error');
+  }catch(error){
+    console.error('Production bulk delete failed:',error);
+    showProdToast(error?.message||'Bulk deletion could not start.','error');
   }finally{
     updateProductionSelectionBar();
   }
