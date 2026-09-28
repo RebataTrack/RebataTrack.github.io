@@ -58,6 +58,15 @@ let applicationsRealtimeReady = false;
 let feedbackRealtimeReady = false;
 const MAX_ADMIN_NOTIFICATIONS = 20;
 
+function setBetaConnectionUI(connected){
+  window.__REBATA_BETA_CONNECTED=!!connected;
+  const chip=document.getElementById('adminLiveChip');
+  if(!chip)return;
+  chip.innerHTML=`<span aria-hidden="true"></span>${connected?'Beta connected':'Beta disconnected'}`;
+  chip.classList.toggle('admin-live-online',!!connected);
+  chip.classList.toggle('admin-live-offline',!connected);
+}
+
 
 function openEmailChangeModal(applicationId,currentEmail,prefillEmail=''){
   emailChangeApplicationId=applicationId||null;
@@ -152,7 +161,8 @@ function startApplicationsRealtimeAdmin(){
       });
     }
     applicationsRealtimeReady=true;
-  },error=>console.error('Realtime admin application listener failed:',error));
+    setBetaConnectionUI(true);
+  },error=>{setBetaConnectionUI(false);console.error('Realtime admin application listener failed:',error);});
 }
 
 const TIMELINE_STAGES = ['approved','setupComplete','inviteSent','activeTesting'];
@@ -527,7 +537,8 @@ function startFeedbackRealtimeAdmin(){
       });
     }
     feedbackRealtimeReady=true;
-  },error=>console.error('Realtime admin Help & Feedback listener failed:',error));
+    setBetaConnectionUI(true);
+  },error=>{setBetaConnectionUI(false);console.error('Realtime admin Help & Feedback listener failed:',error);});
 }
 
 async function loadTasks(force=false){
@@ -1105,7 +1116,7 @@ function applicationActionButtons(a){
   return buttons.join('');
 }
 function openApplicationRecord(a){
-  openDrawer('Beta Application',a.fullName,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-status-pill ${statusClass(a.status)}">${esc(a.status)}</span><span class="admin-platform-pill">${esc(a.platform)}</span></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(a.email)}</strong></div><div><span>Submitted</span><strong>${esc(formatDate(a.submittedAt))}</strong></div><div><span>Terms</span><strong>${a.termsAccepted?'Accepted':'—'}</strong></div><div><span>Portal Access</span><strong>${esc(a.portalAccess||'Not Enabled')}</strong></div><div><span>Last Updated</span><strong>${esc(formatDate(a.lastUpdated))}</strong></div><div><span>Invite Email</span><strong>${esc(formatDate(a.inviteEmailSentAt||a.lastDecisionEmail))}</strong></div><div><span>Email Delivery</span><strong><span class="admin-email-status ${esc(String(a.inviteEmailStatus||'').toLowerCase())}">${esc(a.inviteEmailStatus||'Not sent')}</span></strong></div></div><div><label class="admin-detail-label" for="drawerApplicantNotes">Private admin notes</label><textarea id="drawerApplicantNotes" class="admin-detail-textarea" placeholder="Notes only administrators can see">${esc(a.notes||'')}</textarea><button class="admin-primary-button admin-save-notes" data-save-app-notes="${esc(a.id)}" type="button">Save Notes</button></div><div class="admin-drawer-actions">${applicationActionButtons(a)}</div></div>`);
+  openDrawer('Beta Application',a.fullName,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-status-pill ${statusClass(a.status)}">${esc(a.status)}</span><span class="admin-platform-pill">${esc(a.platform)}</span></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(a.email)}</strong></div><div><span>Submitted</span><strong>${esc(formatDate(a.submittedAt))}</strong></div><div><span>Terms</span><strong>${a.termsAccepted?'Accepted':'—'}</strong></div><div><span>Rebater Level</span><strong>${esc(a.rebaterLevel||'Not provided')}</strong></div><div><span>Portal Access</span><strong>${esc(a.portalAccess||'Not Enabled')}</strong></div><div><span>Last Updated</span><strong>${esc(formatDate(a.lastUpdated))}</strong></div><div><span>Invite Email</span><strong>${esc(formatDate(a.inviteEmailSentAt||a.lastDecisionEmail))}</strong></div><div><span>Email Delivery</span><strong><span class="admin-email-status ${esc(String(a.inviteEmailStatus||'').toLowerCase())}">${esc(a.inviteEmailStatus||'Not sent')}</span></strong></div></div><div><label class="admin-detail-label" for="drawerApplicantNotes">Private admin notes</label><textarea id="drawerApplicantNotes" class="admin-detail-textarea" placeholder="Notes only administrators can see">${esc(a.notes||'')}</textarea><button class="admin-primary-button admin-save-notes" data-save-app-notes="${esc(a.id)}" type="button">Save Notes</button></div><div class="admin-drawer-actions">${applicationActionButtons(a)}</div></div>`);
 }
 function openTesterRecord(t){
   const normalizedEmail=String(t.email||'').trim().toLowerCase();
@@ -1386,16 +1397,19 @@ async function init(user){
   try{
     await loadEmailServiceSettings();
     await withTimeout(loadOverview(), 12000, 'Dashboard data');
+    setBetaConnectionUI(true);
   }catch(error){
     const detail = error && error.code === 'rebatify/timeout'
       ? 'Firebase Authentication succeeded, but Firestore did not respond within 12 seconds. Check that the Firestore database exists and the RebataTrack security rules are published.'
       : friendlyFirebaseError(error);
+    setBetaConnectionUI(false);
     showToast('Admin opened, but dashboard data could not load. ' + detail, 'error');
     console.error('RebataTrack admin overview load failed:', error);
   }
 }
 
 if(!firebaseConfigured){
+  setBetaConnectionUI(false);
   window.__REBATIFY_ADMIN_BOOT.authResolved = true;
   showFatal('The RebataTrack Beta Program data service has not been configured yet.','Missing: '+firebaseMissingFields.join(', '));
 }else{

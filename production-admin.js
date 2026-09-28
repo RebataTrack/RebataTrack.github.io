@@ -73,7 +73,7 @@ function setConnectionUI(connected, label=''){
   });
   const live=$('adminLiveChip');
   if(state.scope==='production'&&live){
-    live.innerHTML=connected?' Production connected':' Production offline';
+    live.innerHTML=`<span aria-hidden="true"></span>${connected?'Production connected':'Production disconnected'}`;
     live.classList.toggle('admin-live-online',!!connected);
     live.classList.toggle('admin-live-offline',!connected);
   }
@@ -119,9 +119,10 @@ function setScope(scope){
     const active=document.querySelector('[data-admin-view].is-active');
     if($('adminViewTitle'))$('adminViewTitle').textContent=active?.innerText?.trim()||'Overview';
     if($('adminLiveChip')){
-      $('adminLiveChip').innerHTML=' Live updates';
-      $('adminLiveChip').classList.add('admin-live-online');
-      $('adminLiveChip').classList.remove('admin-live-offline');
+      const betaConnected=window.__REBATA_BETA_CONNECTED===true;
+      $('adminLiveChip').innerHTML=`<span aria-hidden="true"></span>${betaConnected?'Beta connected':'Beta disconnected'}`;
+      $('adminLiveChip').classList.toggle('admin-live-online',betaConnected);
+      $('adminLiveChip').classList.toggle('admin-live-offline',!betaConnected);
     }
   }else{
     const label=document.querySelector(`[data-production-view="${state.view}"] span:nth-child(2)`)?.textContent||'Overview';

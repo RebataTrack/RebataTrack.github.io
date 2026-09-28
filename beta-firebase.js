@@ -55,11 +55,12 @@ if (form) {
     const fullName = String(data.get('fullName') || '').trim();
     const email = String(data.get('email') || '').trim().toLowerCase();
     const platform = String(data.get('platform') || '').trim();
+    const rebaterLevel = String(data.get('rebaterLevel') || '').trim();
     const termsAccepted = data.get('termsAccepted') === 'yes';
     const button = form.querySelector('.beta-submit');
     const original = button ? button.innerHTML : '';
 
-    if (!fullName || !email || !['iOS','Android'].includes(platform) || !termsAccepted) {
+    if (!fullName || !email || !['iOS','Android'].includes(platform) || !['Low Volume','Medium Volume','High Volume','Power User'].includes(rebaterLevel) || !termsAccepted) {
       setMessage('Please complete all required fields and acknowledge the beta terms.', 'error');
       return;
     }
@@ -75,7 +76,7 @@ if (form) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'beta-application-submit',
-          fullName, email, platform, termsAccepted: true,
+          fullName, email, platform, rebaterLevel, termsAccepted: true,
           source: 'rebatatrack.github.io/beta.html'
         })
       });
