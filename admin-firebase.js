@@ -608,14 +608,18 @@ function renderMetrics(){
   document.getElementById('androidBar').style.width=(total?Math.round(Number(m.android||0)/total*100):0)+'%';
 }
 function renderOverview(){
-  const apps=state.recentApplications||[];const c=document.getElementById('overviewApplications');
+  const apps=(state.recentApplications||[]).filter(a=>String(a.status||'')!=='Removed');const c=document.getElementById('overviewApplications');
   c.innerHTML=apps.length?apps.map(a=>`<button type="button" class="admin-recent-row" data-open-app="${esc(a.id)}"><span class="admin-person-dot">${esc((a.fullName||'?').slice(0,1).toUpperCase())}</span><span><strong>${esc(a.fullName)}</strong><small>${esc(a.platform)} · ${relativeDate(a.submittedAt)}</small></span><span class="admin-status-pill ${statusClass(a.status)}">${esc(a.status)}</span></button>`).join(''):'<div class="admin-empty-inline">No applications yet.</div>';
   const fb=state.recentFeedback||[];const fbc=document.getElementById('overviewFeedback');
   fbc.innerHTML=fb.length?fb.map(f=>`<button class="admin-feedback-preview" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-preview-copy"><strong>${esc(f.subject)}</strong><small>${esc(f.name)} · ${esc(f.type)} · ${relativeDate(f.submittedAt)}</small></span><span class="admin-status-pill ${statusClass(f.status)}">${esc(f.status)}</span></button>`).join(''):'<div class="admin-empty-inline">No tester feedback yet.</div>';
 }
 function applicationFiltered(){
   const q=document.getElementById('applicationSearch').value.trim().toLowerCase();const status=document.getElementById('applicationStatusFilter').value;const platform=document.getElementById('applicationPlatformFilter').value;
-  return state.applications.filter(a=>(!q||((a.fullName||'')+' '+(a.email||'')).toLowerCase().includes(q))&&(!status||a.status===status)&&(!platform||a.platform===platform));
+  return state.applications.filter(a=>{
+    const removed=String(a.status||'')==='Removed';
+    if(!status&&removed)return false;
+    return (!q||((a.fullName||'')+' '+(a.email||'')).toLowerCase().includes(q))&&(!status||a.status===status)&&(!platform||a.platform===platform);
+  });
 }
 function renderApplications(){
   const data=applicationFiltered();const body=document.getElementById('applicationsTableBody');
@@ -1320,13 +1324,48 @@ async function statusAction(a,newStatus,portalAccess){
   return runApplicationAdminAction(a,action);
 }
 async function resendInvite(a){return runApplicationAdminAction(a,'resend');}
+
+async function markLinkedApplicationsRemoved(t){
+  const uid=String(t?.uid||'').trim();
+  const email=String(t?.email||'').trim().toLowerCase();
+  const matches=new Map();
+  if(uid){
+    const byUid=await getDocs(query(collection(db,'betaApplications'),where('testerUid','==',uid),limit(100)));
+    byUid.docs.forEach(d=>matches.set(d.id,d));
+  }
+  if(email){
+    const byEmail=await getDocs(query(collection(db,'betaApplications'),where('email','==',email),limit(100)));
+    byEmail.docs.forEach(d=>matches.set(d.id,d));
+  }
+  if(!matches.size)return 0;
+  const batch=writeBatch(db);
+  matches.forEach(d=>{
+    batch.update(d.ref,{
+      status:'Removed',
+      portalAccess:'Disabled',
+      removedAt:serverTimestamp(),
+      lastUpdated:serverTimestamp()
+    });
+  });
+  await batch.commit();
+  return matches.size;
+}
+
 async function deleteTesterOnly(t){
   const result=await callWorkerAdminAction('admin-delete-tester',{email:String(t.email||'').trim().toLowerCase(),uid:t.uid||''});
-  state.loaded.testers=false;state.loaded.tasks=false;
-  await Promise.all([loadTesters(true),loadTasks(true)]);
+  let applicationsRemoved=0;
+  try{
+    applicationsRemoved=await markLinkedApplicationsRemoved(t);
+  }catch(error){
+    console.error('Tester deleted but linked application archival failed:',error);
+    throw new Error('The tester was deleted, but the linked beta application could not be marked Removed. Refresh the Applications page and try the cleanup again.');
+  }
+  state.loaded.testers=false;state.loaded.tasks=false;state.loaded.applications=false;
+  await Promise.all([loadTesters(true),loadTasks(true),loadApplications(true)]);
   await loadOverview();
   if(activeView==='testers')renderTesters();
-  return result;
+  if(activeView==='applications')renderApplications();
+  return {...result,applicationsRemoved};
 }
 
 async function bulkDeleteSelectedTesters(){
@@ -1334,16 +1373,25 @@ async function bulkDeleteSelectedTesters(){
   if(!selected.length)throw new Error('Select at least one tester to delete.');
   const names=selected.slice(0,4).map(t=>t.name||t.email||'Tester').join(', ');
   const more=selected.length>4?` and ${selected.length-4} more`:'';
-  const message=`Permanently delete ${selected.length} selected tester${selected.length===1?'':'s'}? This removes each selected tester portal record and Firebase Authentication login, including matching tester records tied to the same email. This cannot be undone. Selected: ${names}${more}.`;
+  const message=`Permanently delete ${selected.length} selected tester${selected.length===1?'':'s'}? Their Beta Portal records and Firebase Authentication logins will be removed. Linked applications will be kept for history, changed to Removed, and hidden from the normal Applications view. This cannot be undone. Selected: ${names}${more}.`;
   if(!(await confirmAction(message,'danger')))return {cancelled:true,deleted:0,failed:0};
   const result=await callWorkerAdminAction('admin-delete-testers',{testers:selected.map(t=>({email:String(t.email||'').trim().toLowerCase(),uid:t.uid||''}))});
   const deleted=Number(result.deleted||0),failed=Number(result.failed||0),errors=Array.isArray(result.errors)?result.errors:[];
+  state.loaded.testers=false;
+  await loadTesters(true);
+  let applicationsRemoved=0;
+  for(const t of selected){
+    const stillExists=state.testers.some(x=>x.uid===t.uid||String(x.email||'').trim().toLowerCase()===String(t.email||'').trim().toLowerCase());
+    if(stillExists)continue;
+    try{applicationsRemoved+=await markLinkedApplicationsRemoved(t);}catch(error){errors.push(`${t.email||t.uid}: tester deleted, but linked application could not be marked Removed`);}
+  }
   selectedTimelineTesters.clear();
-  state.loaded.testers=false;state.loaded.tasks=false;state.loaded.applications=false;
-  await Promise.all([loadTesters(true),loadTasks(true),loadApplications(true)]);
+  state.loaded.tasks=false;state.loaded.applications=false;
+  await Promise.all([loadTasks(true),loadApplications(true)]);
   await loadOverview();
   if(activeView==='testers')renderTesters();
-  return {cancelled:false,deleted,failed,errors};
+  if(activeView==='applications')renderApplications();
+  return {cancelled:false,deleted,failed,errors,applicationsRemoved};
 }
 async function deleteApplication(a){return runApplicationAdminAction(a,'delete');}
 
@@ -1555,13 +1603,13 @@ document.addEventListener('click',async e=>{
     const uid=testerActionBtn.dataset.testerUid;
     const t=findTester(uid);
     if(task==='delete'&&t){
-      const confirmation='Permanently delete this tester portal record and Firebase Authentication login? This removes every tester record using '+String(t.email||'this email')+'.';
+      const confirmation='Permanently delete this tester portal record and Firebase Authentication login? This removes every tester record using '+String(t.email||'this email')+'. The linked beta application will be kept for history, changed to Removed, and hidden from the normal Applications view.';
       if(!(await confirmAction(confirmation,'danger')))return;
       testerActionBtn.disabled=true;
       try{
         await deleteTesterOnly(t);
         closeDrawer();
-        showToast('Tester portal record and login deleted.');
+        showToast('Tester deleted. Linked application marked Removed.');
         if(activeView==='testers'){await loadTesters(true);await loadTasks(true);renderTesters();}
       }catch(err){
         showToast(friendlyFirebaseError(err),'error');
