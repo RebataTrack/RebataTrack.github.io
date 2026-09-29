@@ -2400,3 +2400,9 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .beta-level-option input:checked+span{border-color:rgba(59,158,74,.45);background:rgba(59,158,74,.07);box-shadow:0 0 0 3px rgba(59,158,74,.08);color:#2F7E3B}
 .beta-level-option input:focus-visible+span{outline:2px solid rgba(33,113,181,.45);outline-offset:2px}
 @media(max-width:620px){.beta-rebater-level-options{grid-template-columns:1fr}}
+
+/* Website Build 148 — Beta Program YouTube launch-film presentation */
+.beta-hero-headline>span{display:block}
+.beta-video-card{margin:0 0 34px;padding:14px;border-radius:28px;background:rgba(251,252,255,.96);border:1px solid rgba(20,92,242,.12);box-shadow:0 18px 44px rgba(7,31,95,.10);overflow:hidden}
+.beta-video-card iframe{display:block;width:100%;aspect-ratio:16/9;border:0;border-radius:20px;background:#071f5f}
+@media(max-width:560px){.beta-video-card{margin-bottom:26px;padding:8px;border-radius:21px}.beta-video-card iframe{border-radius:15px}}
