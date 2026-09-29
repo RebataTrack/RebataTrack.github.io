@@ -475,7 +475,17 @@ function renderUserDrawer(data){
   const reviewText=reviewSources.length?`${reviewSources.length} active source${reviewSources.length===1?'':'s'} · ${reviewSources.map(x=>`${x.source||'App Review access'}${x.expiresAt?` · Until ${fmtExactDateTime(x.expiresAt)}`:' · Indefinite'}`).join(' + ')}`:'Not granted';
   const authEmail=data.auth?.email||u.email||'';
   const authStatus=data.auth?.disabled?'Disabled':'Active';
-  const deviceHtml=devices.length?devices.map(d=>`<div class="production-device-card"><div><strong>${esc(d.deviceName||d.deviceModel||'Device')}</strong><span>${esc(d.platform||'Device')} · ${esc(shortId(d.deviceId))}</span><span class="production-device-lastseen">Last login: ${d.lastSeenAt?esc(fmtDateTime(d.lastSeenAt)):'Not recorded'}</span></div><div class="production-device-tags">${d.isPrimary?'<span class="production-status green">Primary</span>':''}${d.isTrusted?'<span class="production-status blue">Trusted</span>':''}${d.isActive?'<span class="production-status">Active</span>':''}</div></div>`).join(''):'<div class="admin-empty-inline">No device records found.</div>';
+  const deviceHtml=devices.length?devices.map(d=>{
+    const normalTrialStatus=d.trialActive
+      ?`<span class="production-status blue">Normal Trial Active</span>`
+      :(d.trialStartedAt||d.trialExpiresAt?'<span class="production-status">Normal Trial Expired</span>':'<span class="production-status">No Normal Trial Record</span>');
+    const normalTrialDetail=d.trialExpiresAt
+      ?`${d.trialActive?'Normal trial expires':'Normal trial expired'}: ${esc(fmtExactDateTime(d.trialExpiresAt))}`
+      :(d.trialStartedAt?`Normal trial started: ${esc(fmtExactDateTime(d.trialStartedAt))}`:'Normal trial: Not recorded');
+    const adminTrialStatus=d.trialOverrideActive?'<span class="production-status green">Admin Trial Active</span>':'';
+    const adminTrialDetail=d.trialOverrideActive&&d.trialOverrideExpiresAt?`<span class="production-device-lastseen">Admin trial expires: ${esc(fmtExactDateTime(d.trialOverrideExpiresAt))}</span>`:'';
+    return `<div class="production-device-card"><div><strong>${esc(d.deviceName||d.deviceModel||'Device')}</strong><span>${esc(d.platform||'Device')} · ${esc(shortId(d.deviceId))}</span><span class="production-device-lastseen">${normalTrialDetail}</span>${d.trialStartedAt?`<span class="production-device-lastseen">Original trial started: ${esc(fmtExactDateTime(d.trialStartedAt))}</span>`:''}${adminTrialDetail}<span class="production-device-lastseen">Last login: ${d.lastSeenAt?esc(fmtDateTime(d.lastSeenAt)):'Not recorded'}</span></div><div class="production-device-tags">${normalTrialStatus}${adminTrialStatus}${d.isPrimary?'<span class="production-status green">Primary</span>':''}${d.isTrusted?'<span class="production-status blue">Trusted</span>':''}${d.isActive?'<span class="production-status">Active Device</span>':''}</div></div>`;
+  }).join(''):'<div class="admin-empty-inline">No device records found.</div>';
   const linkedMembers=(identity.members||[]).filter(m=>m.uid!==u.uid);
   const linkedHtml=linkedMembers.length?linkedMembers.map(m=>`<div class="production-linked-account-row"><button class="production-linked-account-open" data-production-user="${esc(m.uid)}" type="button"><strong>${esc(m.name||m.email||'RebataTrack user')}</strong><span>${esc(m.email||shortId(m.uid))} · Manual Admin relationship</span></button><button class="admin-text-button production-unlink-button" data-production-identity-unlink="${esc(m.uid)}" data-base-uid="${esc(u.uid)}" type="button">Unlink</button></div>`).join(''):'<div class="admin-empty-inline">No manual Admin links for this account.</div>';
   const deviceMatches=identity.deviceMatches||[];
