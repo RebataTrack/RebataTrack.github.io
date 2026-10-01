@@ -768,6 +768,10 @@ function testerInviteReadiness(t){
 }
 function testerReadinessHtml(t){
   const r=testerInviteReadiness(t);
+  if(r.key==='ready'){
+    const actionLabel=t.platform==='Android'?'Send Android Link':t.platform==='iOS'?'Send TestFlight':'Send Access';
+    return `<div class="admin-readiness-cell readiness-${esc(r.key)}"><button class="admin-readiness-action" type="button" data-send-ready-access="${esc(t.uid)}">${esc(actionLabel)}</button><small>${esc(r.detail)}</small></div>`;
+  }
   return `<div class="admin-readiness-cell readiness-${esc(r.key)}"><strong>${esc(r.label)}</strong><small>${esc(r.detail)}</small></div>`;
 }
 function timelineChipHtml(t){
@@ -811,8 +815,12 @@ async function sendTestingAccessSentNotification(t){
   return callWorkerAdminAction('portal-announcement',{email:String(t.email||'').toLowerCase(),name:t.name||'Tester',platform:t.platform||'',announcementTitle:copy.title,announcementMessage:copy.message,important:true,requiresAcknowledgement:false});
 }
 function androidInviteEligible(t){
-  if(!t||t.platform!=='Android'||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))return false;
-  return timelineStageRank(t.timelineStage)>=timelineStageRank('setupComplete')||!!timestampToDate(t.deviceSetupCompletedAt);
+  return !!t&&t.platform==='Android'&&testerInviteReadiness(t).key==='ready';
+}
+function selectEligibleAndroidInviteTesters(){
+  selectedTimelineTesters.clear();
+  testerFiltered().filter(androidInviteEligible).forEach(t=>selectedTimelineTesters.add(t.uid));
+  updateTimelineSelectionUI();
 }
 function androidInviteRecipientList(mode='selected'){
   if(mode==='all')return state.testers.filter(androidInviteEligible);
@@ -1706,6 +1714,22 @@ document.addEventListener('click',async e=>{
   const nav=e.target.closest('[data-admin-view]');if(nav){await switchView(nav.dataset.adminView);return;}
   const jump=e.target.closest('[data-jump-view]');if(jump){await switchView(jump.dataset.jumpView);return;}
   const appBtn=e.target.closest('[data-open-app]');if(appBtn){try{const a=await ensureApplicationLoaded(appBtn.dataset.openApp);if(a)openApplicationRecord(a);}catch(err){showToast('Could not open that application.','error');}return;}
+  const readyAccessBtn=e.target.closest('[data-send-ready-access]');if(readyAccessBtn){
+    const t=findTester(readyAccessBtn.dataset.sendReadyAccess);if(!t)return;
+    const readiness=testerInviteReadiness(t);if(readiness.key!=='ready'){showToast('This tester is no longer ready for testing access. Refresh and review their setup status.','error');renderTesters();return;}
+    const isAndroid=t.platform==='Android';
+    const prompt=isAndroid
+      ? `Send the Google Play beta-testing link and installation instructions to ${t.name||t.email||'this tester'}?`
+      : `Mark the TestFlight invitation as sent and notify ${t.name||t.email||'this tester'} that their iOS testing access is ready?`;
+    if(!(await confirmAction(prompt,'')))return;
+    const original=readyAccessBtn.textContent;readyAccessBtn.disabled=true;readyAccessBtn.textContent=isAndroid?'Sending Link…':'Updating…';
+    try{
+      const result=await setTesterTimelineStage(t,'inviteSent');
+      if(isAndroid)showToast(`Google Play link and instructions sent to ${t.name||t.email||'tester'}.`,'success');
+      else showToast(result.emailFailed?`TestFlight status updated, but the tester notification email could not be sent.${result.emailError?' '+result.emailError:''}`:`TestFlight marked as sent and the tester was notified.`,result.emailFailed?'error':'success');
+    }catch(err){showToast(friendlyFirebaseError(err),'error');readyAccessBtn.disabled=false;readyAccessBtn.textContent=original;}
+    return;
+  }
   const testerBtn=e.target.closest('[data-open-tester]');if(testerBtn){if(!state.loaded.applications)await loadApplications();if(!state.loaded.tasks)await loadTasks();if(!state.loaded.feedback)await loadFeedback();const t=findTester(testerBtn.dataset.openTester);if(t)openTesterRecord(t);return;}
   const taskOpenBtn=e.target.closest('[data-open-task]');if(taskOpenBtn){if(!state.loaded.tasks)await loadTasks();const t=findTask(taskOpenBtn.dataset.openTask);if(t)openTaskRecord(t);return;}
   const feedbackBtn=e.target.closest('[data-open-feedback]');if(feedbackBtn){try{const f=await ensureFeedbackLoaded(feedbackBtn.dataset.openFeedback);if(f)openFeedbackRecord(f);}catch(err){showToast('Could not open that feedback.','error');}return;}
@@ -1896,7 +1920,7 @@ const timelineSelectIOS=document.getElementById('timelineSelectIOS');if(timeline
 const timelineSelectAndroid=document.getElementById('timelineSelectAndroid');if(timelineSelectAndroid)timelineSelectAndroid.addEventListener('click',()=>selectTimelineTesters('Android'));
 const timelineClearSelection=document.getElementById('timelineClearSelection');if(timelineClearSelection)timelineClearSelection.addEventListener('click',()=>{selectedTimelineTesters.clear();updateTimelineSelectionUI();});
 const androidInviteSave=document.getElementById('androidInviteSave');if(androidInviteSave)androidInviteSave.addEventListener('click',async()=>{const original=androidInviteSave.textContent;androidInviteSave.disabled=true;androidInviteSave.textContent='Saving…';try{await saveAndroidTestingInviteSettings();showToast('Google Play beta-testing link saved.');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{androidInviteSave.disabled=false;androidInviteSave.textContent=original;}});
-const androidInviteSelectAll=document.getElementById('androidInviteSelectAll');if(androidInviteSelectAll)androidInviteSelectAll.addEventListener('click',()=>selectTimelineTesters('Android'));
+const androidInviteSelectAll=document.getElementById('androidInviteSelectAll');if(androidInviteSelectAll)androidInviteSelectAll.addEventListener('click',selectEligibleAndroidInviteTesters);
 const androidInviteClearSelection=document.getElementById('androidInviteClearSelection');if(androidInviteClearSelection)androidInviteClearSelection.addEventListener('click',()=>{selectedTimelineTesters.clear();updateTimelineSelectionUI();});
 const androidInviteSendSelected=document.getElementById('androidInviteSendSelected');if(androidInviteSendSelected)androidInviteSendSelected.addEventListener('click',async()=>{const recipients=androidInviteRecipientList('selected');if(!recipients.length){showToast('Select at least one eligible Android tester who has completed Testing Setup.','error');return;}if(!(await confirmAction(`Send the Google Play beta-testing link and full installation instructions to ${recipients.length} selected Android tester${recipients.length===1?'':'s'}?`,'')))return;const original=androidInviteSendSelected.textContent;androidInviteSendSelected.disabled=true;androidInviteSendSelected.textContent='Sending…';try{const url=await resolveAndroidInviteUrlForSend();const result=await sendAndroidTestingInvites(recipients,url);selectedTimelineTesters.clear();updateTimelineSelectionUI();showToast(result.failed?`${result.sent} Android link${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Google Play link and instructions sent to ${result.sent} Android tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{androidInviteSendSelected.disabled=false;androidInviteSendSelected.textContent=original;}});
 const androidInviteSendAll=document.getElementById('androidInviteSendAll');if(androidInviteSendAll)androidInviteSendAll.addEventListener('click',async()=>{const recipients=androidInviteRecipientList('all');if(!recipients.length){showToast('There are no eligible Android testers who have completed Testing Setup.','error');return;}if(!(await confirmAction(`Send the Google Play beta-testing link and full installation instructions to all ${recipients.length} eligible Android tester${recipients.length===1?'':'s'}?`,'')))return;const original=androidInviteSendAll.textContent;androidInviteSendAll.disabled=true;androidInviteSendAll.textContent='Sending to All…';try{const url=await resolveAndroidInviteUrlForSend();const result=await sendAndroidTestingInvites(recipients,url);showToast(result.failed?`${result.sent} Android link${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Google Play link and instructions sent to all ${result.sent} eligible Android tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{androidInviteSendAll.disabled=false;androidInviteSendAll.textContent=original;}});
