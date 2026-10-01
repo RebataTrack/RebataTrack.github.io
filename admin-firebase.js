@@ -768,9 +768,9 @@ function timelineChipHtml(t){
 function betaMappingHtml(t){
   const key=String(t.email||'').trim().toLowerCase();
   const m=betaProductionMapping.get(key);
-  if(!m)return '<div class="admin-readiness-cell readiness-needsSetup"><strong>Awaiting App Account</strong><small>Tester must create RebataTrack with this exact Beta email.</small></div>';
-  if(m.betaTrialActive)return `<div class="admin-readiness-cell readiness-ready"><strong>Beta Trial Granted</strong><small>${esc(m.expiresAt?('Through '+formatDate(m.expiresAt)):'Production account matched')}</small></div>`;
-  return `<div class="admin-readiness-cell readiness-sent"><strong>Matched to Production</strong><small>${esc(m.productionEmail||key)}</small></div>`;
+  if(!m||m.matched!==true)return `<div class="admin-readiness-cell readiness-notEligible"><strong>Awaiting Production Account</strong><small>${esc(key||'Tester must create RebataTrack with this exact Beta email.')}</small></div>`;
+  if(m.betaTrialActive)return `<div class="admin-readiness-cell readiness-ready"><strong>Beta Trial Granted</strong><small>${esc(m.expiresAt?('Through '+formatDate(m.expiresAt)):(m.productionEmail||key))}</small></div>`;
+  return `<div class="admin-readiness-cell readiness-ready"><strong>Matched to Production</strong><small>${esc(m.productionEmail||key)}</small></div>`;
 }
 function renderTesters(){
   const data=testerFiltered();const body=document.getElementById('testersTableBody');
