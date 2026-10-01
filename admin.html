@@ -131,6 +131,16 @@
 <article><span>Android Links Sent</span><strong id="testerAndroidLinksSent">0</strong><small>Google Play beta-testing links successfully sent</small></article>
 </div>
 <div class="admin-activity-policy"><strong>Automatic inactivity flagging:</strong> testers are marked <b>Needs Attention</b> after 7 days and <b>Inactive</b> after 14 days without portal activity. Access is never disabled automatically by these activity flags.</div>
+
+<article class="admin-panel admin-beta-program-panel">
+<div class="admin-panel-heading"><div><span class="admin-section-kicker">Beta Program Access</span><h3>Production account mapping &amp; Beta trial</h3><p>Approved testers should create their RebataTrack app account with the exact same email address used for the Beta Program. Set the Beta Program end date here, then sync eligibility to Production so matching app accounts can receive the Beta Program Admin Trial automatically.</p></div><span class="admin-subtle-chip" id="betaProgramSyncStatus">Not synced</span></div>
+<div class="admin-android-invite-config">
+<div class="beta-field admin-android-invite-url-field"><label for="betaProgramEndDate">Beta Program end date</label><input id="betaProgramEndDate" type="date"><small class="portal-field-help">Beta Program Admin Trial access ends at the end of this date. The original device trial remains separate and untouched.</small></div>
+<button class="admin-primary-button" id="betaProgramSaveSync" type="button">Save &amp; Sync to Production</button>
+</div>
+<div class="admin-activity-policy"><strong>Email matching rule:</strong> the RebataTrack app account must use the tester's exact Beta Program email address. Matching is case-insensitive. A different app-account email will not receive the automatic Beta Program trial.</div>
+<div class="admin-connection-message" id="betaProgramSyncMessage" aria-live="polite"></div>
+</article>
 <article class="admin-panel admin-android-invite-panel">
 <div class="admin-panel-heading"><div><span class="admin-section-kicker">Android Distribution</span><h3>Google Play beta-testing invite</h3><p>Paste the Google Play beta-testing opt-in link once, then send it to one tester, a selected group, or all eligible Android testers. Successful sends automatically update each tester to <strong>Google Play Testing Link Sent</strong>.</p></div><span class="admin-subtle-chip admin-service-disconnected" id="androidInviteConfigStatus">Link not saved</span></div>
 <div class="admin-android-invite-config">
@@ -153,7 +163,7 @@
 <div class="admin-timeline-stage-guide"><strong>Timeline stages:</strong><span><b>Approved</b> → prepare device and wait for access</span><span><b>Testing Access Sent</b> → accept invitation/link, install RebataTrack, create app account</span><span><b>Active Testing</b> → ongoing workflows, required tasks, and feedback</span></div>
 </article>
 <div class="admin-toolbar"><div class="admin-search"><span><svg aria-hidden="true" viewbox="0 0 24 24"><circle cx="10.5" cy="10.5" fill="none" r="6.5" stroke="currentColor" stroke-width="2"></circle><path d="m15.5 15.5 4 4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path></svg></span><input id="testerSearch" placeholder="Search tester" type="search"/></div><select class="admin-filter" id="testerActivityFilter"><option value="">All activity</option><option>Active</option><option>Needs Attention</option><option>Inactive</option></select><select class="admin-filter" id="testerReadinessFilter"><option value="">All invite readiness</option><option value="ready">Ready for invite</option><option value="needsSetup">Not ready</option><option value="sent">Access already sent</option><option value="notEligible">Not eligible</option></select><select class="admin-filter" id="testerAccessFilter"><option value="">All access</option><option>Enabled</option><option>Disabled</option></select></div>
-<div class="admin-table-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Platform</th><th>Activity</th><th>Last Active</th><th>Scorecard</th><th>Build / Device</th><th>Invitation Readiness</th><th>Access</th><th>Timeline</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
+<div class="admin-table-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Platform</th><th>Activity</th><th>Last Active</th><th>Scorecard</th><th>Build / Device</th><th>Invitation Readiness</th><th>App Account Mapping</th><th>Access</th><th>Timeline</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
 </section>
 <section class="admin-view" data-admin-panel="tasks">
 <div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Missed required deadlines automatically remove beta access.</p></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
@@ -311,7 +321,7 @@ setTimeout(function(){
   }
 }, 12000);
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=150"></script><script src="production-admin.js?v=146"></script>
-<footer data-rebatatrack-website-build="150" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 150</footer>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=151"></script><script src="production-admin.js?v=151"></script>
+<footer data-rebatatrack-website-build="151" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 151</footer>
 </body>
 </html>

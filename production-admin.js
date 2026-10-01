@@ -697,6 +697,13 @@ onAuthStateChanged(auth,user=>{
   }
 });
 
+
+window.RebataTrackProductionAdminBridge={
+  call:(action,payload={})=>callProduction(action,payload),
+  isConnected:()=>!!state.connected,
+  endpoint:()=>endpoint()
+};
+window.dispatchEvent(new CustomEvent('rebatatrack-production-bridge-ready'));
 })().catch(function(error){
   console.error('RebataTrack page runtime failed:',error);
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}

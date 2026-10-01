@@ -35,6 +35,8 @@ function withTimeout(promise, ms, label){
 }
 let emailWorkerEndpoint = '';
 let androidTestingInviteUrl = '';
+let betaProgramEndDate = '';
+let betaProductionMapping = new Map();
 
 let state = {
   metrics: {},
@@ -531,6 +533,7 @@ async function loadTesters(force=false){
   state.testers=snap.docs.map(s=>({uid:s.id,...s.data()}));state.loaded.testers=true;
   try{await repairMissingAndroidInviteUrls(state.testers);}catch(error){console.warn('Could not repair missing Android testing links:',error);}
   renderTesters();
+  if(betaProgramEndDate&&window.RebataTrackProductionAdminBridge){refreshBetaProductionMapping().catch(error=>console.warn('Could not refresh Beta/Production mapping after tester load:',error));}
 }
 async function loadFeedback(force=false){
   if(state.loaded.feedback&&!force){renderFeedback();return;}
@@ -762,6 +765,13 @@ function timelineChipHtml(t){
   const androidStatus=androidSent?`<span class="admin-android-link-status sent">Google Play Link Sent</span><small>Sent ${esc(relativeDate(t.androidTestingInviteSentAt))}</small>`:(t.platform==='Android'?'<span class="admin-android-link-status pending">Google Play Link Not Sent</span>':'');
   return `<div class="admin-timeline-cell"><span class="admin-timeline-chip timeline-${esc(stage)}">${esc(timelineStageLabel(stage,t.platform))}</span>${t.timelineUpdatedAt?`<small>Updated ${esc(relativeDate(t.timelineUpdatedAt))}</small>`:''}${androidStatus}</div>`;
 }
+function betaMappingHtml(t){
+  const key=String(t.email||'').trim().toLowerCase();
+  const m=betaProductionMapping.get(key);
+  if(!m)return '<div class="admin-readiness-cell readiness-needsSetup"><strong>Awaiting App Account</strong><small>Tester must create RebataTrack with this exact Beta email.</small></div>';
+  if(m.betaTrialActive)return `<div class="admin-readiness-cell readiness-ready"><strong>Beta Trial Granted</strong><small>${esc(m.expiresAt?('Through '+formatDate(m.expiresAt)):'Production account matched')}</small></div>`;
+  return `<div class="admin-readiness-cell readiness-sent"><strong>Matched to Production</strong><small>${esc(m.productionEmail||key)}</small></div>`;
+}
 function renderTesters(){
   const data=testerFiltered();const body=document.getElementById('testersTableBody');
   body.innerHTML=data.map(t=>{
@@ -773,7 +783,7 @@ function renderTesters(){
     const inactiveText=activity.days===999?'No activity recorded':`${activity.days} day${activity.days===1?'':'s'} inactive`;
     const deviceLine=device||'Device not provided';
     const buildLine=build||'Build not provided';
-    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td>${testerReadinessHtml(t)}</td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
+    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td>${testerReadinessHtml(t)}</td><td>${betaMappingHtml(t)}</td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
   }).join('');
   document.getElementById('testersEmpty').hidden=data.length>0;
   renderTesterActivityMetrics();
@@ -781,8 +791,8 @@ function renderTesters(){
 }
 function testingAccessSentEmailCopy(t){
   const platform=String(t.platform||'');
-  if(platform==='iOS')return {title:'Your RebataTrack TestFlight invitation has been sent',message:'Your RebataTrack iOS testing invitation has been sent. Check the Apple Account email you confirmed during Testing Setup and open the TestFlight invitation to install or update RebataTrack.'};
-  if(platform==='Android')return {title:'Your RebataTrack Google Play testing access has been sent',message:'Your RebataTrack Android beta-testing link has been sent. Open your Beta Portal to use the saved Google Play link and follow the installation steps.'};
+  if(platform==='iOS')return {title:'Your RebataTrack TestFlight invitation has been sent',message:'Your RebataTrack iOS testing invitation has been sent. Check the Apple Account email you confirmed during Testing Setup and open the TestFlight invitation to install or update RebataTrack. When you create or sign in to RebataTrack, use the exact same email address as your Beta Program account so your tester profile can be matched correctly.'};
+  if(platform==='Android')return {title:'Your RebataTrack Google Play testing access has been sent',message:'Your RebataTrack Android beta-testing link has been sent. Open your Beta Portal to use the saved Google Play link and follow the installation steps. When you create or sign in to RebataTrack, use the exact same email address as your Beta Program account so your tester profile can be matched correctly.'};
   return {title:'Your RebataTrack beta testing access has been sent',message:'Your RebataTrack beta testing access has been sent. Check the account you confirmed during Testing Setup for the invitation or testing link.'};
 }
 async function sendTestingAccessSentNotification(t){
@@ -829,6 +839,9 @@ async function sendAndroidTestingInvite(t,url){
     const currentStage=normalizeTimelineStage(t.timelineStage);
     const nextStage=timelineStageRank(currentStage)<timelineStageRank('inviteSent')?'inviteSent':currentStage;
     const sendCount=(Number(t.androidTestingInviteSendCount)||0)+1;
+    try{
+      await updateDoc(doc(db,'betaUsers',t.uid),{androidTestingInviteUrl:url,androidTestingInviteSentAt:serverTimestamp(),androidTestingInviteEmailStatus:'Sent',androidTestingInviteSendCount:sendCount,timelineStage:nextStage,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()});
+    }catch(syncError){console.warn('Android testing email sent, but the Beta Portal link record still needs repair:',syncError);}
     const now=new Date();Object.assign(t,{androidTestingInviteUrl:url,androidTestingInviteSentAt:now,androidTestingInviteEmailStatus:'Sent',androidTestingInviteSendCount:sendCount,timelineStage:nextStage,timelineUpdatedAt:now,updatedAt:now});
     return {ok:true,tester:t};
   }catch(error){
@@ -1327,6 +1340,43 @@ function renderAndroidInviteSettings(){
   if(input&&document.activeElement!==input)input.value=androidTestingInviteUrl;
   if(status){status.textContent=androidTestingInviteUrl?'Link saved':'Link not saved';status.className='admin-subtle-chip '+(androidTestingInviteUrl?'admin-service-connected':'admin-service-disconnected');}
 }
+function normalizedBetaProgramDate(value){
+  const raw=String(value||'').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw)?raw:'';
+}
+function betaProgramEndIso(dateText){
+  const d=normalizedBetaProgramDate(dateText);if(!d)return '';
+  const local=new Date(d+'T23:59:59.999');return Number.isNaN(local.getTime())?'':local.toISOString();
+}
+async function loadBetaProgramSettings(){
+  try{const snap=await getDoc(doc(db,'betaSystem','programSettings'));const data=snap.exists()?snap.data():{};betaProgramEndDate=normalizedBetaProgramDate(data.betaProgramEndDate);}
+  catch(_){betaProgramEndDate='';}
+  const input=document.getElementById('betaProgramEndDate');if(input)input.value=betaProgramEndDate;
+}
+function eligibleBetaTesterPayload(){
+  return state.testers.filter(t=>t&&t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status)&&String(t.email||'').trim()).map(t=>({betaUid:t.uid,email:String(t.email||'').trim().toLowerCase(),name:t.name||'',platform:t.platform||''}));
+}
+async function refreshBetaProductionMapping(){
+  const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.call!=='function'||!betaProgramEndDate)return;
+  const testers=eligibleBetaTesterPayload();
+  try{const result=await bridge.call('beta-program-status',{testers});betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));renderTesters();}
+  catch(error){console.warn('Could not refresh Beta/Production mapping:',error);}
+}
+async function saveAndSyncBetaProgram(){
+  const input=document.getElementById('betaProgramEndDate');const message=document.getElementById('betaProgramSyncMessage');const status=document.getElementById('betaProgramSyncStatus');const button=document.getElementById('betaProgramSaveSync');
+  const dateText=normalizedBetaProgramDate(input&&input.value);const endIso=betaProgramEndIso(dateText);
+  if(!dateText||!endIso){if(message){message.textContent='Choose a valid Beta Program end date.';message.className='admin-connection-message error';}return;}
+  const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.call!=='function'){if(message){message.textContent='Connect the Production Admin Worker first, then try again.';message.className='admin-connection-message error';}return;}
+  if(button)button.disabled=true;if(status){status.textContent='Syncing…';status.className='admin-subtle-chip';}
+  try{
+    await setDoc(doc(db,'betaSystem','programSettings'),{betaProgramEndDate:dateText,betaProgramEndsAt:endIso,updatedAt:serverTimestamp()},{merge:true});betaProgramEndDate=dateText;
+    const testers=eligibleBetaTesterPayload();const result=await bridge.call('beta-program-configure',{endDate:dateText,endsAt:endIso,testers});
+    betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));renderTesters();
+    if(status){status.textContent='Synced';status.className='admin-subtle-chip admin-service-connected';}
+    if(message){message.textContent=`Synced ${testers.length} approved tester${testers.length===1?'':'s'} to Production eligibility. ${result.matchedCount||0} production account${Number(result.matchedCount||0)===1?' is':'s are'} currently matched.`;message.className='admin-connection-message success';}
+  }catch(error){if(status){status.textContent='Sync failed';status.className='admin-subtle-chip admin-service-disconnected';}if(message){message.textContent=friendlyFirebaseError(error);message.className='admin-connection-message error';}}
+  finally{if(button)button.disabled=false;}
+}
 function renderEmailServiceSettings(){
   const input=document.getElementById('emailWorkerUrl');
   const status=document.getElementById('emailWorkerStatus');
@@ -1342,6 +1392,9 @@ async function loadEmailServiceSettings(){
     androidTestingInviteUrl=normalizeAndroidTestingInviteUrl(data.androidTestingInviteUrl);
   }catch(_){emailWorkerEndpoint='';androidTestingInviteUrl='';}
   renderEmailServiceSettings();
+  if(state.loaded.testers&&androidTestingInviteUrl){
+    try{const repaired=await repairMissingAndroidInviteUrls(state.testers);if(repaired){renderTesters();console.info('Repaired '+repaired+' Android testing link record(s) after configuration load.');}}catch(error){console.warn('Could not repair missing Android testing links after configuration load:',error);}
+  }
 }
 async function saveEmailServiceSettings(){
   const input=document.getElementById('emailWorkerUrl');
@@ -1538,6 +1591,7 @@ async function init(user){
 
   try{
     await loadEmailServiceSettings();
+  await loadBetaProgramSettings();
     await withTimeout(loadOverview(), 12000, 'Dashboard data');
     setBetaConnectionUI(true);
   }catch(error){
@@ -1809,6 +1863,9 @@ const announcementPublishButton=document.getElementById('announcementPublishButt
 ['testerSearch','testerAccessFilter','testerActivityFilter','testerReadinessFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderTesters));
 ['feedbackSearch','feedbackStatusFilter','feedbackTypeFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderFeedback));
 
+
+document.getElementById('betaProgramSaveSync')?.addEventListener('click',saveAndSyncBetaProgram);
+window.addEventListener('rebatatrack-production-bridge-ready',()=>{refreshBetaProductionMapping();});
 })().catch(function(error){
   console.error('RebataTrack page runtime failed:',error);
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}

@@ -625,7 +625,7 @@ function renderProgramTimeline(profile){
       ['Install TestFlight','Install Apple’s TestFlight app on the iPhone or iPad you will use for RebataTrack beta testing. Use the shortcut below, then confirm when TestFlight is installed.',testFlightActionHtml(profile)],
       ['Complete Testing Setup','Confirm the device, iOS/iPadOS version, automatically detected screen size, and that the Apple Account on that device matches your approved beta email.',setupAction],
       ['Watch for your RebataTrack TestFlight invitation',accessCopy,''],
-      ['Install RebataTrack, create your account & begin testing','After accepting the RebataTrack TestFlight invitation, install RebataTrack and create your RebataTrack app account. Then use real rebate activity when possible, complete required Beta Program tasks, and send feedback through this portal.','']
+      ['Install RebataTrack, create your account & begin testing','After accepting the RebataTrack TestFlight invitation, install RebataTrack and create your RebataTrack app account. <strong>Use the exact same email address as your Beta Program account when creating or signing in to RebataTrack.</strong> This allows the Beta Program to securely match your tester profile to your RebataTrack account and apply eligible Beta access automatically. Then use real rebate activity when possible, complete required Beta Program tasks, and send feedback through this portal.','']
     ];
     if(!tfDone){visuals=['complete','now','waiting','waiting','waiting'];currentLabel='TestFlight Installation Required';}
     else if(!setupDone){visuals=['complete','complete','now','waiting','waiting'];currentLabel='Testing Setup Required';}
@@ -637,7 +637,7 @@ function renderProgramTimeline(profile){
       ['Approved for the RebataTrack Beta Program','Your application is approved and your private Beta Portal access is active.',''],
       ['Complete Testing Setup','Confirm the device, operating-system version, automatically detected screen size, and the Google Play account you will use to receive and install the beta build.',setupAction],
       ['Prepare your Android phone & watch for testing access',accessCopy,androidAccessHelpAction],
-      ['Install RebataTrack, create your account & begin testing','After opting in through Google Play, install RebataTrack and create your RebataTrack app account. Then use real rebate activity when possible, complete required Beta Program tasks, and send feedback through this portal.',androidTestingLinkAction]
+      ['Install RebataTrack, create your account & begin testing','After opting in through Google Play, install RebataTrack and create your RebataTrack app account. <strong>Use the exact same email address as your Beta Program account when creating or signing in to RebataTrack.</strong> This allows the Beta Program to securely match your tester profile to your RebataTrack account and apply eligible Beta access automatically. Then use real rebate activity when possible, complete required Beta Program tasks, and send feedback through this portal.',androidTestingLinkAction]
     ];
     if(!setupDone){visuals=['complete','now','waiting','waiting'];currentLabel='Testing Setup Required';}
     else if(stage==='approved'||stage==='setupComplete'){visuals=['complete','complete','now','waiting'];currentLabel='Waiting for Testing Access';}
