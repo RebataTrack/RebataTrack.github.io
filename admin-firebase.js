@@ -510,10 +510,27 @@ async function loadApplications(force=false){
   const snap=await getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(100)));
   state.applications=snap.docs.map(normalizeDoc);state.loaded.applications=true;renderApplications();
 }
+async function repairMissingAndroidInviteUrls(testers=state.testers){
+  const url=normalizeAndroidTestingInviteUrl(androidTestingInviteUrl);
+  if(!url)return 0;
+  const missing=(testers||[]).filter(t=>{
+    if(!t||t.platform!=='Android'||normalizeAndroidTestingInviteUrl(t.androidTestingInviteUrl))return false;
+    const stage=normalizeTimelineStage(t.timelineStage);
+    return timelineStageRank(stage)>=timelineStageRank('inviteSent')||!!timestampToDate(t.androidTestingInviteSentAt);
+  }).slice(0,100);
+  if(!missing.length)return 0;
+  const batch=writeBatch(db);
+  missing.forEach(t=>batch.update(doc(db,'betaUsers',t.uid),{androidTestingInviteUrl:url,updatedAt:serverTimestamp()}));
+  await batch.commit();
+  missing.forEach(t=>{t.androidTestingInviteUrl=url;});
+  return missing.length;
+}
 async function loadTesters(force=false){
   if(state.loaded.testers&&!force){renderTesters();return;}
   const snap=await getDocs(query(collection(db,'betaUsers'),orderBy('createdAt','desc'),limit(100)));
-  state.testers=snap.docs.map(s=>({uid:s.id,...s.data()}));state.loaded.testers=true;renderTesters();
+  state.testers=snap.docs.map(s=>({uid:s.id,...s.data()}));state.loaded.testers=true;
+  try{await repairMissingAndroidInviteUrls(state.testers);}catch(error){console.warn('Could not repair missing Android testing links:',error);}
+  renderTesters();
 }
 async function loadFeedback(force=false){
   if(state.loaded.feedback&&!force){renderFeedback();return;}

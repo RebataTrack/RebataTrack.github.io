@@ -605,10 +605,12 @@ function renderProgramTimeline(profile){
     : (androidTestingUrl||stage==='inviteSent'||stage==='activeTesting'
       ? 'Your <strong>Google Play beta-testing link is ready</strong>. Use the green button below on your Android phone, join the test, and install RebataTrack.'
       : 'Make sure Google Play uses the Google Account that matches your approved beta email, then watch for the beta-testing link. If your Google Play account email is different than your approved RebataTrack Beta program email, click here for help.');
+  const androidTestingLinkAction=!ios&&androidTestingUrl
+    ? `<div class="portal-timeline-actions"><a class="portal-testflight-button portal-google-play-button" href="${escapeHtml(androidTestingUrl)}" target="_blank" rel="noopener noreferrer"><span>Open Google Play Testing Link</span><span aria-hidden="true">↗</span></a><small>Your testing link is ready. Open it on your Android phone, join the test, then install RebataTrack from Google Play.</small></div>`
+    : '';
   const androidAccessHelpAction=!ios
-    ? (androidTestingUrl
-      ? `<div class="portal-timeline-actions"><a class="portal-testflight-button portal-google-play-button" href="${escapeHtml(androidTestingUrl)}" target="_blank" rel="noopener noreferrer"><span>Open Google Play Testing Link</span><span aria-hidden="true">↗</span></a><small>Your testing link is ready. Open it on your Android phone, join the test, then install RebataTrack from Google Play.</small></div>`
-      : '<div class="portal-timeline-actions portal-timeline-account-mismatch"><button class="portal-account-help-button" data-account-mismatch type="button"><span>My Google Play email is different</span></button><small>RebataTrack will notify you via email and update this timeline when testing access is released to you.</small></div>')
+    ? (androidTestingLinkAction
+      || '<div class="portal-timeline-actions portal-timeline-account-mismatch"><button class="portal-account-help-button" data-account-mismatch type="button"><span>My Google Play email is different</span></button><small>RebataTrack will notify you via email and update this timeline when testing access is released to you.</small></div>')
     : '';
   const setupAction=setupDone
     ? '<div class="portal-timeline-completed-note">Testing Setup is complete. You can update your saved device details later from <strong>Settings</strong>.</div>'
@@ -635,7 +637,7 @@ function renderProgramTimeline(profile){
       ['Approved for the RebataTrack Beta Program','Your application is approved and your private Beta Portal access is active.',''],
       ['Complete Testing Setup','Confirm the device, operating-system version, automatically detected screen size, and the Google Play account you will use to receive and install the beta build.',setupAction],
       ['Prepare your Android phone & watch for testing access',accessCopy,androidAccessHelpAction],
-      ['Install RebataTrack, create your account & begin testing','After opting in through Google Play, install RebataTrack and create your RebataTrack app account. Then use real rebate activity when possible, complete required Beta Program tasks, and send feedback through this portal.','']
+      ['Install RebataTrack, create your account & begin testing','After opting in through Google Play, install RebataTrack and create your RebataTrack app account. Then use real rebate activity when possible, complete required Beta Program tasks, and send feedback through this portal.',androidTestingLinkAction]
     ];
     if(!setupDone){visuals=['complete','now','waiting','waiting'];currentLabel='Testing Setup Required';}
     else if(stage==='approved'||stage==='setupComplete'){visuals=['complete','complete','now','waiting'];currentLabel='Waiting for Testing Access';}
