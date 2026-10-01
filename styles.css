@@ -2363,9 +2363,9 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .beta-application-status-icon{width:76px;height:76px;border-radius:20px;box-shadow:0 8px 22px rgba(25,72,150,.18)}
 .beta-application-status-kicker{margin-top:20px;color:#145cf2;font-weight:850;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
 .beta-application-status-card h1{margin:10px 0 16px;color:#111d34;font-size:clamp(2rem,5vw,3.2rem)}
-.beta-application-status-pill{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:40px;padding:9px 15px;border-radius:999px;background:#eaf2ff;border:1px solid #cfe0ff;color:#145cf2;font-weight:900;line-height:1.2;white-space:nowrap}
-.beta-application-status-dot{display:block;flex:0 0 9px;width:9px;height:9px;border-radius:50%;background:currentColor}
-.beta-application-status-label{display:block;width:auto;height:auto;background:none!important;border-radius:0!important}
+.beta-application-status-pill{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:9px 15px;border-radius:999px;background:#eaf2ff;border:1px solid #cfe0ff;color:#145cf2;font-weight:900;line-height:1.2;white-space:nowrap;vertical-align:middle}
+.beta-application-status-pill::before{content:"";display:block;flex:0 0 9px;width:9px;height:9px;margin-right:9px;border-radius:50%;background:currentColor}
+.beta-application-status-label{display:inline;position:static!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;margin:0!important;padding:0!important;background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none!important;transform:none!important;line-height:1.2!important;color:inherit!important;font:inherit!important}
 .beta-application-status-pill.is-applied{background:#eaf2ff;border-color:#cfe0ff;color:#145cf2}
 .beta-application-status-pill.is-waitlist{background:#fff7e3;border-color:#efd69a;color:#8a5b00}
 .beta-application-status-pill.is-declined{background:#fff0f1;border-color:#f1c5cb;color:#b02c37}
