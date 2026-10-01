@@ -942,9 +942,25 @@ function feedbackFiltered(){
     return (!q||hay.includes(q))&&(!status||canonical===status)&&(!type||f.type===type);
   });
 }
+function feedbackHasUnreadTesterUpdate(f){
+  if(!f||String(f.lastMessageBy||'')!=='Tester')return false;
+  const last=timestampToDate(f.lastMessageAt||f.updatedAt||f.submittedAt);
+  if(!last)return false;
+  const viewed=timestampToDate(f.adminLastViewedAt);
+  return !viewed||last.getTime()>viewed.getTime()+500;
+}
+function markFeedbackViewed(f){
+  if(!feedbackHasUnreadTesterUpdate(f))return;
+  const viewedAt=new Date();
+  f.adminLastViewedAt=viewedAt;
+  renderFeedback();
+  updateDoc(doc(db,'betaFeedback',f.id),{adminLastViewedAt:serverTimestamp()}).catch(error=>{
+    console.warn('Could not save feedback read state:',error);
+  });
+}
 function renderFeedback(){
   const data=feedbackFiltered();const list=document.getElementById('feedbackList');
-  list.innerHTML=data.map(f=>{const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const workflow=isSupportConversation(f)?'Support':'Beta Feedback';return `<button class="admin-feedback-card" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><strong>${esc(f.subject)}</strong><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · ${esc(f.name)} · ${esc(f.platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · Tester sees: ${esc(publicStatus)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;}).join('');
+  list.innerHTML=data.map(f=>{const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const workflow=isSupportConversation(f)?'Support':'Beta Feedback';const unread=feedbackHasUnreadTesterUpdate(f);return `<button class="admin-feedback-card${unread?' has-update':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${unread?'<i class="admin-feedback-update-dot" aria-label="New tester update"></i>':''}<strong>${esc(f.subject)}</strong>${unread?'<b class="admin-feedback-update-label">New update</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · ${esc(f.name)} · ${esc(f.platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · Tester sees: ${esc(publicStatus)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;}).join('');
   document.getElementById('feedbackEmpty').hidden=data.length>0;
 }
 
@@ -1732,7 +1748,7 @@ document.addEventListener('click',async e=>{
   }
   const testerBtn=e.target.closest('[data-open-tester]');if(testerBtn){if(!state.loaded.applications)await loadApplications();if(!state.loaded.tasks)await loadTasks();if(!state.loaded.feedback)await loadFeedback();const t=findTester(testerBtn.dataset.openTester);if(t)openTesterRecord(t);return;}
   const taskOpenBtn=e.target.closest('[data-open-task]');if(taskOpenBtn){if(!state.loaded.tasks)await loadTasks();const t=findTask(taskOpenBtn.dataset.openTask);if(t)openTaskRecord(t);return;}
-  const feedbackBtn=e.target.closest('[data-open-feedback]');if(feedbackBtn){try{const f=await ensureFeedbackLoaded(feedbackBtn.dataset.openFeedback);if(f)openFeedbackRecord(f);}catch(err){showToast('Could not open that feedback.','error');}return;}
+  const feedbackBtn=e.target.closest('[data-open-feedback]');if(feedbackBtn){try{const f=await ensureFeedbackLoaded(feedbackBtn.dataset.openFeedback);if(f){markFeedbackViewed(f);openFeedbackRecord(f);}}catch(err){showToast('Could not open that feedback.','error');}return;}
   const announcementOpen=e.target.closest('[data-open-announcement]');if(announcementOpen){if(!state.loaded.tasks)await loadTasks();const t=findTask(announcementOpen.dataset.openAnnouncement);if(t&&isAnnouncementTask(t))openAnnouncementRecord(t);return;}
   const announcementAction=e.target.closest('[data-announcement-action]');if(announcementAction){
     const t=findTask(announcementAction.dataset.announcementId);if(!t)return;
