@@ -89,7 +89,8 @@ if (form) {
             const loginStatus = existingStatus === 'Active' ? 'active' : 'approved';
             window.location.assign(`beta-login.html?status=${encodeURIComponent(loginStatus)}`);
           } else {
-            const status = existingStatus === 'Waitlist' ? 'waitlist' : 'applied';
+            const normalizedStatus = String(existingStatus || 'Applied').toLowerCase();
+            const status = normalizedStatus === 'waitlist' ? 'waitlist' : normalizedStatus === 'declined' ? 'declined' : 'applied';
             window.location.assign(`beta-application-status.html?status=${encodeURIComponent(status)}`);
           }
           return;

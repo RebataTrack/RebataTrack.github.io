@@ -41,20 +41,37 @@
 </section>
 </main>
 <footer><div class="wrap foot"><div>© 2026 RebataTrack. All rights reserved.</div><div class="foot-links"><a href="index.html">Home</a><a href="support.html">Support</a><a href="privacy.html">Privacy Policy</a><a href="terms.html">Terms of Service</a></div></div></footer>
-<footer data-rebatatrack-website-build="152" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 152</footer>
+<footer data-rebatatrack-website-build="153" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 153</footer>
 
 <script>
 (function(){
   const status=String(new URLSearchParams(location.search).get('status')||'applied').toLowerCase();
-  if(status!=='waitlist') return;
   const label=document.getElementById('betaExistingStatusLabel');
   const title=document.getElementById('betaExistingStatusTitle');
   const lead=document.getElementById('betaExistingStatusLead');
   const note=document.getElementById('betaExistingStatusNote');
-  if(label) label.textContent='Waitlist';
-  if(title) title.textContent='Your application is on the waitlist.';
-  if(lead) lead.textContent='Your RebataTrack Beta Program application is already on file and is currently on the waitlist. You do not need to submit another application.';
-  if(note) note.innerHTML='<strong>Status note:</strong> Waitlist means your application remains on file while beta space is limited. Watch your email for an approval or next-steps message.';
+  const next=document.querySelector('.beta-application-status-waiting');
+
+  if(status==='waitlist'){
+    if(label) label.textContent='Waitlisted';
+    if(title) title.textContent='Your application is on the waitlist.';
+    if(lead) lead.textContent='Your RebataTrack Beta Program application is already on file and is currently on the waitlist. You do not need to submit another application.';
+    if(note) note.innerHTML='<strong>Status note:</strong> Your application remains on file while beta space is limited. Watch your email for an approval or next-steps message.';
+    return;
+  }
+
+  if(status==='declined'){
+    if(label) label.textContent='Declined';
+    if(title) title.textContent='We still have your application on file.';
+    if(lead) lead.textContent='We found your existing RebataTrack Beta Program application. At this time, we were unable to move forward with your application, so there is no need to submit another one using this email address.';
+    if(next) next.innerHTML='<strong>Your application status</strong><p>Your application remains on file with RebataTrack. We are unable to offer Beta Program access at this time.</p><p>If your status changes or another opportunity becomes available, RebataTrack may contact you at the email address used on your application.</p>';
+    if(note) note.innerHTML='<strong>Status note:</strong> Declined means we were unable to move forward with your Beta Program application at this time. Submitting the same application again will not change its current status.';
+    return;
+  }
+
+  if(label) label.textContent='Applied';
+  if(title) title.textContent='Your application is already on file.';
+  if(lead) lead.textContent='We found an existing RebataTrack Beta Program application associated with the email you entered. You do not need to submit another application.';
 })();
 </script>
 </body>
