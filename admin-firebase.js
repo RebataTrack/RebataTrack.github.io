@@ -792,8 +792,8 @@ function renderTesters(){
 }
 function testingAccessSentEmailCopy(t){
   const platform=String(t.platform||'');
-  if(platform==='iOS')return {title:'Your RebataTrack TestFlight invitation has been sent',message:'Your RebataTrack iOS testing invitation has been sent. Check the Apple Account email you confirmed during Testing Setup and open the TestFlight invitation to install or update RebataTrack. When you create or sign in to RebataTrack, use the exact same email address as your Beta Program account so your tester profile can be matched correctly.'};
-  if(platform==='Android')return {title:'Your RebataTrack Google Play testing access has been sent',message:'Your RebataTrack Android beta-testing link has been sent. Open your Beta Portal to use the saved Google Play link and follow the installation steps. When you create or sign in to RebataTrack, use the exact same email address as your Beta Program account so your tester profile can be matched correctly.'};
+  if(platform==='iOS')return {title:'Your RebataTrack TestFlight invitation has been sent',message:'Your RebataTrack iOS testing invitation has been sent. Check the Apple Account email you confirmed during Testing Setup and open the TestFlight invitation to install or update RebataTrack. When you create or sign in to RebataTrack, use the exact same email address as your Beta Program account.'};
+  if(platform==='Android')return {title:'Your RebataTrack Google Play testing access has been sent',message:'Your RebataTrack Android beta-testing link has been sent. Open your Beta Portal to use the saved Google Play link and follow the installation steps. When you create or sign in to RebataTrack, use the exact same email address as your Beta Program account.'};
   return {title:'Your RebataTrack beta testing access has been sent',message:'Your RebataTrack beta testing access has been sent. Check the account you confirmed during Testing Setup for the invitation or testing link.'};
 }
 async function sendTestingAccessSentNotification(t){
