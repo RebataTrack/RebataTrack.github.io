@@ -961,7 +961,9 @@ header nav a[href="index.html#plus"][aria-current="true"]{
 .admin-activity-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;font-size:.65rem;font-weight:950;white-space:nowrap;border:1px solid transparent}
 .admin-activity-pill:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px currentColor;opacity:.42}
 .admin-activity-pill.activity-active{background:#eaf7ed;color:#2d7d3b;border-color:#d0e8d5}
+.admin-activity-pill.activity-recent{background:#eef5ff;color:#246db2;border-color:#cfe0f5}
 .admin-activity-pill.activity-attention{background:#fff7e3;color:#946400;border-color:#efdfaa}
+.admin-activity-pill.activity-never{background:#f2f5f8;color:#627386;border-color:#dce3ea}
 .admin-activity-pill.activity-inactive{background:#fff0f1;color:#a5333e;border-color:#f2d2d6}
 .admin-scorecard-cell{min-width:145px;gap:3px}
 .admin-scorecard-cell>span{font-size:.69rem;color:#53677f;white-space:nowrap}
@@ -2430,3 +2432,5 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 /* Website Build 165 — completed beta testing-access statuses use success green */
 
 .admin-task-recipient-eligibility{display:block;margin-top:3px;color:#71839a;font-size:.64rem;font-weight:650;line-height:1.4}
+
+/* Website Build 166 — tester activity reflects real portal use; Active is limited to the last hour */

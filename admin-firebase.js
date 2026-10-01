@@ -429,14 +429,20 @@ function mostRecentBy(rows,field){
   return rows.map(r=>({row:r,date:timestampToDate(r[field])})).filter(x=>x.date).sort((a,b)=>b.date-a.date)[0]?.row||null;
 }
 function testerActivityInfo(t){
-  const anchorValue=t.lastPortalActivity||t.lastLogin||t.createdAt||null;
+  // Activity must reflect a real Beta Portal sign-in/session, never the tester-profile creation date.
+  // Approval alone therefore cannot make a tester appear Active.
+  const anchorValue=t.lastPortalActivity||t.lastLogin||null;
   const anchorDate=timestampToDate(anchorValue);
-  const days=anchorDate?Math.max(0,Math.floor((Date.now()-anchorDate.getTime())/DAY_MS)):999;
+  const ageMs=anchorDate?Math.max(0,Date.now()-anchorDate.getTime()):null;
+  const days=ageMs==null?999:Math.floor(ageMs/DAY_MS);
+  const hours=ageMs==null?999:Math.floor(ageMs/(60*60*1000));
   const enabled=t.accessStatus==='Enabled'&&isEnabledStatus(t.status);
-  if(!enabled)return {label:'Inactive',className:'activity-inactive',days,anchor:anchorValue,reason:'Access disabled'};
-  if(days>=14)return {label:'Inactive',className:'activity-inactive',days,anchor:anchorValue,reason:'Eligible for access review'};
-  if(days>=7)return {label:'Needs Attention',className:'activity-attention',days,anchor:anchorValue,reason:'7+ days without portal activity'};
-  return {label:'Active',className:'activity-active',days,anchor:anchorValue,reason:'Recently active'};
+  if(!enabled)return {label:'Inactive',className:'activity-inactive',days,hours,ageMs,anchor:anchorValue,reason:'Access disabled'};
+  if(!anchorDate)return {label:'Never Active',className:'activity-never',days,hours,ageMs,anchor:null,reason:'Has not signed in to the Beta Portal'};
+  if(ageMs<=60*60*1000)return {label:'Active',className:'activity-active',days,hours,ageMs,anchor:anchorValue,reason:'Active within the last hour'};
+  if(ageMs<7*DAY_MS)return {label:'Recently Active',className:'activity-recent',days,hours,ageMs,anchor:anchorValue,reason:'Portal activity within the last 7 days'};
+  if(ageMs<14*DAY_MS)return {label:'Needs Attention',className:'activity-attention',days,hours,ageMs,anchor:anchorValue,reason:'7+ days without portal activity'};
+  return {label:'Inactive',className:'activity-inactive',days,hours,ageMs,anchor:anchorValue,reason:'14+ days without portal activity'};
 }
 function testerScore(t){
   const tasks=testerTaskRows(t);
@@ -456,10 +462,14 @@ function testerDeviceSummary(t){
 }
 function renderTesterActivityMetrics(){
   const enabled=state.testers.filter(t=>t.accessStatus==='Enabled'&&isEnabledStatus(t.status));
-  const counts={Active:0,'Needs Attention':0,Inactive:0};
-  enabled.forEach(t=>counts[testerActivityInfo(t).label]++);
+  const counts={Active:0,'Recently Active':0,'Needs Attention':0,Inactive:0,'Never Active':0};
+  enabled.forEach(t=>{const label=testerActivityInfo(t).label;if(counts[label]!==undefined)counts[label]++;});
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
-  set('testerActivityActive',counts.Active);set('testerActivityAttention',counts['Needs Attention']);set('testerActivityInactive',counts.Inactive);set('testerActivityEnabled',enabled.length);
+  set('testerActivityActive',counts.Active);
+  set('testerActivityRecent',counts['Recently Active']);
+  set('testerActivityAttention',counts['Needs Attention']);
+  set('testerActivityInactive',counts.Inactive+counts['Never Active']);
+  set('testerActivityEnabled',enabled.length);
   set('testerAndroidLinksSent',state.testers.filter(t=>t.platform==='Android'&&!!timestampToDate(t.androidTestingInviteSentAt)).length);
   set('testerInviteReady',state.testers.filter(t=>testerInviteReadiness(t).key==='ready').length);
 }
@@ -781,7 +791,7 @@ function renderTesters(){
     const portalActivity=t.lastPortalActivity?relativeDate(t.lastPortalActivity):'Never';
     const loginActivity=t.lastLogin?relativeDate(t.lastLogin):'Never';
     const feedbackActivity=score.lastFeedback?relativeDate(score.lastFeedback.submittedAt):'Never';
-    const inactiveText=activity.days===999?'No activity recorded':`${activity.days} day${activity.days===1?'':'s'} inactive`;
+    const inactiveText=!activity.anchor?'No portal activity recorded':activity.ageMs<DAY_MS?`${Math.max(1,activity.hours)} hour${Math.max(1,activity.hours)===1?'':'s'} since activity`:`${activity.days} day${activity.days===1?'':'s'} since activity`;
     const deviceLine=device||'Device not provided';
     const buildLine=build||'Build not provided';
     return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td>${testerReadinessHtml(t)}</td><td>${betaMappingHtml(t)}</td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
