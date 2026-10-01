@@ -949,12 +949,20 @@ function applyTaskTemplate(key){
   if(tpl.platform&&tpl.platform!=='All')selectTaskRecipients(tpl.platform);
   if(meta)meta.textContent=`Recommended recipients: ${tpl.platform==='All'?'all active testers':tpl.platform+' testers'} · Suggested deadline: ${tpl.suggestedHours} hours.${tpl.adminNote?' '+tpl.adminNote:''}`;
 }
+function taskRecipientEligibility(t){
+  if(!t||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))return {eligible:false,reason:'Beta access is not active'};
+  if(!testerSetupCompleteForInvite(t))return {eligible:false,reason:'Testing Setup is not complete'};
+  const email=String(t.email||'').trim().toLowerCase();
+  if(!email)return {eligible:false,reason:'Tester email is missing'};
+  const mapping=betaProductionMapping.get(email);
+  if(!mapping||mapping.matched!==true)return {eligible:false,reason:'Production account is not matched'};
+  return {eligible:true,reason:'Active access, setup complete, and Production account matched'};
+}
 function activeTaskTesters(){
   const byEmail=new Map();
   for(const t of state.testers){
-    if(t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))continue;
+    if(!taskRecipientEligibility(t).eligible)continue;
     const key=String(t.email||'').trim().toLowerCase();
-    if(!key)continue;
     const existing=byEmail.get(key);
     if(!existing||t.status==='Active')byEmail.set(key,t);
   }
@@ -968,7 +976,7 @@ function updateTaskRecipientSummary(){
 function renderTaskRecipientPicker(){
   const list=document.getElementById('taskRecipientList'); if(!list)return;
   const testers=activeTaskTesters();
-  if(!testers.length){list.innerHTML='<div class="admin-empty-inline" style="padding:14px">No active testers are available for a task yet.</div>';updateTaskRecipientSummary();return;}
+  if(!testers.length){list.innerHTML='<div class="admin-empty-inline" style="padding:14px">No task-eligible testers are available. A tester must have active Beta access, completed Testing Setup, and a matched Production account.</div>';updateTaskRecipientSummary();return;}
   list.innerHTML=testers.map(t=>`<label class="admin-task-recipient"><input type="checkbox" data-task-recipient="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"><span class="admin-task-recipient-copy"><strong>${esc(t.name||'Tester')}</strong><span>${esc(t.email||'')}</span></span><span class="admin-platform-pill">${esc(t.platform||'')}</span></label>`).join('');
   updateTaskRecipientSummary();
 }
@@ -1092,9 +1100,10 @@ async function createRequiredTask(){
   if(instructions.length<2)throw new Error('Enter clear task instructions.');
   if(!dueRaw)throw new Error('Choose a required completion date and time.');
   const due=new Date(dueRaw); if(Number.isNaN(due.getTime())||due.getTime()<=Date.now())throw new Error('The task deadline must be in the future.');
-  if(!selected.length)throw new Error('Select at least one active tester.');
+  if(!selected.length)throw new Error('Select at least one task-eligible tester.');
   if(!emailWorkerEndpoint)throw new Error('Connect the Cloudflare email service before sending a required task.');
   const testers=activeTaskTesters().filter(t=>selected.includes(t.uid));
+  if(!testers.length)throw new Error('None of the selected testers are currently eligible. Required tasks can only be sent to testers with active Beta access, completed Testing Setup, and a matched Production account.');
   const taskRef=doc(collection(db,'betaTasks'));
   const batch=writeBatch(db);
   batch.set(taskRef,{recordType:'Task',title,objective,instructions,responseType,dueAt:Timestamp.fromDate(due),status:'Active',recipientCount:testers.length,templateKey:templateKey||'custom',templateLabel:template?template.label:'Custom task',autoReminders,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),createdBy:adminEmail});
@@ -1360,7 +1369,12 @@ function eligibleBetaTesterPayload(){
 async function refreshBetaProductionMapping(){
   const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.call!=='function'||!betaProgramEndDate)return;
   const testers=eligibleBetaTesterPayload();
-  try{const result=await bridge.call('beta-program-status',{testers});betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));renderTesters();}
+  try{
+    const result=await bridge.call('beta-program-status',{testers});
+    betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));
+    renderTesters();
+    renderTaskRecipientPicker();
+  }
   catch(error){console.warn('Could not refresh Beta/Production mapping:',error);}
 }
 async function syncBetaProgramAfterTesterMutation(){

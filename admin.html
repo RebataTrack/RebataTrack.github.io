@@ -213,8 +213,8 @@
 <div class="beta-field"><label for="taskDueAt">Required by</label><input id="taskDueAt" type="datetime-local"/></div>
 <div class="admin-task-span"><label class="admin-task-toggle"><input checked="" id="taskAutoReminders" type="checkbox"/><span><strong>Automatic deadline reminders</strong><small>Email pending testers about 24 hours and again about 4 hours before the deadline.</small></span></label></div>
 </div>
-<div class="admin-task-recipient-header"><div><strong>Recipients</strong><span id="taskRecipientSummary">0 selected</span></div><div><button class="admin-text-button" id="taskSelectAll" type="button">Select all</button><button class="admin-text-button" id="taskSelectIOS" type="button">Select iOS</button><button class="admin-text-button" id="taskSelectAndroid" type="button">Select Android</button><button class="admin-text-button" id="taskClearAll" type="button">Clear</button></div></div>
-<div class="admin-task-recipient-list" id="taskRecipientList"><div class="admin-empty-inline">Open this section after active testers have been approved.</div></div>
+<div class="admin-task-recipient-header"><div><strong>Recipients</strong><span id="taskRecipientSummary">0 selected</span><small class="admin-task-recipient-eligibility">Only testers with active Beta access, completed Testing Setup, and a matched Production account are included.</small></div><div><button class="admin-text-button" id="taskSelectAll" type="button">Select all</button><button class="admin-text-button" id="taskSelectIOS" type="button">Select iOS</button><button class="admin-text-button" id="taskSelectAndroid" type="button">Select Android</button><button class="admin-text-button" id="taskClearAll" type="button">Clear</button></div></div>
+<div class="admin-task-recipient-list" id="taskRecipientList"><div class="admin-empty-inline">Loading task-eligible testers…</div></div>
 <div class="admin-task-warning"><strong>Required participation task</strong><span>If a tester does not complete this task by the deadline, their Beta Program access will be disabled automatically and they will be marked inactive.</span></div>
 <button class="admin-primary-button admin-task-send" id="taskSendButton" type="button">Send Required Task <span>→</span></button>
 </article>
@@ -322,6 +322,6 @@ setTimeout(function(){
 }, 12000);
 </script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=157"></script><script src="production-admin.js?v=151"></script>
-<footer data-rebatatrack-website-build="164" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 164</footer>
+<footer data-rebatatrack-website-build="164" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 165</footer>
 </body>
 </html>
