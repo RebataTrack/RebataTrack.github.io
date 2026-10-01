@@ -198,7 +198,7 @@ function renderOverview(){
   if($('productionMetricTrials'))$('productionMetricTrials').textContent=m.activeTrials ?? '0';
   const b=m.breakdown||{};
   if($('productionMetricPlusDetail'))$('productionMetricPlusDetail').textContent=`${b.storePlus??0} store · ${b.adminPlus??0} complimentary · ${b.reviewOnly??0} reviewer-only`;
-  if($('productionMetricTrialsDetail'))$('productionMetricTrialsDetail').textContent=`${b.standardTrials??0} standard · ${b.adminTrials??0} admin reissues`;
+  if($('productionMetricTrialsDetail'))$('productionMetricTrialsDetail').textContent=`${b.standardTrials??0} standard · ${b.betaTrials??0} beta access · ${b.adminTrials??0} admin reissues`;
   const users=o.recentUsers||[];
   if($('productionRecentUsers'))$('productionRecentUsers').innerHTML=users.length?users.map(u=>`<button class="production-recent-user" data-production-user="${esc(u.uid)}" type="button"><div><strong>${esc(u.name||u.email||'RebataTrack user')}</strong><span>${esc(u.email||u.uid)}</span></div><time>${esc(fmtDate(u.createdAt))}</time></button>`).join(''):'<div class="admin-empty-inline">No production users found.</div>';
   if($('productionUsersBadge')){$('productionUsersBadge').hidden=!(Number(m.users)>0);$('productionUsersBadge').textContent=Number(m.users)>999?'999+':String(m.users||0);}
@@ -210,6 +210,7 @@ async function loadUsers(force=false){
 }
 function userTrialState(u){
   if(u.trialOverrideActive)return 'trial';
+  if(u.betaAccessActive)return 'trial';
   if(u.trialActive)return 'trial';
   return 'expired';
 }
@@ -222,9 +223,9 @@ function userMatchesFilter(u,filter){
   if(!filter)return true;
   if(filter==='plus')return !!u.premiumActive||!!u.adminPremiumGrantActive||!!u.reviewAccessActive;
   if(filter==='grant')return !!u.adminPremiumGrantActive;
-  if(filter==='trial')return !!u.trialActive||!!u.trialOverrideActive;
+  if(filter==='trial')return !!u.trialActive||!!u.trialOverrideActive||!!u.betaAccessActive;
   if(filter==='review')return !!u.reviewAccessActive;
-  if(filter==='expired')return !u.premiumActive&&!u.adminPremiumGrantActive&&!u.reviewAccessActive&&!u.trialActive&&!u.trialOverrideActive;
+  if(filter==='expired')return !u.premiumActive&&!u.adminPremiumGrantActive&&!u.reviewAccessActive&&!u.trialActive&&!u.trialOverrideActive&&!u.betaAccessActive;
   return true;
 }
 function confirmProductionBulkDelete(count, preview){
@@ -334,7 +335,9 @@ function renderUsers(){
   const q=String($('productionUserSearch')?.value||'').trim().toLowerCase(); const filter=$('productionUserFilter')?.value||'';
   const rows=state.users.filter(u=>{const hay=[u.name,u.email,u.uid].join(' ').toLowerCase();return (!q||hay.includes(q))&&userMatchesFilter(u,filter);});
   if($('productionUsersTableBody'))$('productionUsersTableBody').innerHTML=rows.map(u=>{
-    const trial=userTrialState(u)==='trial'?'<span class="production-status blue">Active</span>':'<span class="production-status">Expired / none</span>';
+    const trial=u.betaAccessActive
+      ?`<div class="production-user-cell"><span class="production-status green">Beta Access</span><span>${u.betaAccessExpiresAt?`Until ${esc(fmtExactDateTime(u.betaAccessExpiresAt))}`:'Active'}${u.trialOverrideActive?' · Admin trial also active':''}</span></div>`
+      :(u.trialOverrideActive?`<div class="production-user-cell"><span class="production-status green">Admin Trial</span><span>${u.trialOverrideExpiresAt?`Until ${esc(fmtExactDateTime(u.trialOverrideExpiresAt))}`:'Active'}</span></div>`:(u.trialActive?'<span class="production-status blue">Active</span>':'<span class="production-status">Expired / none</span>'));
     const plus=u.adminPremiumGrantActive?'<span class="production-status green">Admin grant</span>':u.premiumActive?`<span class="production-status green">${esc(u.premiumSource||'Store entitlement')}</span>`:u.reviewAccessActive?'<span class="production-status blue">App Review access</span>':'<span class="production-status">None</span>';
     const review=u.reviewAccessActive?`<div class="production-user-cell"><span class="production-status blue" title="${esc(u.reviewAccessSource||'App Review access')}">${esc(u.reviewAccessSource==='Admin grant'?'Admin grant':'Active')}</span><span>${u.reviewAccessExpiresAt?`Until ${esc(fmtExactDateTime(u.reviewAccessExpiresAt))}`:'Indefinite'}</span></div>`:'<span class="production-status">None</span>';
     const linked=Number(u.deviceLinkedAccountCount||1)>1?`<span class="production-status blue">${esc(String(u.deviceLinkedAccountCount))} same-device</span>`:Number(u.manualLinkedAccountCount||1)>1?`<span class="production-status blue">${esc(String(u.manualLinkedAccountCount))} admin-linked</span>`:'<span class="production-status">None</span>';
@@ -390,7 +393,7 @@ function renderAccess(){
   if($('productionAccessPlusTotal'))$('productionAccessPlusTotal').textContent=b.plusAccess??'0';
   if($('productionAccessPlusBreakdown'))$('productionAccessPlusBreakdown').textContent=`${b.storePlus??0} store · ${b.adminPlus??0} complimentary · ${b.reviewOnly??0} reviewer-only`;
   if($('productionAccessTrialTotal'))$('productionAccessTrialTotal').textContent=b.activeTrials??'0';
-  if($('productionAccessTrialBreakdown'))$('productionAccessTrialBreakdown').textContent=`${b.standardTrials??0} standard · ${b.adminTrials??0} admin reissues`;
+  if($('productionAccessTrialBreakdown'))$('productionAccessTrialBreakdown').textContent=`${b.standardTrials??0} standard · ${b.betaTrials??0} beta access · ${b.adminTrials??0} admin reissues`;
   if($('productionGrantCount'))$('productionGrantCount').textContent=`${p.length} active`;
   if($('productionTrialOverrideCount'))$('productionTrialOverrideCount').textContent=`${t.length} active`;
   if($('productionReviewCount'))$('productionReviewCount').textContent=`${r.length} active`;
@@ -409,11 +412,13 @@ function scheduleProductionExpiryRefresh(){
   (state.users||[]).forEach(user=>{
     add({active:!!user.trialActive,expiresAt:user.trialExpiresAt});
     add({active:!!user.trialOverrideActive,expiresAt:user.trialOverrideExpiresAt});
+    add({active:!!user.betaAccessActive,expiresAt:user.betaAccessExpiresAt});
     add({active:!!user.reviewAccessActive,expiresAt:user.reviewAccessExpiresAt});
   });
   add(state.selectedUserDetail?.premiumGrant);
   add(state.selectedUserDetail?.reviewAccess);
   add(state.selectedUserDetail?.trial?.override);
+  add(state.selectedUserDetail?.trial?.betaAccess);
   add({active:!!state.selectedUserDetail?.trial?.active,expiresAt:state.selectedUserDetail?.trial?.expiresAt});
   if(!candidates.length)return;
   const next=Math.min(...candidates);
@@ -471,7 +476,10 @@ function renderUserDrawer(data){
   if($('productionDrawerKicker'))$('productionDrawerKicker').textContent='Production User';
   const plusText=pg?.active?(pg.indefinite?'Complimentary · Indefinite':`Complimentary · Until ${fmtExactDateTime(pg.expiresAt)}`):(u.premiumActive?`${u.premiumSource||'Store'} entitlement`:re?.active?`App Review access · ${re.source||'Active'}${re.expiresAt?` · Until ${fmtExactDateTime(re.expiresAt)}`:' · Indefinite'}`:'No RebataTrack+ access');
   const trialDeviceLabel=trial.deviceId?` · device ${shortId(trial.deviceId)}`:'';
-  const trialText=trial.override?.active?`Admin reissue until ${fmtExactDateTime(trial.override.expiresAt)}${trialDeviceLabel}`:trial.active?`Active until ${fmtExactDateTime(trial.expiresAt)}${trialDeviceLabel}`:`Expired / unavailable${trialDeviceLabel}`;
+  const betaAccess=trial.betaAccess||{};
+  const trialText=trial.override?.active
+    ?(betaAccess.active?`Admin reissue until ${fmtExactDateTime(trial.override.expiresAt)} · Beta access preserved until ${fmtExactDateTime(betaAccess.expiresAt)}${trialDeviceLabel}`:`Admin reissue until ${fmtExactDateTime(trial.override.expiresAt)}${trialDeviceLabel}`)
+    :(betaAccess.active?`Beta access until ${fmtExactDateTime(betaAccess.expiresAt)}${trialDeviceLabel}`:(trial.active?`Active until ${fmtExactDateTime(trial.expiresAt)}${trialDeviceLabel}`:`Expired / unavailable${trialDeviceLabel}`));
   const reviewText=reviewSources.length?`${reviewSources.length} active source${reviewSources.length===1?'':'s'} · ${reviewSources.map(x=>`${x.source||'App Review access'}${x.expiresAt?` · Until ${fmtExactDateTime(x.expiresAt)}`:' · Indefinite'}`).join(' + ')}`:'Not granted';
   const authEmail=data.auth?.email||u.email||'';
   const authStatus=data.auth?.disabled?'Disabled':'Active';
@@ -482,9 +490,11 @@ function renderUserDrawer(data){
     const normalTrialDetail=d.trialExpiresAt
       ?`${d.trialActive?'Normal trial expires':'Normal trial expired'}: ${esc(fmtExactDateTime(d.trialExpiresAt))}`
       :(d.trialStartedAt?`Normal trial started: ${esc(fmtExactDateTime(d.trialStartedAt))}`:'Normal trial: Not recorded');
+    const betaStatus=d.betaAccessActive?'<span class="production-status green">Beta Access Active</span>':'';
+    const betaDetail=d.betaAccessActive&&d.betaAccessExpiresAt?`<span class="production-device-lastseen">Beta access expires: ${esc(fmtExactDateTime(d.betaAccessExpiresAt))}</span>`:'';
     const adminTrialStatus=d.trialOverrideActive?'<span class="production-status green">Admin Trial Active</span>':'';
     const adminTrialDetail=d.trialOverrideActive&&d.trialOverrideExpiresAt?`<span class="production-device-lastseen">Admin trial expires: ${esc(fmtExactDateTime(d.trialOverrideExpiresAt))}</span>`:'';
-    return `<div class="production-device-card"><div><strong>${esc(d.deviceName||d.deviceModel||'Device')}</strong><span>${esc(d.platform||'Device')} · ${esc(shortId(d.deviceId))}</span><span class="production-device-lastseen">${normalTrialDetail}</span>${d.trialStartedAt?`<span class="production-device-lastseen">Original trial started: ${esc(fmtExactDateTime(d.trialStartedAt))}</span>`:''}${adminTrialDetail}<span class="production-device-lastseen">Last login: ${d.lastSeenAt?esc(fmtDateTime(d.lastSeenAt)):'Not recorded'}</span></div><div class="production-device-tags">${normalTrialStatus}${adminTrialStatus}${d.isPrimary?'<span class="production-status green">Primary</span>':''}${d.isTrusted?'<span class="production-status blue">Trusted</span>':''}${d.isActive?'<span class="production-status">Active Device</span>':''}</div></div>`;
+    return `<div class="production-device-card"><div><strong>${esc(d.deviceName||d.deviceModel||'Device')}</strong><span>${esc(d.platform||'Device')} · ${esc(shortId(d.deviceId))}</span><span class="production-device-lastseen">${normalTrialDetail}</span>${d.trialStartedAt?`<span class="production-device-lastseen">Original trial started: ${esc(fmtExactDateTime(d.trialStartedAt))}</span>`:''}${betaDetail}${adminTrialDetail}<span class="production-device-lastseen">Last login: ${d.lastSeenAt?esc(fmtDateTime(d.lastSeenAt)):'Not recorded'}</span></div><div class="production-device-tags">${normalTrialStatus}${betaStatus}${adminTrialStatus}${d.isPrimary?'<span class="production-status green">Primary</span>':''}${d.isTrusted?'<span class="production-status blue">Trusted</span>':''}${d.isActive?'<span class="production-status">Active Device</span>':''}</div></div>`;
   }).join(''):'<div class="admin-empty-inline">No device records found.</div>';
   const linkedMembers=(identity.members||[]).filter(m=>m.uid!==u.uid);
   const linkedHtml=linkedMembers.length?linkedMembers.map(m=>`<div class="production-linked-account-row"><button class="production-linked-account-open" data-production-user="${esc(m.uid)}" type="button"><strong>${esc(m.name||m.email||'RebataTrack user')}</strong><span>${esc(m.email||shortId(m.uid))} · Manual Admin relationship</span></button><button class="admin-text-button production-unlink-button" data-production-identity-unlink="${esc(m.uid)}" data-base-uid="${esc(u.uid)}" type="button">Unlink</button></div>`).join(''):'<div class="admin-empty-inline">No manual Admin links for this account.</div>';
