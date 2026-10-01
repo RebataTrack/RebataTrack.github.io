@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal</title>
 <link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=112" rel="apple-touch-icon"/><link href="favicon-32.png?v=112" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=112" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=148" rel="stylesheet"/>
+<link href="styles.css?v=149" rel="stylesheet"/>
 </head>
 <body class="admin-body">
 <div class="admin-loading-screen" id="adminLoading">
@@ -127,6 +127,7 @@
 <article><span>Needs Attention</span><strong id="testerActivityAttention">0</strong><small>7–13 days without portal activity</small></article>
 <article><span>Inactive Review</span><strong id="testerActivityInactive">0</strong><small>14+ days; review access manually</small></article>
 <article><span>Enabled Testers</span><strong id="testerActivityEnabled">0</strong><small>Access currently enabled</small></article>
+<article><span>Ready for Invite</span><strong id="testerInviteReady">0</strong><small>Completed all pre-invite setup steps</small></article>
 <article><span>Android Links Sent</span><strong id="testerAndroidLinksSent">0</strong><small>Google Play beta-testing links successfully sent</small></article>
 </div>
 <div class="admin-activity-policy"><strong>Automatic inactivity flagging:</strong> testers are marked <b>Needs Attention</b> after 7 days and <b>Inactive</b> after 14 days without portal activity. Access is never disabled automatically by these activity flags.</div>
@@ -151,8 +152,8 @@
 </div>
 <div class="admin-timeline-stage-guide"><strong>Timeline stages:</strong><span><b>Approved</b> → prepare device and wait for access</span><span><b>Testing Access Sent</b> → accept invitation/link, install RebataTrack, create app account</span><span><b>Active Testing</b> → ongoing workflows, required tasks, and feedback</span></div>
 </article>
-<div class="admin-toolbar"><div class="admin-search"><span><svg aria-hidden="true" viewbox="0 0 24 24"><circle cx="10.5" cy="10.5" fill="none" r="6.5" stroke="currentColor" stroke-width="2"></circle><path d="m15.5 15.5 4 4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path></svg></span><input id="testerSearch" placeholder="Search tester" type="search"/></div><select class="admin-filter" id="testerActivityFilter"><option value="">All activity</option><option>Active</option><option>Needs Attention</option><option>Inactive</option></select><select class="admin-filter" id="testerAccessFilter"><option value="">All access</option><option>Enabled</option><option>Disabled</option></select></div>
-<div class="admin-table-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Platform</th><th>Activity</th><th>Last Active</th><th>Scorecard</th><th>Build / Device</th><th>Access</th><th>Timeline</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
+<div class="admin-toolbar"><div class="admin-search"><span><svg aria-hidden="true" viewbox="0 0 24 24"><circle cx="10.5" cy="10.5" fill="none" r="6.5" stroke="currentColor" stroke-width="2"></circle><path d="m15.5 15.5 4 4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path></svg></span><input id="testerSearch" placeholder="Search tester" type="search"/></div><select class="admin-filter" id="testerActivityFilter"><option value="">All activity</option><option>Active</option><option>Needs Attention</option><option>Inactive</option></select><select class="admin-filter" id="testerReadinessFilter"><option value="">All invite readiness</option><option value="ready">Ready for invite</option><option value="needsSetup">Not ready</option><option value="sent">Access already sent</option><option value="notEligible">Not eligible</option></select><select class="admin-filter" id="testerAccessFilter"><option value="">All access</option><option>Enabled</option><option>Disabled</option></select></div>
+<div class="admin-table-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Platform</th><th>Activity</th><th>Last Active</th><th>Scorecard</th><th>Build / Device</th><th>Invitation Readiness</th><th>Access</th><th>Timeline</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
 </section>
 <section class="admin-view" data-admin-panel="tasks">
 <div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Missed required deadlines automatically remove beta access.</p></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
@@ -181,10 +182,14 @@
 <option value="reports">Reports &amp; spending insights</option>
 <option value="shared-profiles">Shared Profiles collaboration</option>
 <option value="cloud-sync">Cloud sync across two clients</option>
+<option value="edit-order">Edit an existing order</option>
+<option value="reminders-notifications">Reminders &amp; notifications settings</option>
+<option value="device-account-security">Account &amp; device security review</option>
+<option value="web-mobile-parity">Web ↔ mobile parity check</option>
 </optgroup>
 <optgroup label="RebataTrack+ &amp; Billing">
-<option value="plus-ios">RebataTrack+ test purchase — iOS / TestFlight</option>
-<option value="plus-android">RebataTrack+ test purchase — Android / Google Play</option>
+<option value="plus-ios">RebataTrack+ TEST subscription — iOS / TestFlight</option>
+<option value="plus-android">RebataTrack+ TEST subscription — Android / Google Play</option>
 <option value="web-app">RebataTrack Web App smoke test</option>
 </optgroup>
 </select>
@@ -210,7 +215,7 @@
 </div>
 </section>
 <section class="admin-view" data-admin-panel="announcements">
-<div class="admin-page-heading"><div><div class="admin-section-kicker">Beta News</div><h2>Announcements</h2><p>Publish dated updates to active testers, target a platform, optionally require acknowledgement, and send matching email alerts.</p></div></div>
+<div class="admin-page-heading"><div><div class="admin-section-kicker">Beta News</div><h2>Announcements</h2><p>Publish dated updates to active testers and target a platform. Every broadcast requires tester acknowledgement; acknowledged alerts leave the active area and remain available in Broadcast Alert History.</p></div></div>
 <div class="admin-announcement-layout">
 <article class="admin-panel admin-announcement-composer">
 <div class="admin-panel-heading"><div><span class="admin-section-kicker">Publish Update</span><h3>New beta announcement</h3></div></div>
@@ -221,7 +226,7 @@
 <div class="admin-announcement-options-label">Options</div>
 <div class="admin-announcement-options" role="group" aria-label="Announcement options">
 <label><input id="announcementImportant" type="checkbox"/><span><strong>Important</strong><small>Important updates are emailed automatically.</small></span></label>
-<label><input id="announcementAckRequired" type="checkbox"/><span><strong>Require acknowledgement</strong><small>Tester must confirm they have read it.</small></span></label>
+<label class="admin-announcement-option-locked"><input checked disabled id="announcementAckRequired" type="checkbox"/><span><strong>Acknowledgement required</strong><small>Locked on for every broadcast. After acknowledgement, the alert moves to the tester’s Broadcast Alert History.</small></span></label>
 <label><input id="announcementEmailTesters" type="checkbox"/><span><strong>Email testers</strong><small>Email a normal informational update too.</small></span></label>
 </div>
 <button class="admin-primary-button admin-announcement-publish" id="announcementPublishButton" type="button">Publish Announcement <span>→</span></button>
@@ -306,7 +311,7 @@ setTimeout(function(){
   }
 }, 12000);
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=145"></script><script src="production-admin.js?v=146"></script>
-<footer data-rebatatrack-website-build="147" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 148</footer>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=149"></script><script src="production-admin.js?v=146"></script>
+<footer data-rebatatrack-website-build="147" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 149</footer>
 </body>
 </html>

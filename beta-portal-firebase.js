@@ -244,22 +244,24 @@ function taskIsOverdue(task){const d=timestampToDate(task.dueAt);return !!d&&d.g
 function escapeHtml(value){return String(value==null?'':value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function renderPortalTaskSummary(){
   const section=document.getElementById('portalTaskSummary');if(!section)return;
-  const pending=allTaskAssignments.filter(t=>t.status==='Pending').sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
+  const pending=allTaskAssignments.filter(t=>t.recordType!=='Announcement'&&t.status==='Pending').sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
   const retests=feedbackHistory.filter(f=>!isSupportConversation(f)&&String(f.status||'')==='Needs Retest'&&!f.retestedAt);
   const supportActions=feedbackHistory.filter(f=>isSupportConversation(f)&&(String(f.status||'')==='Waiting for Tester'||conversationIsUnread(f))).sort((a,b)=>conversationActivityMs(b)-conversationActivityMs(a));
-  const total=pending.length+retests.length+supportActions.length;
+  const broadcasts=allTaskAssignments.filter(t=>t.recordType==='Announcement'&&!t.announcementArchived&&t.status!=='Acknowledged');
+  const total=pending.length+retests.length+supportActions.length+broadcasts.length;
   const mobileCount=document.getElementById('portalMobileActionCount');if(mobileCount){mobileCount.textContent=total;mobileCount.hidden=total===0;}
   if(!total){section.hidden=true;return;}
   section.hidden=false;
   document.getElementById('portalTaskSummaryCount').textContent=total;
   document.getElementById('portalTaskSummaryTitle').textContent=total===1?'You have 1 outstanding item.':`You have ${total} outstanding items.`;
-  const kinds=[];if(retests.length)kinds.push(`${retests.length} retest${retests.length===1?'':'s'}`);if(pending.length)kinds.push(`${pending.length} required task${pending.length===1?'':'s'}`);if(supportActions.length)kinds.push(`${supportActions.length} support update${supportActions.length===1?'':'s'}`);
+  const kinds=[];if(broadcasts.length)kinds.push(`${broadcasts.length} broadcast alert${broadcasts.length===1?'':'s'}`);if(retests.length)kinds.push(`${retests.length} retest${retests.length===1?'':'s'}`);if(pending.length)kinds.push(`${pending.length} required task${pending.length===1?'':'s'}`);if(supportActions.length)kinds.push(`${supportActions.length} support update${supportActions.length===1?'':'s'}`);
   document.getElementById('portalTaskSummaryText').textContent=`Needs your attention: ${kinds.join(', ')}. Open an item below to go directly to it.`;
   const list=document.getElementById('portalTaskSummaryList');
   const retestRows=retests.slice(0,6).map(f=>`<button class="portal-required-summary-item portal-required-retest" data-retest-feedback="${escapeHtml(f.id)}" type="button"><strong>Retest: ${escapeHtml(f.subject||'Reported issue')}</strong><span>Retest required</span></button>`);
   const taskRows=pending.slice(0,6).map(t=>`<button class="portal-required-summary-item" data-open-required-task="${escapeHtml(t.id)}" type="button"><strong>${escapeHtml(t.taskTitle||'Required task')}</strong><span>${escapeHtml(formatTaskDue(t.dueAt))}</span></button>`);
+  const broadcastRows=broadcasts.slice(0,6).map(a=>`<button class="portal-required-summary-item portal-required-broadcast" data-scroll-broadcast="${escapeHtml(a.id)}" type="button"><strong>Broadcast: ${escapeHtml(a.announcementTitle||'RebataTrack Beta Update')}</strong><span>Acknowledgement required</span></button>`);
   const supportRows=supportActions.slice(0,6).map(f=>`<button class="portal-required-summary-item portal-required-support" data-open-conversation="${escapeHtml(f.id)}" type="button"><strong>${escapeHtml(f.subject||'Support conversation')}</strong><span>${String(f.status||'')==='Waiting for Tester'?'Reply needed':'New support update'}</span></button>`);
-  list.innerHTML=[...retestRows,...supportRows,...taskRows].slice(0,10).join('');
+  list.innerHTML=[...broadcastRows,...retestRows,...supportRows,...taskRows].slice(0,10).join('');
 }
 function renderRequiredTask(){
   if(!taskBackdrop)return;
@@ -295,21 +297,30 @@ async function loadRequiredTasks(uid){
 }
 
 function renderPortalAnnouncements(){
-  const section=document.getElementById('portalAnnouncements');const list=document.getElementById('portalAnnouncementList');if(!section||!list)return;
-  if(!portalAnnouncements.length){section.hidden=true;list.innerHTML='';return;}
-  section.hidden=false;
-  list.innerHTML=portalAnnouncements.map(a=>{
-    const requires=!!a.requiresAcknowledgement;const acknowledged=a.status==='Acknowledged'&&!!a.acknowledgedAt;
-    const action=requires?(acknowledged?`<span class="portal-announcement-acknowledged">✓ Acknowledged ${escapeHtml(formatPortalDate(a.acknowledgedAt))}</span>`:`<button class="portal-announcement-ack" data-ack-announcement="${escapeHtml(a.id)}" type="button">Acknowledge</button>`):'<span class="portal-announcement-info">For your information</span>';
-    return `<article class="portal-announcement-card${a.announcementImportant?' is-important':''}"><div class="portal-announcement-meta"><span><b class="portal-announcement-icon" aria-hidden="true">!</b>${a.announcementImportant?'Important Beta Update':'Beta Update'}</span><time>${escapeHtml(formatPortalDate(a.publishedAt||a.assignedAt))}</time></div><h3>${escapeHtml(a.announcementTitle||'RebataTrack Beta Update')}</h3><p>${escapeHtml(a.announcementMessage||'')}</p><div class="portal-announcement-footer">${requires?'<small>RebataTrack asks you to confirm that you have read this update.</small>':'<small>No acknowledgement is required.</small>'}${action}</div></article>`;
+  const section=document.getElementById('portalAnnouncements');
+  const list=document.getElementById('portalAnnouncementList');
+  const historySection=document.getElementById('portalBroadcastHistory');
+  const historyList=document.getElementById('portalBroadcastHistoryList');
+  const historyCount=document.getElementById('portalBroadcastHistoryCount');
+  if(!section||!list)return;
+  const active=portalAnnouncements.filter(a=>a.status!=='Acknowledged');
+  const history=portalAnnouncements.filter(a=>a.status==='Acknowledged').sort((a,b)=>(timestampToDate(b.acknowledgedAt)?.getTime()||0)-(timestampToDate(a.acknowledgedAt)?.getTime()||0));
+  section.hidden=active.length===0;
+  list.innerHTML=active.map(a=>{
+    return `<article class="portal-announcement-card${a.announcementImportant?' is-important':''}" data-broadcast-card="${escapeHtml(a.id)}"><div class="portal-announcement-meta"><span><b class="portal-announcement-icon" aria-hidden="true">!</b>${a.announcementImportant?'Important Beta Update':'Beta Update'}</span><time>${escapeHtml(formatPortalDate(a.publishedAt||a.assignedAt))}</time></div><h3>${escapeHtml(a.announcementTitle||'RebataTrack Beta Update')}</h3><p>${escapeHtml(a.announcementMessage||'')}</p><div class="portal-announcement-footer"><small>Acknowledgement is required. After you confirm, this alert moves to Broadcast Alert History.</small><button class="portal-announcement-ack" data-ack-announcement="${escapeHtml(a.id)}" type="button">Acknowledge</button></div></article>`;
   }).join('');
+  if(historySection&&historyList){
+    historySection.hidden=history.length===0;
+    if(historyCount)historyCount.textContent=String(history.length);
+    historyList.innerHTML=history.map(a=>`<article class="portal-broadcast-history-card"><div><span class="portal-broadcast-history-date">${escapeHtml(formatPortalDate(a.publishedAt||a.assignedAt))}</span><h3>${escapeHtml(a.announcementTitle||'RebataTrack Beta Update')}</h3><p>${escapeHtml(a.announcementMessage||'')}</p></div><span class="portal-announcement-acknowledged">✓ Acknowledged ${escapeHtml(formatPortalDate(a.acknowledgedAt))}</span></article>`).join('');
+  }
 }
 async function acknowledgeAnnouncement(id,button){
   const row=portalAnnouncements.find(a=>a.id===id);if(!row||row.status==='Acknowledged')return;
   if(button){button.disabled=true;button.textContent='Saving…';}
   try{
     await updateDoc(doc(db,'betaTaskAssignments',row.id),{status:'Acknowledged',response:'Acknowledged',acknowledgedAt:serverTimestamp(),updatedAt:serverTimestamp()});
-    row.status='Acknowledged';row.response='Acknowledged';row.acknowledgedAt=new Date();renderPortalAnnouncements();
+    row.status='Acknowledged';row.response='Acknowledged';row.acknowledgedAt=new Date();renderPortalAnnouncements();renderPortalTaskSummary();
   }catch(error){if(button){button.disabled=false;button.textContent='Acknowledge';}setFeedbackMessage('We could not save that acknowledgement. '+friendlyFirebaseError(error),'error');}
 }
 function maybePromptPendingRetest(){
@@ -855,6 +866,7 @@ document.addEventListener('click',event=>{const launcher=document.getElementById
 renderSupportLauncher();
 
 document.addEventListener('click',event=>{
+  const broadcast=event.target.closest('[data-scroll-broadcast]');if(broadcast){const card=document.querySelector(`[data-broadcast-card="${CSS.escape(broadcast.dataset.scrollBroadcast)}"]`);if(card){rebatifyPortalScrollTarget(card,'smooth');setTimeout(()=>card.querySelector('[data-ack-announcement]')?.focus({preventScroll:true}),450);}return;}
   const ack=event.target.closest('[data-ack-announcement]');if(ack){acknowledgeAnnouncement(ack.dataset.ackAnnouncement,ack);return;}
   const setup=event.target.closest('[data-open-testing-setup]');if(setup){openTestingSetup();return;}
   const mismatch=event.target.closest('[data-account-mismatch]');if(mismatch){prefillAccountMismatchHelp();return;}

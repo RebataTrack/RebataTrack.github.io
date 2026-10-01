@@ -263,28 +263,74 @@ const TASK_TEMPLATES = {
 6. Report duplicates, missing edits, stale values, unexpected device-limit behavior, or unclear sync status. If no issue occurred, say “No issues.”`
   },
   'plus-ios': {
-    label:'RebataTrack+ test purchase — iOS / TestFlight', platform:'iOS', responseType:'Long Answer', suggestedHours:48,
-    objective:'Validate the complete RebataTrack+ purchase and entitlement experience from the TestFlight build without using a real-money production purchase.',
-    adminNote:'iOS only. TestFlight In-App Purchases run in Apple’s sandbox and do not charge real money. Do not send this objective to someone using the production App Store build.',
-    instructions:`1. Make sure you are using the latest RebataTrack build installed through TestFlight — not a production App Store build.
+    label:'RebataTrack+ TEST subscription — iOS / TestFlight', platform:'iOS', responseType:'Long Answer', suggestedHours:48,
+    objective:'Validate the complete RebataTrack+ subscription and entitlement experience through TestFlight using Apple’s sandbox. This is a TEST transaction only: no real purchase is made, no real charge should occur, and no real credit/debit-card information should ever be entered.',
+    adminNote:'iOS only. Send only to testers using the TestFlight build. Apple TestFlight In-App Purchases use the sandbox. The tester must NOT add, enter, or update real credit/debit-card information or another real payment method for this task. If Apple asks for a real payment method or presents a real charge, the tester must cancel and report it.',
+    instructions:`IMPORTANT — TEST PURCHASE ONLY: You are not buying RebataTrack+ with real money. Do not add, enter, or update any real credit/debit-card information or other real payment method for this task. If Apple asks you to add/verify a real payment method or shows a real charge, cancel immediately and report that instead.
+
+1. Make sure you are using the latest RebataTrack build installed through TestFlight — not a production App Store build.
 2. Open the RebataTrack+ paywall/upgrade screen and review the plan wording, pricing display, trial wording (if shown), and purchase buttons.
-3. Start a RebataTrack+ subscription purchase and complete the Apple purchase sheet. TestFlight purchases use Apple’s sandbox and should not create a real charge.
-4. Confirm RebataTrack+ unlocks immediately after the test transaction.
-5. Close and reopen RebataTrack and confirm Plus access is still recognized.
-6. If Restore Purchases is available, test it and confirm entitlement remains correct.
-7. Report any incorrect price/plan text, purchase error, entitlement delay, locked Plus feature, restore problem, or confusing messaging. If everything worked, say “No issues.”`
+3. Start a RebataTrack+ subscription transaction and confirm the Apple sheet is clearly operating as a sandbox/test transaction. Do not continue if it appears to be a real purchase.
+4. Complete only the sandbox/test transaction. No real charge should occur.
+5. Confirm RebataTrack+ unlocks immediately after the test transaction.
+6. Close and reopen RebataTrack and confirm Plus access is still recognized.
+7. If Restore Purchases is available, test it and confirm entitlement remains correct.
+8. Report any request for real payment information, incorrect price/plan text, purchase error, entitlement delay, locked Plus feature, restore problem, or confusing messaging. If everything worked, say “No issues.”`
   },
   'plus-android': {
-    label:'RebataTrack+ test purchase — Android / Google Play', platform:'Android', responseType:'Long Answer', suggestedHours:48,
-    objective:'Validate the complete RebataTrack+ Google Play purchase and entitlement experience using a Google Play license-testing account.',
-    adminNote:'Android only. Before sending this task, make sure the tester’s Google account is configured under Play Console → Settings → License testing and is eligible for the test release. If Google presents a normal real-money purchase instead of a test purchase, the tester should stop.',
-    instructions:`1. Make sure the Google Play Store is signed into the Google account approved for the RebataTrack beta and configured for Google Play license testing.
+    label:'RebataTrack+ TEST subscription — Android / Google Play', platform:'Android', responseType:'Long Answer', suggestedHours:48,
+    objective:'Validate the complete RebataTrack+ Google Play subscription and entitlement experience using a Google Play license-testing account. This is a TEST transaction only: no real purchase is made, no real charge should occur, and no real credit/debit-card information should ever be entered.',
+    adminNote:'Android only. Before sending, confirm the tester’s Google account is configured for Google Play license testing and eligible for the test release. The tester must NOT add, enter, or update real credit/debit-card information or another real payment method. If Google presents a normal real-money purchase or requests a real payment method, the tester must cancel and report it.',
+    instructions:`IMPORTANT — TEST PURCHASE ONLY: You are not buying RebataTrack+ with real money. Do not add, enter, or update any real credit/debit-card information or other real payment method for this task. If Google Play asks you to add/verify a real payment method or shows a real charge, cancel immediately and report that instead.
+
+1. Make sure Google Play is signed into the Google account approved for the RebataTrack beta and configured for Google Play license testing.
 2. Install/open RebataTrack from the designated Google Play testing track.
 3. Open the RebataTrack+ paywall and review the plan wording, pricing display, trial wording (if shown), and purchase buttons.
-4. Start a RebataTrack+ purchase. Confirm Google Play identifies it as a test purchase. If it appears to be a normal real-money purchase, stop and report that instead of completing it.
-5. Complete the test purchase and verify RebataTrack+ unlocks immediately.
+4. Start a RebataTrack+ subscription transaction and confirm Google Play clearly identifies it as a test purchase. Do not continue if it appears to be a real-money purchase.
+5. Complete only the test transaction and verify RebataTrack+ unlocks immediately. No real charge should occur.
 6. Close and reopen RebataTrack and confirm Plus access remains correct. Test Restore Purchases if that option is available.
-7. Report any billing, entitlement, restore, wording, or paywall issue. If everything worked, say “No issues.”`
+7. Report any request for real payment information, billing issue, entitlement delay, restore problem, incorrect wording, or paywall problem. If everything worked, say “No issues.”`
+  },
+  'edit-order': {
+    label:'Edit an existing order', platform:'All', responseType:'Long Answer', suggestedHours:48,
+    objective:'Validate that an existing order can be edited safely and that updated values immediately propagate to the order details, calculations, status, and related views.',
+    instructions:`1. Open an existing temporary/test order in the latest RebataTrack beta build.
+2. Edit at least two safe fields, such as item description, expected refund amount, order date, or another non-sensitive test value.
+3. Save/leave the screen using the normal app flow and reopen the same order.
+4. Confirm every edited value persisted and that any dependent totals, status, expected dates, and reports updated appropriately.
+5. Close and reopen RebataTrack and verify the edits are still present.
+6. Report any stale value, unexpected reset, incorrect calculation, confusing edit control, or autosave issue. If everything worked, say “No issues.”`
+  },
+  'reminders-notifications': {
+    label:'Reminders & notifications settings', platform:'All', responseType:'Long Answer', suggestedHours:48,
+    objective:'Validate reminder and notification settings are understandable, persist correctly, and produce the expected customer-facing behavior.',
+    instructions:`1. Open More and locate Reminders & Notification Settings.
+2. Review the available reminder timing and notification options.
+3. Change at least one safe test setting and confirm the change saves.
+4. Leave the screen, return to it, and verify the setting persisted.
+5. If a test-notification control is available in the beta build, use it and verify the notification arrives and opens the expected destination.
+6. Restore any personal preference you changed when finished.
+7. Report unclear wording, a setting that does not persist, duplicate/missing notifications, or a notification that opens the wrong place. If everything worked, say “No issues.”`
+  },
+  'device-account-security': {
+    label:'Account & device security review', platform:'All', responseType:'Long Answer', suggestedHours:72,
+    objective:'Validate sign-in, sign-out, account isolation, and device-management information without intentionally bypassing RebataTrack security controls.',
+    instructions:`1. Open More and review the Account & Security / device-management areas available to you.
+2. Confirm your current testing device is described clearly and its status makes sense.
+3. Sign out normally, then sign back in to the same approved RebataTrack test account on the same device.
+4. Confirm your data and Beta access return correctly and no other account’s data appears.
+5. If you have a second approved test account, switch only through normal sign-out/sign-in and verify account data remains isolated. Do not attempt to bypass device limits or security warnings.
+6. Report any lockout, incorrect device label, cross-account data, confusing warning, or sign-in/sign-out problem. If everything worked, say “No issues.”`
+  },
+  'web-mobile-parity': {
+    label:'Web ↔ mobile parity check', platform:'All', responseType:'Long Answer', suggestedHours:72,
+    objective:'Compare the RebataTrack Web App and mobile beta to confirm the same account data, status, terminology, and core workflow results stay consistent across clients.',
+    instructions:`1. Sign in to the RebataTrack Web App and the latest mobile beta using the same approved test account.
+2. Open the same order on both clients and compare amounts, status, expected dates, refund history, and next-action wording.
+3. Make one small test edit on mobile and confirm the web version receives it once sync completes.
+4. Make one small test edit on the web and confirm mobile receives it once sync completes.
+5. Compare Home, Orders, Reports (if available), and key More/account information for terminology or status mismatches.
+6. Report any missing record, duplicate, stale value, inconsistent status, wording mismatch, or layout that prevents the workflow. If everything matched, say “No issues.”`
   },
   'web-app': {
     label:'RebataTrack Web App smoke test', platform:'All', responseType:'Long Answer', suggestedHours:72,
@@ -412,6 +458,7 @@ function renderTesterActivityMetrics(){
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
   set('testerActivityActive',counts.Active);set('testerActivityAttention',counts['Needs Attention']);set('testerActivityInactive',counts.Inactive);set('testerActivityEnabled',enabled.length);
   set('testerAndroidLinksSent',state.testers.filter(t=>t.platform==='Android'&&!!timestampToDate(t.androidTestingInviteSentAt)).length);
+  set('testerInviteReady',state.testers.filter(t=>testerInviteReadiness(t).key==='ready').length);
 }
 
 function confirmAction(message,tone){
@@ -630,10 +677,12 @@ function testerFiltered(){
   const q=document.getElementById('testerSearch').value.trim().toLowerCase();
   const access=document.getElementById('testerAccessFilter').value;
   const activity=document.getElementById('testerActivityFilter')?.value||'';
+  const readiness=document.getElementById('testerReadinessFilter')?.value||'';
   return state.testers.filter(t=>{
     const score=testerScore(t);const build=testerBuild(t);const device=testerDeviceSummary(t);const activityInfo=testerActivityInfo(t);
-    const hay=((t.name||'')+' '+(t.email||'')+' '+(t.platform||'')+' '+build+' '+device+' '+(score.lastFeedback?.subject||'')).toLowerCase();
-    return (!q||hay.includes(q))&&(!access||t.accessStatus===access)&&(!activity||activityInfo.label===activity);
+    const readinessInfo=testerInviteReadiness(t);
+    const hay=((t.name||'')+' '+(t.email||'')+' '+(t.platform||'')+' '+build+' '+device+' '+(score.lastFeedback?.subject||'')+' '+readinessInfo.label+' '+readinessInfo.detail).toLowerCase();
+    return (!q||hay.includes(q))&&(!access||t.accessStatus===access)&&(!activity||activityInfo.label===activity)&&(!readiness||readinessInfo.key===readiness);
   });
 }
 function pendingAssignmentsForTester(t){
@@ -662,6 +711,34 @@ function selectTimelineTesters(platform='All'){
   visible.forEach(t=>{if(platform==='All'||t.platform===platform)selectedTimelineTesters.add(t.uid);});
   updateTimelineSelectionUI();
 }
+function testerSetupCompleteForInvite(t){
+  const recorded=!!timestampToDate(t.deviceSetupCompletedAt);
+  const fields=!!String(t.deviceModel||'').trim()&&!!String(t.osVersion||'').trim()&&!!String(t.screenSize||'').trim()&&!!timestampToDate(t.distributionAccountConfirmedAt);
+  return recorded||fields;
+}
+function testerInviteReadiness(t){
+  if(!t||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))return {key:'notEligible',label:'Not eligible',detail:'Beta access is not enabled'};
+  const stage=normalizeTimelineStage(t.timelineStage);
+  const alreadySent=timelineStageRank(stage)>=timelineStageRank('inviteSent')||(t.platform==='Android'&&!!timestampToDate(t.androidTestingInviteSentAt));
+  if(alreadySent)return {key:'sent',label:t.platform==='iOS'?'TestFlight Sent':t.platform==='Android'?'Android Link Sent':'Access Sent',detail:'Testing access has already been released'};
+  const setupDone=testerSetupCompleteForInvite(t);
+  if(t.platform==='iOS'){
+    const testFlightDone=!!timestampToDate(t.testFlightPreparedAt)||setupDone;
+    if(!testFlightDone)return {key:'needsSetup',label:'Not Ready',detail:'Waiting for TestFlight confirmation'};
+    if(!setupDone)return {key:'needsSetup',label:'Not Ready',detail:'Waiting for Testing Setup'};
+    return {key:'ready',label:'READY — Send TestFlight',detail:'All pre-invite steps complete'};
+  }
+  if(t.platform==='Android'){
+    if(!setupDone)return {key:'needsSetup',label:'Not Ready',detail:'Waiting for Testing Setup'};
+    return {key:'ready',label:'READY — Send Android Link',detail:'All pre-invite steps complete'};
+  }
+  if(!setupDone)return {key:'needsSetup',label:'Not Ready',detail:'Waiting for Testing Setup'};
+  return {key:'ready',label:'READY — Send Access',detail:'All pre-invite steps complete'};
+}
+function testerReadinessHtml(t){
+  const r=testerInviteReadiness(t);
+  return `<div class="admin-readiness-cell readiness-${esc(r.key)}"><strong>${esc(r.label)}</strong><small>${esc(r.detail)}</small></div>`;
+}
 function timelineChipHtml(t){
   const stage=normalizeTimelineStage(t.timelineStage);
   const androidSent=t.platform==='Android'&&timestampToDate(t.androidTestingInviteSentAt);
@@ -679,7 +756,7 @@ function renderTesters(){
     const inactiveText=activity.days===999?'No activity recorded':`${activity.days} day${activity.days===1?'':'s'} inactive`;
     const deviceLine=device||'Device not provided';
     const buildLine=build||'Build not provided';
-    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
+    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td>${testerReadinessHtml(t)}</td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
   }).join('');
   document.getElementById('testersEmpty').hidden=data.length>0;
   renderTesterActivityMetrics();
@@ -918,9 +995,9 @@ async function createAnnouncement(){
   const message=String(document.getElementById('announcementMessage')?.value||'').trim();
   const audience=String(document.getElementById('announcementAudience')?.value||'All');
   const important=!!document.getElementById('announcementImportant')?.checked;
-  const requiresAcknowledgement=!!document.getElementById('announcementAckRequired')?.checked;
+  const requiresAcknowledgement=true;
   const emailRequested=!!document.getElementById('announcementEmailTesters')?.checked;
-  const emailTesters=important||requiresAcknowledgement||emailRequested;
+  const emailTesters=important||emailRequested;
   if(title.length<2)throw new Error('Enter an announcement headline.');
   if(message.length<2)throw new Error('Enter the announcement message.');
   const testers=activeTaskTesters().filter(t=>audience==='All'||t.platform===audience);
@@ -941,7 +1018,7 @@ async function createAnnouncement(){
     }
   }
   state.loaded.tasks=false;await loadTasks(true);renderAnnouncements();
-  document.getElementById('announcementTitle').value='';document.getElementById('announcementMessage').value='';document.getElementById('announcementAudience').value='All';document.getElementById('announcementImportant').checked=false;document.getElementById('announcementAckRequired').checked=false;if(document.getElementById('announcementEmailTesters'))document.getElementById('announcementEmailTesters').checked=false;
+  document.getElementById('announcementTitle').value='';document.getElementById('announcementMessage').value='';document.getElementById('announcementAudience').value='All';document.getElementById('announcementImportant').checked=false;document.getElementById('announcementAckRequired').checked=true;if(document.getElementById('announcementEmailTesters'))document.getElementById('announcementEmailTesters').checked=false;
   return {count:testers.length,emailSent,emailFailed,emailErrors,emailTesters};
 }
 function openAnnouncementRecord(t){
@@ -1712,7 +1789,7 @@ document.getElementById('taskRecipientList').addEventListener('change',e=>{if(e.
 document.getElementById('taskSendButton').addEventListener('click',async()=>{const btn=document.getElementById('taskSendButton');const original=btn.innerHTML;if(!(await confirmAction('Send this required task to the selected testers? They will receive an email and must complete it by the deadline to keep beta access active.','')))return;btn.disabled=true;btn.innerHTML='Sending Task…';try{const result=await createRequiredTask();const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} testers. ${result.failed} email${result.failed===1?'':'s'} could not be sent.${firstError}`:`Required task sent to ${result.total} tester${result.total===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.innerHTML=original;}});
 const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
-['testerSearch','testerAccessFilter','testerActivityFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderTesters));
+['testerSearch','testerAccessFilter','testerActivityFilter','testerReadinessFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderTesters));
 ['feedbackSearch','feedbackStatusFilter','feedbackTypeFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderFeedback));
 
 })().catch(function(error){
