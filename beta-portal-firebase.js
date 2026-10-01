@@ -681,7 +681,11 @@ async function loadProfile(user) {
 }
 
 function safeAndroidTestingInviteUrl(value){
-  try{const u=new URL(String(value||'').trim());return u.protocol==='https:'&&u.hostname==='play.google.com'&&u.pathname.startsWith('/apps/testing/')?u.toString():'';}catch(_){return '';}
+  try{
+    const u=new URL(String(value||'').trim());
+    const validPath=u.pathname.startsWith('/apps/testing/')||u.pathname.startsWith('/store/apps/details');
+    return u.protocol==='https:'&&u.hostname==='play.google.com'&&validPath?u.toString():'';
+  }catch(_){return '';}
 }
 
 function renderProfile(profile) {
