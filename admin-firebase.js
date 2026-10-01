@@ -37,6 +37,7 @@ let emailWorkerEndpoint = '';
 let androidTestingInviteUrl = '';
 let betaProgramEndDate = '';
 let betaProductionMapping = new Map();
+let suppressBetaProductionAutoRefresh = false;
 
 let state = {
   metrics: {},
@@ -533,7 +534,7 @@ async function loadTesters(force=false){
   state.testers=snap.docs.map(s=>({uid:s.id,...s.data()}));state.loaded.testers=true;
   try{await repairMissingAndroidInviteUrls(state.testers);}catch(error){console.warn('Could not repair missing Android testing links:',error);}
   renderTesters();
-  if(betaProgramEndDate&&window.RebataTrackProductionAdminBridge){refreshBetaProductionMapping().catch(error=>console.warn('Could not refresh Beta/Production mapping after tester load:',error));}
+  if(!suppressBetaProductionAutoRefresh&&betaProgramEndDate&&window.RebataTrackProductionAdminBridge){refreshBetaProductionMapping().catch(error=>console.warn('Could not refresh Beta/Production mapping after tester load:',error));}
 }
 async function loadFeedback(force=false){
   if(state.loaded.feedback&&!force){renderFeedback();return;}
@@ -1362,6 +1363,22 @@ async function refreshBetaProductionMapping(){
   try{const result=await bridge.call('beta-program-status',{testers});betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));renderTesters();}
   catch(error){console.warn('Could not refresh Beta/Production mapping:',error);}
 }
+async function syncBetaProgramAfterTesterMutation(){
+  const bridge=window.RebataTrackProductionAdminBridge;
+  const dateText=normalizedBetaProgramDate(betaProgramEndDate);
+  const endIso=betaProgramEndIso(dateText);
+  if(!bridge||typeof bridge.call!=='function'||!dateText||!endIso)return {skipped:true};
+  const testers=eligibleBetaTesterPayload();
+  try{
+    const result=await bridge.call('beta-program-configure',{endDate:dateText,endsAt:endIso,testers});
+    betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));
+    renderTesters();
+    return result;
+  }catch(error){
+    console.warn('Could not reconcile Beta entitlement after tester change:',error);
+    return {error:friendlyFirebaseError(error)};
+  }
+}
 async function saveAndSyncBetaProgram(){
   const input=document.getElementById('betaProgramEndDate');const message=document.getElementById('betaProgramSyncMessage');const status=document.getElementById('betaProgramSyncStatus');const button=document.getElementById('betaProgramSaveSync');
   const dateText=normalizedBetaProgramDate(input&&input.value);const endIso=betaProgramEndIso(dateText);
@@ -1447,11 +1464,13 @@ async function callWorkerAdminAction(type,payload={}){
     return result;
   }finally{clearTimeout(timer);}
 }
-async function refreshApplicationAdminData(){
+async function refreshApplicationAdminData(options={}){
   state.loaded.applications=false;
   state.loaded.testers=false;
   state.loaded.tasks=false;
-  await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);
+  const previousSuppress=suppressBetaProductionAutoRefresh;
+  if(options.skipBetaMapping)suppressBetaProductionAutoRefresh=true;
+  try{await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);}finally{suppressBetaProductionAutoRefresh=previousSuppress;}
   await loadOverview();
   if(activeView==='applications')renderApplications();
   if(activeView==='testers')renderTesters();
@@ -1461,7 +1480,12 @@ async function refreshApplicationAdminData(){
 
 async function runApplicationAdminAction(a,action){
   const result=await callWorkerAdminAction('admin-application-action',{applicationId:a.id,action});
-  await refreshApplicationAdminData();
+  const changesEligibility=['approve','waitlist','decline','inactive','active','delete'].includes(action);
+  await refreshApplicationAdminData({skipBetaMapping:changesEligibility});
+  if(changesEligibility){
+    const betaSync=await syncBetaProgramAfterTesterMutation();
+    if(betaSync&&betaSync.error)result.betaSyncError=betaSync.error;
+  }
   return result;
 }
 
@@ -1508,11 +1532,13 @@ async function deleteTesterOnly(t){
     throw new Error('The tester was deleted, but the linked beta application could not be marked Removed. Refresh the Applications page and try the cleanup again.');
   }
   state.loaded.testers=false;state.loaded.tasks=false;state.loaded.applications=false;
-  await Promise.all([loadTesters(true),loadTasks(true),loadApplications(true)]);
+  const previousSuppress=suppressBetaProductionAutoRefresh;suppressBetaProductionAutoRefresh=true;
+  try{await Promise.all([loadTesters(true),loadTasks(true),loadApplications(true)]);}finally{suppressBetaProductionAutoRefresh=previousSuppress;}
   await loadOverview();
+  const betaSync=await syncBetaProgramAfterTesterMutation();
   if(activeView==='testers')renderTesters();
   if(activeView==='applications')renderApplications();
-  return {...result,applicationsRemoved};
+  return {...result,applicationsRemoved,betaSyncError:betaSync&&betaSync.error?betaSync.error:''};
 }
 
 async function bulkDeleteSelectedTesters(){
@@ -1536,9 +1562,10 @@ async function bulkDeleteSelectedTesters(){
   state.loaded.tasks=false;state.loaded.applications=false;
   await Promise.all([loadTasks(true),loadApplications(true)]);
   await loadOverview();
+  const betaSync=await syncBetaProgramAfterTesterMutation();
   if(activeView==='testers')renderTesters();
   if(activeView==='applications')renderApplications();
-  return {cancelled:false,deleted,failed,errors,applicationsRemoved};
+  return {cancelled:false,deleted,failed,errors,applicationsRemoved,betaSyncError:betaSync&&betaSync.error?betaSync.error:''};
 }
 async function deleteApplication(a){return runApplicationAdminAction(a,'delete');}
 
@@ -1755,9 +1782,9 @@ document.addEventListener('click',async e=>{
       if(!(await confirmAction(confirmation,'danger')))return;
       testerActionBtn.disabled=true;
       try{
-        await deleteTesterOnly(t);
+        const deleteResult=await deleteTesterOnly(t);
         closeDrawer();
-        showToast('Tester deleted. Linked application marked Removed.');
+        showToast(deleteResult&&deleteResult.betaSyncError?'Tester deleted. Linked application marked Removed. Beta entitlement reconciliation needs a retry from Admin refresh.':'Tester deleted. Linked application marked Removed.',deleteResult&&deleteResult.betaSyncError?'error':'success');
         if(activeView==='testers'){await loadTesters(true);await loadTasks(true);renderTesters();}
       }catch(err){
         showToast(friendlyFirebaseError(err),'error');
@@ -1793,7 +1820,8 @@ document.addEventListener('click',async e=>{
       if(task==='delete')result=await deleteApplication(a);
       const messages={approve:'Tester approved and portal access enabled.',resend:'RebataTrack Beta Portal invitation processed.',waitlist:'Applicant moved to the waitlist.',decline:'Application declined.',inactive:'Tester access disabled.',active:'Tester access restored and marked active.',delete:'Application, matching tester profiles, task assignments, and login deleted.'};
       const emailNote=result&&result.emailError?' The record was updated, but the email notification could not be sent.':'';
-      showToast((messages[task]||'Tester record updated.')+emailNote,result&&result.emailError?'error':'success');closeDrawer();
+      const betaNote=result&&result.betaSyncError?' Beta entitlement reconciliation needs a retry from Admin refresh.':'';
+      showToast((messages[task]||'Tester record updated.')+emailNote+betaNote,(result&&result.emailError)||(result&&result.betaSyncError)?'error':'success');closeDrawer();
     }catch(err){
       console.error('Admin Portal application action failed:',task,err);
       showToast('This admin action could not be completed. '+friendlyFirebaseError(err),'error');
@@ -1850,7 +1878,7 @@ const androidInviteSendSelected=document.getElementById('androidInviteSendSelect
 const androidInviteSendAll=document.getElementById('androidInviteSendAll');if(androidInviteSendAll)androidInviteSendAll.addEventListener('click',async()=>{const recipients=androidInviteRecipientList('all');if(!recipients.length){showToast('There are no eligible Android testers who have completed Testing Setup.','error');return;}if(!(await confirmAction(`Send the Google Play beta-testing link and full installation instructions to all ${recipients.length} eligible Android tester${recipients.length===1?'':'s'}?`,'')))return;const original=androidInviteSendAll.textContent;androidInviteSendAll.disabled=true;androidInviteSendAll.textContent='Sending to All…';try{const url=await resolveAndroidInviteUrlForSend();const result=await sendAndroidTestingInvites(recipients,url);showToast(result.failed?`${result.sent} Android link${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Google Play link and instructions sent to all ${result.sent} eligible Android tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{androidInviteSendAll.disabled=false;androidInviteSendAll.textContent=original;}});
 const testersTableBody=document.getElementById('testersTableBody');if(testersTableBody)testersTableBody.addEventListener('change',e=>{if(!e.target.matches('[data-timeline-tester]'))return;const uid=e.target.dataset.timelineTester;if(e.target.checked)selectedTimelineTesters.add(uid);else selectedTimelineTesters.delete(uid);updateTimelineSelectionUI();});
 const bulkTimelineApply=document.getElementById('bulkTimelineApply');if(bulkTimelineApply)bulkTimelineApply.addEventListener('click',async()=>{const original=bulkTimelineApply.textContent;bulkTimelineApply.disabled=true;bulkTimelineApply.textContent='Updating…';try{const stage=document.getElementById('bulkTimelineStage').value;const result=await bulkSetTimelineStage(stage);if(!result.cancelled){let msg=`${result.count} tester timeline${result.count===1?'':'s'} updated.`;if(result.emailSent)msg+=` ${result.emailSent} testing-access email${result.emailSent===1?'':'s'} sent.`;if(result.emailFailed)msg+=` ${result.emailFailed} email${result.emailFailed===1?'':'s'} failed.`;showToast(msg,result.emailFailed?'error':'success');}}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{bulkTimelineApply.textContent=original;updateTimelineSelectionUI();}});
-const bulkTesterDelete=document.getElementById('bulkTesterDelete');if(bulkTesterDelete)bulkTesterDelete.addEventListener('click',async()=>{const original=bulkTesterDelete.textContent;bulkTesterDelete.disabled=true;bulkTesterDelete.textContent='Deleting Selected…';try{const result=await bulkDeleteSelectedTesters();if(!result.cancelled){let msg=`${result.deleted} tester${result.deleted===1?'':'s'} deleted.`;if(result.failed)msg+=` ${result.failed} could not be deleted.`;showToast(msg,result.failed?'error':'success');}}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{bulkTesterDelete.textContent=original;updateTimelineSelectionUI();}});
+const bulkTesterDelete=document.getElementById('bulkTesterDelete');if(bulkTesterDelete)bulkTesterDelete.addEventListener('click',async()=>{const original=bulkTesterDelete.textContent;bulkTesterDelete.disabled=true;bulkTesterDelete.textContent='Deleting Selected…';try{const result=await bulkDeleteSelectedTesters();if(!result.cancelled){let msg=`${result.deleted} tester${result.deleted===1?'':'s'} deleted.`;if(result.failed)msg+=` ${result.failed} could not be deleted.`;if(result.betaSyncError)msg+=' Beta entitlement reconciliation needs a retry from Admin refresh.';showToast(msg,result.failed||result.betaSyncError?'error':'success');}}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{bulkTesterDelete.textContent=original;updateTimelineSelectionUI();}});
 document.getElementById('taskTemplateSelect').addEventListener('change',e=>applyTaskTemplate(e.target.value));
 document.getElementById('taskSelectAll').addEventListener('click',()=>selectTaskRecipients('All'));
 document.getElementById('taskSelectIOS').addEventListener('click',()=>selectTaskRecipients('iOS'));
