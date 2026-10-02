@@ -60,7 +60,7 @@ let applicationRealtimeUnsubscribe = null;
 let applicationsRealtimeReady = false;
 let feedbackRealtimeReady = false;
 const MAX_ADMIN_NOTIFICATIONS = 20;
-// Build 171 live-update safety lock: new Beta applications, Help & Feedback tickets,
+// Build 172 live-update safety lock: new Beta applications, Help & Feedback tickets,
 // tester replies, and the open conversation message stream remain realtime onSnapshot
 // listeners. Firestore optimization must not replace these with polling or stale caches.
 
@@ -708,7 +708,7 @@ function renderOverview(){
   const apps=(state.recentApplications||[]).filter(a=>String(a.status||'')!=='Removed');const c=document.getElementById('overviewApplications');
   c.innerHTML=apps.length?apps.map(a=>`<button type="button" class="admin-recent-row" data-open-app="${esc(a.id)}"><span class="admin-person-dot">${esc((a.fullName||'?').slice(0,1).toUpperCase())}</span><span><strong>${esc(a.fullName)}</strong><small>${esc(a.platform)} · ${relativeDate(a.submittedAt)}</small></span><span class="admin-status-pill ${statusClass(a.status)}">${esc(a.status)}</span></button>`).join(''):'<div class="admin-empty-inline">No applications yet.</div>';
   const fb=state.recentFeedback||[];const fbc=document.getElementById('overviewFeedback');
-  fbc.innerHTML=fb.length?fb.map(f=>`<button class="admin-feedback-preview" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-preview-copy"><strong>${esc(f.subject)}</strong><small>${esc(f.name)} · ${esc(f.type)} · ${relativeDate(f.submittedAt)}</small></span><span class="admin-status-pill ${statusClass(f.status)}">${esc(f.status)}</span></button>`).join(''):'<div class="admin-empty-inline">No tester feedback yet.</div>';
+  fbc.innerHTML=fb.length?fb.map(f=>{const needsResponse=feedbackNeedsAdminResponse(f);return `<button class="admin-feedback-preview${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-preview-copy"><strong>${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}${esc(f.subject)}</strong><small>${esc(f.name)} · ${esc(f.type)} · ${relativeDate(f.submittedAt)}</small></span><span class="admin-status-pill ${statusClass(f.status)}">${esc(f.status)}</span></button>`;}).join(''):'<div class="admin-empty-inline">No tester feedback yet.</div>';
 }
 function applicationFiltered(){
   const q=document.getElementById('applicationSearch').value.trim().toLowerCase();const status=document.getElementById('applicationStatusFilter').value;const platform=document.getElementById('applicationPlatformFilter').value;
@@ -726,13 +726,15 @@ function renderApplications(){
 function testerFiltered(){
   const q=document.getElementById('testerSearch').value.trim().toLowerCase();
   const access=document.getElementById('testerAccessFilter').value;
+  const platform=document.getElementById('testerPlatformFilter')?.value||'';
   const activity=document.getElementById('testerActivityFilter')?.value||'';
   const readiness=document.getElementById('testerReadinessFilter')?.value||'';
+  const nextStep=document.getElementById('testerNextStepFilter')?.value||'';
   return state.testers.filter(t=>{
     const score=testerScore(t);const build=testerBuild(t);const device=testerDeviceSummary(t);const activityInfo=testerActivityInfo(t);
-    const readinessInfo=testerInviteReadiness(t);
-    const hay=((t.name||'')+' '+(t.email||'')+' '+(t.platform||'')+' '+build+' '+device+' '+(score.lastFeedback?.subject||'')+' '+readinessInfo.label+' '+readinessInfo.detail).toLowerCase();
-    return (!q||hay.includes(q))&&(!access||t.accessStatus===access)&&(!activity||activityInfo.label===activity)&&(!readiness||readinessInfo.key===readiness);
+    const readinessInfo=testerInviteReadiness(t);const nextStepInfo=testerNextStep(t);
+    const hay=((t.name||'')+' '+(t.email||'')+' '+(t.platform||'')+' '+build+' '+device+' '+(score.lastFeedback?.subject||'')+' '+readinessInfo.label+' '+readinessInfo.detail+' '+nextStepInfo.label+' '+nextStepInfo.detail).toLowerCase();
+    return (!q||hay.includes(q))&&(!access||t.accessStatus===access)&&(!platform||t.platform===platform)&&(!activity||activityInfo.label===activity)&&(!readiness||readinessInfo.key===readiness)&&(!nextStep||nextStepInfo.key===nextStep);
   });
 }
 function pendingAssignmentsForTester(t){
@@ -806,7 +808,84 @@ function betaMappingHtml(t){
   if(m.betaTrialActive)return `<div class="admin-readiness-cell readiness-ready"><strong>Beta Trial Granted</strong><small>${esc(m.expiresAt?('Through '+formatDate(m.expiresAt)):(m.productionEmail||key))}</small></div>`;
   return `<div class="admin-readiness-cell readiness-ready"><strong>Matched to Production</strong><small>${esc(m.productionEmail||key)}</small></div>`;
 }
+function testerNextStep(t){
+  if(!t||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))return {key:'notEligible',label:'No tester action',detail:'Beta access is not enabled',reminderType:''};
+  const hasPortalSignIn=!!timestampToDate(t.lastLogin)||!!timestampToDate(t.lastPortalActivity);
+  if(!hasPortalSignIn)return {key:'portalSignIn',label:'Portal sign-in needed',detail:'Approved, but has not signed in to the Beta Portal yet',reminderType:'portal-signin'};
+  if(!testerSetupCompleteForInvite(t))return {key:'testingSetup',label:'Testing Setup needed',detail:'Signed in, but Testing Setup is not complete',reminderType:'testing-setup'};
+  const stage=normalizeTimelineStage(t.timelineStage);
+  const accessSent=timelineStageRank(stage)>=timelineStageRank('inviteSent')||(t.platform==='Android'&&!!timestampToDate(t.androidTestingInviteSentAt));
+  const email=String(t.email||'').trim().toLowerCase();
+  const mapping=betaProductionMapping.get(email);
+  if(accessSent&&(!mapping||mapping.matched!==true))return {key:'appAccount',label:'App login needed',detail:'Testing access was sent; waiting for the tester to create or sign in to RebataTrack',reminderType:'app-account'};
+  if(!accessSent)return {key:'adminSend',label:'Ready for you',detail:t.platform==='Android'?'Send the Google Play testing link':'Send the TestFlight invitation',reminderType:''};
+  return {key:'complete',label:'Setup complete',detail:'Portal setup, testing access, and RebataTrack account are in place',reminderType:''};
+}
+function testerNextStepHtml(t){
+  const n=testerNextStep(t);
+  const last=timestampToDate(t.lastSetupReminderAt);
+  const lastText=last?`Last reminder ${relativeDate(last)}`:'';
+  const button=n.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">Send Reminder</button>`:'';
+  return `<div class="admin-next-step-cell next-step-${esc(n.key)}"><strong>${esc(n.label)}</strong><small>${esc(n.detail)}</small>${lastText?`<small class="admin-next-step-last">${esc(lastText)}</small>`:''}${button}</div>`;
+}
+function testerReminderCandidates(){
+  return state.testers.filter(t=>!!testerNextStep(t).reminderType);
+}
+function renderTesterNextStepSummary(){
+  const counts={portalSignIn:0,testingSetup:0,appAccount:0,adminSend:0,complete:0};
+  state.testers.forEach(t=>{const n=testerNextStep(t);if(Object.prototype.hasOwnProperty.call(counts,n.key))counts[n.key]++;});
+  const set=(id,value)=>{const el=document.getElementById(id);if(el)el.textContent=String(value);};
+  set('testerNeedPortalCount',counts.portalSignIn);set('testerNeedSetupCount',counts.testingSetup);set('testerNeedAppAccountCount',counts.appAccount);set('testerAdminSendCount',counts.adminSend);set('testerSetupCompleteCount',counts.complete);
+  const bulk=document.getElementById('testerSendPendingReminders');if(bulk)bulk.disabled=(counts.portalSignIn+counts.testingSetup+counts.appAccount)===0;
+}
+function applyTesterNextStepFilter(key=''){
+  const el=document.getElementById('testerNextStepFilter');if(el)el.value=key;renderTesters();
+}
+async function sendTesterNextStepReminder(t){
+  const n=testerNextStep(t);
+  if(!n.reminderType)throw new Error('This tester does not currently have a tester-owned setup step to remind them about.');
+  await callWorkerAdminAction('tester-next-step-reminder',{email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',reminderType:n.reminderType});
+  const sentAt=new Date();
+  await updateDoc(doc(db,'betaUsers',t.uid),{lastSetupReminderAt:serverTimestamp(),lastSetupReminderType:n.reminderType,updatedAt:serverTimestamp()});
+  t.lastSetupReminderAt=sentAt;t.lastSetupReminderType=n.reminderType;t.updatedAt=sentAt;
+  renderTesters();
+  return n;
+}
+async function sendAllPendingTesterReminders(){
+  const recipients=testerReminderCandidates();
+  if(!recipients.length)throw new Error('There are no testers currently waiting on a tester-owned setup step.');
+  if(!(await confirmAction(`Send a personalized next-step reminder to ${recipients.length} tester${recipients.length===1?'':'s'}? Each email will match the exact step they still need to complete.`,'')))return {cancelled:true,sent:0,failed:0};
+  let sent=0,failed=0;const errors=[];
+  for(const t of recipients){
+    try{await sendTesterNextStepReminder(t);sent++;}
+    catch(error){failed++;errors.push(`${t.name||t.email||'Tester'}: ${friendlyFirebaseError(error)}`);}
+  }
+  return {cancelled:false,sent,failed,errors};
+}
+
+function renderTestingAccessReadinessSummary(){
+  const testers=Array.isArray(state.testers)?state.testers:[];
+  const counts={iosReady:0,androidReady:0,needsSetup:0,sent:0};
+  testers.forEach(t=>{
+    const readiness=testerInviteReadiness(t);
+    if(readiness.key==='ready'&&t.platform==='iOS')counts.iosReady+=1;
+    if(readiness.key==='ready'&&t.platform==='Android')counts.androidReady+=1;
+    if(readiness.key==='needsSetup')counts.needsSetup+=1;
+    if(readiness.key==='sent')counts.sent+=1;
+  });
+  const set=(id,value)=>{const el=document.getElementById(id);if(el)el.textContent=String(value);};
+  set('testerReadyIOSCount',counts.iosReady);set('testerReadyAndroidCount',counts.androidReady);set('testerNeedsSetupCount',counts.needsSetup);set('testerAccessSentCount',counts.sent);
+}
+function applyTesterReadinessQuickFilter(readiness='',platform=''){
+  const readinessEl=document.getElementById('testerReadinessFilter');
+  const platformEl=document.getElementById('testerPlatformFilter');
+  if(readinessEl)readinessEl.value=readiness;
+  if(platformEl)platformEl.value=platform;
+  renderTesters();
+}
 function renderTesters(){
+  renderTestingAccessReadinessSummary();
+  renderTesterNextStepSummary();
   const data=testerFiltered();const body=document.getElementById('testersTableBody');
   body.innerHTML=data.map(t=>{
     const eligible=t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status);
@@ -817,7 +896,7 @@ function renderTesters(){
     const inactiveText=!activity.anchor?'No portal activity recorded':activity.ageMs<DAY_MS?`${Math.max(1,activity.hours)} hour${Math.max(1,activity.hours)===1?'':'s'} since activity`:`${activity.days} day${activity.days===1?'':'s'} since activity`;
     const deviceLine=device||'Device not provided';
     const buildLine=build||'Build not provided';
-    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td>${testerReadinessHtml(t)}</td><td>${betaMappingHtml(t)}</td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
+    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td>${testerReadinessHtml(t)}</td><td>${testerNextStepHtml(t)}</td><td>${betaMappingHtml(t)}</td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
   }).join('');
   document.getElementById('testersEmpty').hidden=data.length>0;
   renderTesterActivityMetrics();
@@ -961,6 +1040,14 @@ function feedbackFiltered(){
     return (!q||hay.includes(q))&&(!status||canonical===status)&&(!type||f.type===type);
   });
 }
+function feedbackNeedsAdminResponse(f){
+  if(!f)return false;
+  const lastBy=String(f.lastMessageBy||'').trim();
+  if(lastBy==='Tester')return true;
+  if(lastBy==='Admin')return false;
+  const status=canonicalFeedbackStatus(f.status);
+  return status==='Waiting for RebataTrack'||status==='New';
+}
 function feedbackHasUnreadTesterUpdate(f){
   if(!f||String(f.lastMessageBy||'')!=='Tester')return false;
   const last=timestampToDate(f.lastMessageAt||f.updatedAt||f.submittedAt);
@@ -979,7 +1066,7 @@ function markFeedbackViewed(f){
 }
 function renderFeedback(){
   const data=feedbackFiltered();const list=document.getElementById('feedbackList');
-  list.innerHTML=data.map(f=>{const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const workflow=isSupportConversation(f)?'Support':'Beta Feedback';const unread=feedbackHasUnreadTesterUpdate(f);return `<button class="admin-feedback-card${unread?' has-update':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${unread?'<i class="admin-feedback-update-dot" aria-label="New tester update"></i>':''}<strong>${esc(f.subject)}</strong>${unread?'<b class="admin-feedback-update-label">New update</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · ${esc(f.name)} · ${esc(f.platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · Tester sees: ${esc(publicStatus)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;}).join('');
+  list.innerHTML=data.map(f=>{const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const workflow=isSupportConversation(f)?'Support':'Beta Feedback';const needsResponse=feedbackNeedsAdminResponse(f);return `<button class="admin-feedback-card${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}<strong>${esc(f.subject)}</strong>${needsResponse?'<b class="admin-feedback-update-label">Needs response</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · ${esc(f.name)} · ${esc(f.platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · Tester sees: ${esc(publicStatus)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;}).join('');
   document.getElementById('feedbackEmpty').hidden=data.length>0;
 }
 
@@ -1302,7 +1389,9 @@ function openTesterRecord(t){
   const emailAction=a?`<button class="admin-action-button" data-app-action="change-email" data-row="${esc(a.id)}" type="button">Change Beta Email</button>`:'';
   const accessAction=a?(t.accessStatus==='Enabled'?`<button class="admin-action-button danger-soft" data-app-action="inactive" data-row="${esc(a.id)}" type="button">Disable Access</button>`:`<button class="admin-action-button approve" data-app-action="active" data-row="${esc(a.id)}" type="button">Enable Access</button>`):'';
   const deleteAction=a?`<button class="admin-action-button danger-soft" data-app-action="delete" data-row="${esc(a.id)}" type="button">Delete Application & Tester</button>`:`<button class="admin-action-button danger-soft" data-tester-action="delete" data-tester-uid="${esc(t.uid)}" type="button">Delete Tester</button>`;
-  const actions=[emailAction,accessAction,deleteAction].filter(Boolean).join('');
+  const nextStep=testerNextStep(t);
+  const reminderAction=nextStep.reminderType?`<button class="admin-action-button reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">Send ${esc(nextStep.label)} Reminder</button>`:'';
+  const actions=[reminderAction,emailAction,accessAction,deleteAction].filter(Boolean).join('');
   const nextIndex=Math.min(TIMELINE_STAGES.length-1,timelineStageRank(timelineStage)+1);const canAdvance=timelineStage!=='activeTesting'&&t.accessStatus==='Enabled';
   const lastActive=activity.anchor?formatDate(activity.anchor):'Never';
   const lastFeedbackText=lastFeedback?`${formatDate(lastFeedback.submittedAt)} · ${lastFeedback.subject||'Feedback'}`:'No beta feedback submitted yet';
@@ -1765,6 +1854,15 @@ document.addEventListener('click',async e=>{
     }catch(err){showToast(friendlyFirebaseError(err),'error');readyAccessBtn.disabled=false;readyAccessBtn.textContent=original;}
     return;
   }
+  const testerReminderBtn=e.target.closest('[data-send-tester-reminder]');if(testerReminderBtn){
+    const t=findTester(testerReminderBtn.dataset.sendTesterReminder);if(!t)return;
+    const next=testerNextStep(t);if(!next.reminderType){showToast('That tester no longer needs a setup reminder.','error');renderTesters();return;}
+    if(!(await confirmAction(`Send ${t.name||t.email||'this tester'} a reminder for: ${next.label}?`,'')))return;
+    const original=testerReminderBtn.textContent;testerReminderBtn.disabled=true;testerReminderBtn.textContent='Sending…';
+    try{await sendTesterNextStepReminder(t);showToast(`Reminder sent to ${t.name||t.email||'tester'}.`,'success');if(document.getElementById('adminDrawer')?.getAttribute('aria-hidden')==='false')openTesterRecord(t);}
+    catch(err){showToast(friendlyFirebaseError(err),'error');testerReminderBtn.disabled=false;testerReminderBtn.textContent=original;}
+    return;
+  }
   const testerBtn=e.target.closest('[data-open-tester]');if(testerBtn){if(!state.loaded.applications)await loadApplications();if(!state.loaded.tasks)await loadTasks();if(!state.loaded.feedback)await loadFeedback();const t=findTester(testerBtn.dataset.openTester);if(t)openTesterRecord(t);return;}
   const taskOpenBtn=e.target.closest('[data-open-task]');if(taskOpenBtn){if(!state.loaded.tasks)await loadTasks();const t=findTask(taskOpenBtn.dataset.openTask);if(t)openTaskRecord(t);return;}
   const feedbackBtn=e.target.closest('[data-open-feedback]');if(feedbackBtn){try{const f=await ensureFeedbackLoaded(feedbackBtn.dataset.openFeedback);if(f){markFeedbackViewed(f);openFeedbackRecord(f);}}catch(err){showToast('Could not open that feedback.','error');}return;}
@@ -1971,7 +2069,12 @@ document.getElementById('taskRecipientList').addEventListener('change',e=>{if(e.
 document.getElementById('taskSendButton').addEventListener('click',async()=>{const btn=document.getElementById('taskSendButton');const original=btn.innerHTML;if(!(await confirmAction('Send this required task to the selected testers? They will receive an email and must complete it by the deadline to keep beta access active.','')))return;btn.disabled=true;btn.innerHTML='Sending Task…';try{const result=await createRequiredTask();const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} testers. ${result.failed} email${result.failed===1?'':'s'} could not be sent.${firstError}`:`Required task sent to ${result.total} tester${result.total===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.innerHTML=original;}});
 const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
-['testerSearch','testerAccessFilter','testerActivityFilter','testerReadinessFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderTesters));
+['testerSearch','testerAccessFilter','testerPlatformFilter','testerActivityFilter','testerReadinessFilter','testerNextStepFilter'].forEach(id=>document.getElementById(id)?.addEventListener('input',renderTesters));
+  document.querySelectorAll('[data-readiness-filter]').forEach(btn=>btn.addEventListener('click',()=>applyTesterReadinessQuickFilter(btn.dataset.readinessFilter||'',btn.dataset.platformFilter||'')));
+  document.getElementById('testerReadinessShowAll')?.addEventListener('click',()=>applyTesterReadinessQuickFilter('',''));
+  document.querySelectorAll('[data-next-step-filter]').forEach(btn=>btn.addEventListener('click',()=>applyTesterNextStepFilter(btn.dataset.nextStepFilter||'')));
+  document.getElementById('testerNextStepShowAll')?.addEventListener('click',()=>applyTesterNextStepFilter(''));
+  document.getElementById('testerSendPendingReminders')?.addEventListener('click',async()=>{const btn=document.getElementById('testerSendPendingReminders');const original=btn.textContent;btn.disabled=true;btn.textContent='Sending Reminders…';try{const result=await sendAllPendingTesterReminders();if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Personalized reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.textContent=original;renderTesterNextStepSummary();}});
 ['feedbackSearch','feedbackStatusFilter','feedbackTypeFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderFeedback));
 
 

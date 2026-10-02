@@ -2436,7 +2436,7 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 /* Website Build 166 — tester activity reflects real portal use; Active is limited to the last hour */
 
 
-/* Website Build 171 — direct testing-access actions and eligible Android bulk selection */
+/* Website Build 172 — direct testing-access actions and eligible Android bulk selection */
 .admin-readiness-action{appearance:none;border:1px solid #e5b94f;background:#fff3bf;color:#7b5600;border-radius:999px;padding:7px 11px;font:950 .68rem/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;cursor:pointer;box-shadow:0 5px 14px rgba(180,126,0,.10);transition:transform .12s ease,box-shadow .12s ease,background .12s ease}
 .admin-readiness-action:hover{background:#ffed9a;box-shadow:0 7px 18px rgba(180,126,0,.15);transform:translateY(-1px)}
 .admin-readiness-action:focus-visible{outline:3px solid rgba(229,185,79,.30);outline-offset:2px}
@@ -2448,3 +2448,32 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-feedback-update-dot{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:#3B9E4A;box-shadow:0 0 0 4px rgba(59,158,74,.12)}
 .admin-feedback-update-label{display:inline-flex;align-items:center;padding:4px 7px;border-radius:999px;background:#eaf7ed;color:#2f7e3b;font-size:.62rem;font-weight:900;line-height:1;white-space:nowrap}
 @media(max-width:560px){.admin-feedback-subject-wrap{align-items:flex-start}.admin-feedback-update-label{margin-top:1px}}
+
+/* Website Build 172 — testing-access readiness dashboard + persistent help-response indicator */
+.admin-testing-readiness-panel{border-color:rgba(33,113,181,.16)}
+.admin-testing-readiness-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:2px}
+.admin-testing-readiness-card{appearance:none;min-height:105px;border:1px solid #e2e9f2;border-radius:17px;padding:14px 15px;background:#fff;text-align:left;display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+.admin-testing-readiness-card:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(31,58,91,.09)}
+.admin-testing-readiness-card span{font-size:.66rem;font-weight:900;letter-spacing:.035em;text-transform:uppercase;color:#6f8298}
+.admin-testing-readiness-card strong{font-size:1.65rem;line-height:1;color:#173451}
+.admin-testing-readiness-card small{font-size:.67rem;line-height:1.35;color:#7b8da1}
+.admin-testing-readiness-card.action{background:#fff8d8;border-color:#ebca67}.admin-testing-readiness-card.action strong{color:#805b00}.admin-testing-readiness-card.action small{color:#806b2e}
+.admin-testing-readiness-card.pending{background:#fff4f4;border-color:rgba(217,57,73,.22)}.admin-testing-readiness-card.pending strong{color:#b02c37}
+.admin-testing-readiness-card.complete{background:#eef9f1;border-color:rgba(59,158,74,.24)}.admin-testing-readiness-card.complete strong{color:#2f7e3b}
+.admin-feedback-card.needs-response,.admin-feedback-preview.needs-response{border-color:rgba(59,158,74,.28);box-shadow:0 7px 20px rgba(59,158,74,.07)}
+.admin-feedback-preview-copy strong{display:flex;align-items:center;gap:7px}
+@media(max-width:900px){.admin-testing-readiness-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.admin-testing-readiness-grid{grid-template-columns:1fr}}
+
+
+/* Website Build 172 — tester next-step reminders */
+.admin-next-step-panel{border-color:rgba(33,113,181,.16)}
+.admin-next-step-heading-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.admin-next-step-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:2px}
+.admin-next-step-card{appearance:none;min-height:105px;border:1px solid #e2e9f2;border-radius:17px;padding:14px 15px;background:#fff;text-align:left;display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+.admin-next-step-card:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(31,58,91,.09)}
+.admin-next-step-card span{font-size:.66rem;font-weight:900;letter-spacing:.035em;text-transform:uppercase;color:#6f8298}.admin-next-step-card strong{font-size:1.65rem;line-height:1;color:#173451}.admin-next-step-card small{font-size:.67rem;line-height:1.35;color:#7b8da1}
+.admin-next-step-card.pending{background:#fff4f4;border-color:rgba(217,57,73,.22)}.admin-next-step-card.pending strong{color:#b02c37}.admin-next-step-card.action{background:#fff8d8;border-color:#ebca67}.admin-next-step-card.action strong{color:#805b00}.admin-next-step-card.complete{background:#eef9f1;border-color:rgba(59,158,74,.24)}.admin-next-step-card.complete strong{color:#2f7e3b}
+.admin-next-step-cell{display:grid;gap:4px;min-width:180px}.admin-next-step-cell>strong{font-size:.72rem;color:#20364f}.admin-next-step-cell>small{font-size:.64rem;line-height:1.35;color:#73849a}.admin-next-step-cell.next-step-portalSignIn>strong,.admin-next-step-cell.next-step-testingSetup>strong,.admin-next-step-cell.next-step-appAccount>strong{color:#b02c37}.admin-next-step-cell.next-step-adminSend>strong{color:#805b00}.admin-next-step-cell.next-step-complete>strong{color:#2f7e3b}
+.admin-next-step-reminder{appearance:none;width:max-content;border:1px solid rgba(33,113,181,.25);background:#eef5ff;color:#2171b5;border-radius:999px;padding:6px 9px;font:900 .64rem/1.1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;cursor:pointer}.admin-next-step-reminder:hover{background:#e1edff}.admin-next-step-reminder:disabled{opacity:.55;cursor:wait}.admin-next-step-last{color:#8292a6!important}.admin-action-button.reminder{background:#eef5ff!important;color:#2171b5!important;border-color:rgba(33,113,181,.24)!important}
+@media(max-width:1100px){.admin-next-step-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.admin-next-step-grid{grid-template-columns:1fr}.admin-next-step-heading-actions{justify-content:flex-start}}
