@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 185
+// RebataTrack Admin Portal — Website Build 186
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1148,7 +1148,10 @@ function testerActionHtml(t){
   }
   const button=next.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">Send Reminder</button>`:'';
   const owner=next.reminderType?'Tester action':next.key==='complete'?'Complete':'Status';
-  return `<div class="admin-tester-action-cell next-step-${esc(next.key)}"><span class="admin-owner-label">${esc(owner)}</span><strong>${esc(next.label)}</strong><small>${esc(next.detail)}</small>${lastText?`<small class="admin-next-step-last">${esc(lastText)}</small>`:''}${button}</div>`;
+  const labelHtml=next.key==='complete'
+    ? `<span class="admin-progress-state complete admin-action-chip">${esc(next.label)}</span>`
+    : `<strong>${esc(next.label)}</strong>`;
+  return `<div class="admin-tester-action-cell next-step-${esc(next.key)}"><span class="admin-owner-label">${esc(owner)}</span>${labelHtml}<small>${esc(next.detail)}</small>${lastText?`<small class="admin-next-step-last">${esc(lastText)}</small>`:''}${button}</div>`;
 }
 function testerProgressHtml(t){
   const stage=normalizeTimelineStage(t.timelineStage);
