@@ -805,8 +805,9 @@ function betaMappingHtml(t){
   const key=String(t.email||'').trim().toLowerCase();
   const m=betaProductionMapping.get(key);
   if(!m||m.matched!==true)return `<div class="admin-readiness-cell readiness-notEligible"><strong>Awaiting Production Account</strong><small>${esc(key||'Tester must create RebataTrack with this exact Beta email.')}</small></div>`;
-  if(m.betaTrialActive)return `<div class="admin-readiness-cell readiness-ready"><strong>Beta Trial Granted</strong><small>${esc(m.expiresAt?('Through '+formatDate(m.expiresAt)):(m.productionEmail||key))}</small></div>`;
-  return `<div class="admin-readiness-cell readiness-ready"><strong>Matched to Production</strong><small>${esc(m.productionEmail||key)}</small></div>`;
+  const matchNote=m.manuallyLinked?'Admin-linked account':(m.productionEmail&&m.productionEmail!==key?'Matched account':'Exact Beta email match');
+  if(m.betaTrialActive)return `<div class="admin-readiness-cell readiness-ready"><strong>Beta Trial Granted</strong><small>${esc(m.expiresAt?('Through '+formatDate(m.expiresAt)):(m.productionEmail||key))} · ${esc(matchNote)}</small></div>`;
+  return `<div class="admin-readiness-cell readiness-ready"><strong>${m.manuallyLinked?'Production Account Linked':'Matched to Production'}</strong><small>${esc(m.productionEmail||key)} · ${esc(matchNote)}</small></div>`;
 }
 function testerNextStep(t){
   if(!t||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))return {key:'notEligible',label:'No tester action',detail:'Beta access is not enabled',reminderType:''};
@@ -877,6 +878,72 @@ async function sendTesterReminderGroup(stepKey){
     catch(error){failed++;errors.push(`${t.name||t.email||'Tester'}: ${friendlyFirebaseError(error)}`);}
   }
   return {cancelled:false,sent,failed,errors};
+}
+
+async function productionUsersForResolution(){
+  const bridge=window.RebataTrackProductionAdminBridge;
+  if(!bridge||typeof bridge.call!=='function')throw new Error('Connect the Production Admin Worker before resolving this account.');
+  const result=await bridge.call('users-list',{limit:500});
+  return Array.isArray(result.users)?result.users:[];
+}
+function productionUserLookup(users,value){
+  const key=String(value||'').trim().toLowerCase();
+  return users.find(u=>String(u.uid||'').toLowerCase()===key||String(u.email||'').trim().toLowerCase()===key)||null;
+}
+async function resolveTesterProductionEmail(t){
+  const betaEmail=String(t.email||'').trim().toLowerCase();
+  const users=await productionUsersForResolution();
+  const entered=window.prompt(`Enter the CURRENT Production app email or UID for ${t.name||betaEmail}.\n\nThe account email will be corrected to:\n${betaEmail}`,'');
+  if(entered===null)return;
+  const user=productionUserLookup(users,entered);
+  if(!user)throw new Error('No Production account matched that email or UID.');
+  const current=String(user.email||'').trim().toLowerCase();
+  if(!(await confirmAction(`Correct this existing Production account email?\n\nCurrent: ${current||user.uid}\nCorrected: ${betaEmail}\n\nThe Firebase UID, orders, profiles, trial history, devices, grants, and RebataTrack+ access will be preserved.`,'')))return;
+  const bridge=window.RebataTrackProductionAdminBridge;
+  const result=await bridge.call('user-email-change',{uid:user.uid,newEmail:betaEmail,reason:`Corrected Production login email for Beta tester ${t.uid}; approved Beta email is ${betaEmail}.`});
+  if(window.RebataTrackBetaEmailBridge?.call){
+    await window.RebataTrackBetaEmailBridge.call('production-email-corrected',{email:betaEmail,name:t.name||'Tester',oldEmail:result.oldEmail||current,productionEmail:result.newEmail||betaEmail});
+  }
+  await refreshBetaProductionMapping();
+  showToast(`Production email corrected to ${betaEmail}. The tester was notified.`,'success');
+  openTesterRecord(t);
+}
+async function linkTesterProductionAccount(t){
+  const betaEmail=String(t.email||'').trim().toLowerCase();
+  const users=await productionUsersForResolution();
+  const entered=window.prompt(`Enter the Production app email or UID that belongs to ${t.name||betaEmail}.\n\nUse this when the tester intentionally created RebataTrack with a different valid email.`, '');
+  if(entered===null)return;
+  const user=productionUserLookup(users,entered);
+  if(!user)throw new Error('No Production account matched that email or UID.');
+  const productionEmail=String(user.email||'').trim().toLowerCase();
+  if(!(await confirmAction(`Link this Production account to the Beta tester?\n\nBeta Program email: ${betaEmail}\nRebataTrack app email: ${productionEmail}\n\nNo login email or app data will be changed.`,'')))return;
+  const bridge=window.RebataTrackProductionAdminBridge;
+  await bridge.call('beta-program-link',{betaUid:t.uid,betaEmail,productionUid:user.uid,reason:`Admin confirmed Production account ${user.uid} belongs to Beta tester ${t.uid}.`});
+  if(window.RebataTrackBetaEmailBridge?.call){
+    await window.RebataTrackBetaEmailBridge.call('production-account-linked',{email:betaEmail,name:t.name||'Tester',productionEmail});
+  }
+  await refreshBetaProductionMapping();
+  showToast('Production account linked. The tester was notified and setup status has been recalculated.','success');
+  openTesterRecord(t);
+}
+async function unlinkTesterProductionAccount(t){
+  const betaEmail=String(t.email||'').trim().toLowerCase();
+  const mapping=betaProductionMapping.get(betaEmail);
+  if(!mapping?.manuallyLinked||!mapping.productionUid)return;
+  if(!(await confirmAction(`Remove the manual Production-account link for ${t.name||betaEmail}?\n\nThis does not delete either account or change app data.`,'')))return;
+  await window.RebataTrackProductionAdminBridge.call('beta-program-unlink',{productionUid:mapping.productionUid,reason:`Removed manual Beta-to-Production link for tester ${t.uid}.`});
+  await refreshBetaProductionMapping();
+  showToast('Manual Production-account link removed.','success');
+  openTesterRecord(t);
+}
+function testerProductionResolutionHtml(t){
+  const betaEmail=String(t.email||'').trim().toLowerCase();
+  const m=betaProductionMapping.get(betaEmail);
+  if(m?.matched===true){
+    const source=m.manuallyLinked?'Manually linked by Admin':'Exact Beta email match';
+    return `<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">RebataTrack app account</span><p><strong>${esc(m.productionEmail||betaEmail)}</strong><br>${esc(source)}${m.betaTrialActive?' · Beta access active':''}</p></div>${m.manuallyLinked?`<div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-unlink-production-account="${esc(t.uid)}" type="button">Remove Manual Link</button></div>`:''}</div>`;
+  }
+  return `<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Resolve RebataTrack app account</span><p>No Production account currently matches this approved Beta email. If the tester made a typo, correct the existing account email. If they intentionally used another email, link that existing account instead.</p></div><div class="admin-timeline-drawer-actions"><button class="admin-primary-button" data-correct-production-email="${esc(t.uid)}" type="button">Correct Misspelled App Email</button><button class="admin-secondary-button" data-link-production-account="${esc(t.uid)}" type="button">Link Different App Email</button></div></div>`;
 }
 
 function renderTestingAccessReadinessSummary(){
@@ -1445,7 +1512,7 @@ function openTesterRecord(t){
   const nextIndex=Math.min(TIMELINE_STAGES.length-1,timelineStageRank(timelineStage)+1);const canAdvance=timelineStage!=='activeTesting'&&t.accessStatus==='Enabled';
   const lastActive=activity.anchor?formatDate(activity.anchor):'Never';
   const lastFeedbackText=lastFeedback?`${formatDate(lastFeedback.submittedAt)} · ${lastFeedback.subject||'Feedback'}`:'No beta feedback submitted yet';
-  openDrawer('Tester Activity',t.name,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus)}</span><span class="admin-platform-pill">${esc(t.platform)}</span><span class="admin-timeline-chip timeline-${esc(timelineStage)}">${esc(timelineStageLabel(timelineStage,t.platform))}</span></div><div class="admin-scorecard-drawer"><div><span>Tasks Completed</span><strong>${score.tasksCompleted}</strong><small>${score.tasksPending} pending</small></div><div><span>Feedback Submitted</span><strong>${score.feedbackCount}</strong><small>${esc(lastFeedbackText)}</small></div><div><span>Retests Completed</span><strong>${score.retests}</strong><small>Feedback fixes retested</small></div><div><span>Days Inactive</span><strong>${activity.days===999?'—':activity.days}</strong><small>${esc(activity.reason)}</small></div></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(t.email)}</strong></div><div><span>Last Portal Activity</span><strong>${esc(lastActive)}</strong></div><div><span>Last Login</span><strong>${esc(t.lastLogin?formatDate(t.lastLogin):'Never')}</strong></div><div><span>Last Feedback</span><strong>${esc(lastFeedback?formatDate(lastFeedback.submittedAt):'Never')}</strong></div><div><span>Last Reported Build</span><strong>${esc(build||'Not provided')}</strong></div><div><span>Device Model</span><strong>${esc(t.deviceModel||device||'Not provided')}</strong></div><div><span>OS Version</span><strong>${esc(t.osVersion||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(t.screenSize||'Not provided')}</strong></div><div><span>Created</span><strong>${esc(formatDate(t.createdAt))}</strong></div><div><span>Authentication</span><strong>Email verification code</strong></div></div><div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Program timeline stage</span><p>Choose the milestone this tester has reached. Their portal will mark earlier steps complete and highlight what they should do next.</p></div><div class="beta-field"><label for="drawerTimelineStage">Current milestone</label><select id="drawerTimelineStage">${timelineStageOptions(t.platform,timelineStage)}</select></div><div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-save-timeline="${esc(t.uid)}" type="button">Set Exact Stage</button><button class="admin-primary-button" data-advance-timeline="${esc(t.uid)}" data-next-stage="${esc(TIMELINE_STAGES[nextIndex])}" type="button"${canAdvance?'':' disabled'}>${canAdvance?'Advance to Next Stage':'Active Testing'}</button></div></div><div><label class="admin-detail-label">Outstanding required tasks</label><div class="admin-task-response-list">${pendingHtml}</div></div><div class="admin-drawer-actions">${actions}</div></div>`);
+  openDrawer('Tester Activity',t.name,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus)}</span><span class="admin-platform-pill">${esc(t.platform)}</span><span class="admin-timeline-chip timeline-${esc(timelineStage)}">${esc(timelineStageLabel(timelineStage,t.platform))}</span></div><div class="admin-scorecard-drawer"><div><span>Tasks Completed</span><strong>${score.tasksCompleted}</strong><small>${score.tasksPending} pending</small></div><div><span>Feedback Submitted</span><strong>${score.feedbackCount}</strong><small>${esc(lastFeedbackText)}</small></div><div><span>Retests Completed</span><strong>${score.retests}</strong><small>Feedback fixes retested</small></div><div><span>Days Inactive</span><strong>${activity.days===999?'—':activity.days}</strong><small>${esc(activity.reason)}</small></div></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(t.email)}</strong></div><div><span>Last Portal Activity</span><strong>${esc(lastActive)}</strong></div><div><span>Last Login</span><strong>${esc(t.lastLogin?formatDate(t.lastLogin):'Never')}</strong></div><div><span>Last Feedback</span><strong>${esc(lastFeedback?formatDate(lastFeedback.submittedAt):'Never')}</strong></div><div><span>Last Reported Build</span><strong>${esc(build||'Not provided')}</strong></div><div><span>Device Model</span><strong>${esc(t.deviceModel||device||'Not provided')}</strong></div><div><span>OS Version</span><strong>${esc(t.osVersion||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(t.screenSize||'Not provided')}</strong></div><div><span>Created</span><strong>${esc(formatDate(t.createdAt))}</strong></div><div><span>Authentication</span><strong>Email verification code</strong></div></div>${testerProductionResolutionHtml(t)}<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Program timeline stage</span><p>Choose the milestone this tester has reached. Their portal will mark earlier steps complete and highlight what they should do next.</p></div><div class="beta-field"><label for="drawerTimelineStage">Current milestone</label><select id="drawerTimelineStage">${timelineStageOptions(t.platform,timelineStage)}</select></div><div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-save-timeline="${esc(t.uid)}" type="button">Set Exact Stage</button><button class="admin-primary-button" data-advance-timeline="${esc(t.uid)}" data-next-stage="${esc(TIMELINE_STAGES[nextIndex])}" type="button"${canAdvance?'':' disabled'}>${canAdvance?'Advance to Next Stage':'Active Testing'}</button></div></div><div><label class="admin-detail-label">Outstanding required tasks</label><div class="admin-task-response-list">${pendingHtml}</div></div><div class="admin-drawer-actions">${actions}</div></div>`);
 }
 function feedbackWorkflowOptions(f){
   const workflow=isSupportConversation(f)?SUPPORT_WORKFLOW:FEEDBACK_WORKFLOW;const status=canonicalFeedbackStatus(f.status);
@@ -2119,6 +2186,19 @@ document.getElementById('taskRecipientList').addEventListener('change',e=>{if(e.
 document.getElementById('taskSendButton').addEventListener('click',async()=>{const btn=document.getElementById('taskSendButton');const original=btn.innerHTML;if(!(await confirmAction('Send this required task to the selected testers? They will receive an email and must complete it by the deadline to keep beta access active.','')))return;btn.disabled=true;btn.innerHTML='Sending Task…';try{const result=await createRequiredTask();const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} testers. ${result.failed} email${result.failed===1?'':'s'} could not be sent.${firstError}`:`Required task sent to ${result.total} tester${result.total===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.innerHTML=original;}});
 const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
+document.addEventListener('click',async event=>{
+  const correct=event.target.closest('[data-correct-production-email]');
+  const link=event.target.closest('[data-link-production-account]');
+  const unlink=event.target.closest('[data-unlink-production-account]');
+  const uid=correct?.dataset.correctProductionEmail||link?.dataset.linkProductionAccount||unlink?.dataset.unlinkProductionAccount||'';
+  if(!uid)return;
+  const t=state.testers.find(x=>x.uid===uid);if(!t)return;
+  const button=correct||link||unlink;button.disabled=true;
+  try{if(correct)await resolveTesterProductionEmail(t);else if(link)await linkTesterProductionAccount(t);else await unlinkTesterProductionAccount(t);}
+  catch(error){showToast(friendlyFirebaseError(error),'error');}
+  finally{button.disabled=false;}
+});
+
 ['testerSearch','testerAccessFilter','testerPlatformFilter','testerActivityFilter','testerReadinessFilter','testerNextStepFilter'].forEach(id=>document.getElementById(id)?.addEventListener('input',renderTesters));
   document.querySelectorAll('[data-readiness-filter]').forEach(btn=>btn.addEventListener('click',()=>applyTesterReadinessQuickFilter(btn.dataset.readinessFilter||'',btn.dataset.platformFilter||'')));
   document.getElementById('testerReadinessShowAll')?.addEventListener('click',()=>applyTesterReadinessQuickFilter('',''));
@@ -2131,6 +2211,7 @@ document.querySelectorAll('[data-send-reminder-group]').forEach(btn=>btn.addEven
 
 
 document.getElementById('betaProgramSaveSync')?.addEventListener('click',saveAndSyncBetaProgram);
+window.RebataTrackBetaEmailBridge={call:(type,payload={})=>callWorkerAdminAction(type,payload)};
 window.addEventListener('rebatatrack-production-bridge-ready',()=>{refreshBetaProductionMapping();});
 })().catch(function(error){
   console.error('RebataTrack page runtime failed:',error);
