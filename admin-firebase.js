@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 188
+// RebataTrack Admin Portal — Website Build 189
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -73,6 +73,11 @@ let betaGrantReasons = new Map();
 let betaMappingLoadedAt = 0;
 let betaMappingInFlight = null;
 let betaAutoSyncAttempted = false;
+// Build 189: the saved Beta Program configuration is the source of truth. Reconcile it
+// automatically once per Admin session after the tester workspace + Production bridge are ready.
+// Tester eligibility mutations still reconcile immediately through syncBetaProgramAfterTesterMutation().
+let betaProgramSessionReconciled = false;
+let betaProgramSessionReconcileInFlight = null;
 const BETA_MAPPING_CACHE_TTL_MS = 2 * 60 * 1000;
 
 let state = {
@@ -720,7 +725,9 @@ async function loadTesters(force=false){
   state.testers=snap.docs.map(s=>({uid:s.id,...s.data()}));state.loaded.testers=true;
   try{await repairMissingAndroidInviteUrls(state.testers);}catch(error){console.warn('Could not repair missing Android testing links:',error);}
   renderTesters();
-  if(!suppressBetaProductionAutoRefresh&&betaProgramEndDate&&window.RebataTrackProductionAdminBridge){refreshBetaProductionMapping().catch(error=>console.warn('Could not refresh Beta/Production mapping after tester load:',error));}
+  if(!suppressBetaProductionAutoRefresh&&betaProgramEndDate&&window.RebataTrackProductionAdminBridge){
+    ensureSavedBetaProgramReconciled().catch(error=>console.warn('Could not automatically reconcile saved Beta Program access:',error));
+  }
 }
 async function loadFeedback(force=false){
   if(state.loaded.feedback&&!force){renderFeedback();return;}
@@ -1866,6 +1873,9 @@ async function loadBetaProgramSettings(){
   try{const snap=await getDoc(doc(db,'betaSystem','programSettings'));const data=snap.exists()?snap.data():{};betaProgramEndDate=normalizedBetaProgramDate(data.betaProgramEndDate);}
   catch(_){betaProgramEndDate='';}
   const input=document.getElementById('betaProgramEndDate');if(input)input.value=betaProgramEndDate;
+  const message=document.getElementById('betaProgramSyncMessage');
+  if(message&&betaProgramEndDate){message.textContent='Saved configuration · Production access syncs automatically when tester eligibility or Production matching changes.';message.className='admin-connection-message success';}
+  if(state.loaded.testers&&betaProgramEndDate&&window.RebataTrackProductionAdminBridge){ensureSavedBetaProgramReconciled().catch(error=>console.warn('Could not automatically reconcile Beta Program settings after load:',error));}
 }
 function eligibleBetaTesterPayload(){
   return state.testers.filter(t=>t&&t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status)&&String(t.email||'').trim()).map(t=>({betaUid:t.uid,email:String(t.email||'').trim().toLowerCase(),name:t.name||'',platform:t.platform||''}));
@@ -1933,6 +1943,37 @@ async function maybeAutoSyncBetaProgram(){
   const fixed=fixable.filter(t=>{const m=betaProductionMapping.get(t.email);return m&&m.betaTrialActive;}).length;
   if(fixed>0)showToast('Beta access synced for '+fixed+' tester'+(fixed===1?'':'s')+'.','success');
 }
+async function ensureSavedBetaProgramReconciled(options={}){
+  if(betaProgramSessionReconcileInFlight)return betaProgramSessionReconcileInFlight;
+  if(betaProgramSessionReconciled&&options.force!==true){
+    // The saved eligibility list has already been asserted this session. A lightweight
+    // status refresh is enough to discover newly-created Production accounts and grant access.
+    return refreshBetaProductionMapping(options);
+  }
+  const bridge=window.RebataTrackProductionAdminBridge;
+  const dateText=normalizedBetaProgramDate(betaProgramEndDate);
+  const endIso=betaProgramEndIso(dateText);
+  if(!state.loaded.testers||!bridge||typeof bridge.call!=='function'||!dateText||!endIso)return {skipped:true};
+  const status=document.getElementById('betaProgramSyncStatus');
+  const message=document.getElementById('betaProgramSyncMessage');
+  if(status){status.textContent='Auto-syncing…';status.className='admin-subtle-chip';}
+  betaProgramSessionReconcileInFlight=(async()=>{
+    try{
+      const result=await syncBetaProgramAfterTesterMutation();
+      if(result&&result.error)throw new Error(result.error);
+      if(result&&result.skipped)return result;
+      betaProgramSessionReconciled=true;
+      if(status){status.textContent='Auto sync on';status.className='admin-subtle-chip admin-service-connected';}
+      if(message){message.textContent='Saved · Beta Program access is synchronized automatically. Use Sync Now only if you want to force an immediate reconciliation.';message.className='admin-connection-message success';}
+      return result;
+    }catch(error){
+      if(status){status.textContent='Auto sync retry needed';status.className='admin-subtle-chip admin-service-disconnected';}
+      if(message){message.textContent='The saved date is still stored, but Production synchronization could not complete right now. It will retry when the Tester workspace or Production connection refreshes.';message.className='admin-connection-message error';}
+      return {error:friendlyFirebaseError(error)};
+    }finally{betaProgramSessionReconcileInFlight=null;}
+  })();
+  return betaProgramSessionReconcileInFlight;
+}
 async function refreshBetaProductionMapping(options={}){
   const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.call!=='function'||!betaProgramEndDate)return;
   if(betaMappingInFlight)return betaMappingInFlight;
@@ -1980,9 +2021,9 @@ async function saveAndSyncBetaProgram(){
   try{
     await setDoc(doc(db,'betaSystem','programSettings'),{betaProgramEndDate:dateText,betaProgramEndsAt:endIso,updatedAt:serverTimestamp()},{merge:true});betaProgramEndDate=dateText;
     const testers=eligibleBetaTesterPayload();const result=await bridge.call('beta-program-configure',{endDate:dateText,endsAt:endIso,testers});
-    applyBetaProductionResult(result);betaMappingLoadedAt=Date.now();await reconcileMatchedTesterTimelines();renderTesters();
-    if(status){status.textContent='Synced';status.className='admin-subtle-chip admin-service-connected';}
-    if(message){message.textContent=`Synced ${testers.length} approved tester${testers.length===1?'':'s'} to Production eligibility. ${result.matchedCount||0} production account${Number(result.matchedCount||0)===1?' is':'s are'} currently matched.`;message.className='admin-connection-message success';}
+    applyBetaProductionResult(result);betaMappingLoadedAt=Date.now();await reconcileMatchedTesterTimelines();renderTesters();betaProgramSessionReconciled=true;
+    if(status){status.textContent='Auto sync on';status.className='admin-subtle-chip admin-service-connected';}
+    if(message){message.textContent=`Saved and synchronized ${testers.length} approved tester${testers.length===1?'':'s'} to Production eligibility. Automatic synchronization remains on; ${result.matchedCount||0} Production account${Number(result.matchedCount||0)===1?' is':'s are'} currently matched.`;message.className='admin-connection-message success';}
   }catch(error){if(status){status.textContent='Sync failed';status.className='admin-subtle-chip admin-service-disconnected';}if(message){message.textContent=friendlyFirebaseError(error);message.className='admin-connection-message error';}}
   finally{if(button)button.disabled=false;}
 }
@@ -2540,7 +2581,9 @@ document.querySelectorAll('[data-send-reminder-group]').forEach(btn=>btn.addEven
 
 document.getElementById('betaProgramSaveSync')?.addEventListener('click',saveAndSyncBetaProgram);
 window.RebataTrackBetaEmailBridge={call:(type,payload={})=>callWorkerAdminAction(type,payload)};
-window.addEventListener('rebatatrack-production-bridge-ready',()=>{refreshBetaProductionMapping();});
+window.addEventListener('rebatatrack-production-bridge-ready',()=>{
+  if(state.loaded.testers&&betaProgramEndDate)ensureSavedBetaProgramReconciled().catch(error=>console.warn('Automatic Beta Program reconciliation failed after Production connection:',error));
+});
 })().catch(function(error){
   console.error('RebataTrack page runtime failed:',error);
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}

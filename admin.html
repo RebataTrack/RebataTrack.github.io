@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal</title>
 <link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=112" rel="apple-touch-icon"/><link href="favicon-32.png?v=112" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=112" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=188" rel="stylesheet"/>
+<link href="styles.css?v=189" rel="stylesheet"/>
 </head>
 <body class="admin-body">
 <div class="admin-loading-screen" id="adminLoading">
@@ -143,11 +143,11 @@
 <summary><span><strong>Program controls</strong><small>Beta access, distribution links, and bulk timeline tools</small></span><span class="admin-details-chevron">⌄</span></summary>
 <div class="admin-tester-controls-body">
 <details class="admin-tester-control-group">
-<summary><span><strong>Beta Program access</strong><small>End date and Production account synchronization</small></span><span class="admin-subtle-chip" id="betaProgramSyncStatus">Not synced</span></summary>
+<summary><span><strong>Beta Program access</strong><small>Saved end date with automatic Production synchronization</small></span><span class="admin-subtle-chip" id="betaProgramSyncStatus">Auto sync</span></summary>
 <div class="admin-tester-control-content">
 <div class="admin-android-invite-config">
-<div class="beta-field admin-android-invite-url-field"><label for="betaProgramEndDate">Beta Program end date</label><input id="betaProgramEndDate" type="date"><small class="portal-field-help">Beta Program Admin Trial access ends at the end of this date. The original device trial remains separate and untouched.</small></div>
-<button class="admin-primary-button" id="betaProgramSaveSync" type="button">Save &amp; Sync to Production</button>
+<div class="beta-field admin-android-invite-url-field"><label for="betaProgramEndDate">Beta Program end date</label><input id="betaProgramEndDate" type="date"><small class="portal-field-help">Saved as the persistent Beta Program end date. Production eligibility syncs automatically; the original device trial remains separate and untouched.</small></div>
+<button class="admin-primary-button" id="betaProgramSaveSync" type="button">Sync Now</button>
 </div>
 <div class="admin-activity-policy compact"><strong>Email matching rule:</strong> the RebataTrack app account must use the tester's exact Beta Program email address. Matching is case-insensitive.</div>
 <div class="admin-connection-message" id="betaProgramSyncMessage" aria-live="polite"></div>
@@ -347,7 +347,7 @@ setTimeout(function(){
   }
 }, 12000);
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=188"></script><script src="production-admin.js?v=179"></script>
-<footer data-rebatatrack-website-build="188" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 188</footer>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=189"></script><script src="production-admin.js?v=179"></script>
+<footer data-rebatatrack-website-build="189" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 189</footer>
 </body>
 </html>
