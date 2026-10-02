@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 190
+// RebataTrack Admin Portal — Website Build 191
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1414,21 +1414,34 @@ function renderFeedback(){
 function localDatetimeValue(date){
   const d=new Date(date.getTime()-date.getTimezoneOffset()*60000);return d.toISOString().slice(0,16);
 }
+function selectedTaskTemplateKey(){return String(document.getElementById('taskTemplateSelect')?.value||'').trim();}
+function taskTemplateHistoryTesterIds(templateKey){
+  const key=String(templateKey||'').trim();
+  if(!key||key==='custom')return new Set();
+  const taskIds=new Set(state.tasks.filter(t=>String(t.templateKey||'')===key).map(t=>t.id));
+  return new Set(state.taskAssignments.filter(a=>String(a.templateKey||'')===key||taskIds.has(a.taskId)).map(a=>String(a.testerUid||'')).filter(Boolean));
+}
+function taskReceiptHistoryTesterIds(t){
+  const key=String(t?.templateKey||'').trim();
+  return key&&key!=='custom'?taskTemplateHistoryTesterIds(key):taskAssignmentTesterIds(t?.id||'');
+}
 function selectTaskRecipients(platform='All'){
-  document.querySelectorAll('[data-task-recipient]').forEach(el=>{const p=el.dataset.platform||'';el.checked=platform==='All'||p===platform;});
+  document.querySelectorAll('[data-task-recipient]').forEach(el=>{const p=el.dataset.platform||'';el.checked=!el.disabled&&(platform==='All'||p===platform);});
   updateTaskRecipientSummary();
 }
 function applyTaskTemplate(key){
   const tpl=TASK_TEMPLATES[key];
   const meta=document.getElementById('taskTemplateMeta');
-  if(!tpl){if(meta)meta.textContent='Custom task selected. Write any testing objective and instructions you want.';return;}
+  if(!tpl){if(meta)meta.textContent='Custom task selected. Write any testing objective and instructions you want.';renderTaskRecipientPicker();return;}
   document.getElementById('taskTitle').value=tpl.label;
   document.getElementById('taskObjective').value=tpl.objective;
   document.getElementById('taskInstructions').value=tpl.instructions;
   document.getElementById('taskResponseType').value=tpl.responseType;
   const due=document.getElementById('taskDueAt');if(due&&!due.value)due.value=localDatetimeValue(new Date(Date.now()+tpl.suggestedHours*60*60*1000));
+  renderTaskRecipientPicker();
   if(tpl.platform&&tpl.platform!=='All')selectTaskRecipients(tpl.platform);
-  if(meta)meta.textContent=`Recommended recipients: ${tpl.platform==='All'?'all active testers':tpl.platform+' testers'} · Suggested deadline: ${tpl.suggestedHours} hours.${tpl.adminNote?' '+tpl.adminNote:''}`;
+  const already=taskTemplateHistoryTesterIds(key).size;
+  if(meta)meta.textContent=`Recommended recipients: ${tpl.platform==='All'?'all active testers':tpl.platform+' testers'} · Suggested deadline: ${tpl.suggestedHours} hours.${already?` ${already} tester${already===1?' has':'s have'} already received this task and cannot be selected again.`:''}${tpl.adminNote?' '+tpl.adminNote:''}`;
 }
 function taskRecipientEligibility(t){
   if(!t||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))return {eligible:false,reason:'Beta access is not active'};
@@ -1458,7 +1471,9 @@ function renderTaskRecipientPicker(){
   const list=document.getElementById('taskRecipientList'); if(!list)return;
   const testers=activeTaskTesters();
   if(!testers.length){list.innerHTML='<div class="admin-empty-inline" style="padding:14px">No task-eligible testers are available. A tester must have active Beta access, completed Testing Setup, and a matched Production account.</div>';updateTaskRecipientSummary();return;}
-  list.innerHTML=testers.map(t=>`<label class="admin-task-recipient"><input type="checkbox" data-task-recipient="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"><span class="admin-task-recipient-copy"><strong>${esc(t.name||'Tester')}</strong><span>${esc(t.email||'')}</span></span><span class="admin-platform-pill">${esc(t.platform||'')}</span></label>`).join('');
+  const templateKey=selectedTaskTemplateKey();
+  const received=taskTemplateHistoryTesterIds(templateKey);
+  list.innerHTML=testers.map(t=>{const prior=received.has(String(t.uid||''));return `<label class="admin-task-recipient${prior?' already-received':''}"><input type="checkbox" data-task-recipient="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${prior?' disabled':''}><span class="admin-task-recipient-copy"><strong>${esc(t.name||'Tester')}</strong><span>${esc(t.email||'')}</span></span>${prior?'<span class="admin-task-received-chip">Already received</span>':`<span class="admin-platform-pill">${esc(t.platform||'')}</span>`}</label>`;}).join('');
   updateTaskRecipientSummary();
 }
 function taskAssignmentStats(taskId){
@@ -1561,11 +1576,11 @@ function taskAssignmentTesterIds(taskId){
   return new Set(state.taskAssignments.filter(a=>a.taskId===taskId).map(a=>String(a.testerUid||'')).filter(Boolean));
 }
 function newlyEligibleTaskTesters(t){
-  const assigned=taskAssignmentTesterIds(t.id);
+  const assigned=taskReceiptHistoryTesterIds(t);
   return activeTaskTesters().filter(x=>!assigned.has(String(x.uid||'')));
 }
 function taskRecipientCoverage(t){
-  const assigned=taskAssignmentTesterIds(t.id);
+  const assigned=taskReceiptHistoryTesterIds(t);
   const eligible=activeTaskTesters();
   const notAssigned=eligible.filter(x=>!assigned.has(String(x.uid||'')));
   return {assigned:assigned.size,eligible:eligible.length,notAssigned};
@@ -1591,7 +1606,7 @@ async function assignExistingTaskToTesters(t,testers){
   if(!due||due.getTime()<=Date.now())throw new Error('This task deadline has already passed. Create a new task with a new deadline for these testers.');
   if(t.status==='Cancelled')throw new Error('This task has been cancelled.');
   if(!emailWorkerEndpoint)throw new Error('Connect the Cloudflare email service before sending a required task.');
-  const assigned=taskAssignmentTesterIds(t.id);
+  const assigned=taskReceiptHistoryTesterIds(t);
   const eligibleByUid=new Map(activeTaskTesters().map(x=>[String(x.uid),x]));
   const targets=(testers||[]).map(x=>eligibleByUid.get(String(x.uid||x))).filter(Boolean).filter(x=>!assigned.has(String(x.uid)));
   if(!targets.length)throw new Error('There are no newly eligible testers who still need this task.');
@@ -1633,8 +1648,11 @@ async function createRequiredTask(){
   const due=new Date(dueRaw); if(Number.isNaN(due.getTime())||due.getTime()<=Date.now())throw new Error('The task deadline must be in the future.');
   if(!selected.length)throw new Error('Select at least one task-eligible tester.');
   if(!emailWorkerEndpoint)throw new Error('Connect the Cloudflare email service before sending a required task.');
-  const testers=activeTaskTesters().filter(t=>selected.includes(t.uid));
-  if(!testers.length)throw new Error('None of the selected testers are currently eligible. Required tasks can only be sent to testers with active Beta access, completed Testing Setup, and a matched Production account.');
+  const templateHistory=taskTemplateHistoryTesterIds(templateKey);
+  const duplicateSelections=selected.filter(uid=>templateHistory.has(String(uid)));
+  if(duplicateSelections.length)throw new Error(`${duplicateSelections.length} selected tester${duplicateSelections.length===1?' has':'s have'} already received this task. Refresh the recipient list and send only to testers marked as available.`);
+  const testers=activeTaskTesters().filter(t=>selected.includes(t.uid)&&!templateHistory.has(String(t.uid)));
+  if(!testers.length)throw new Error(templateKey&&templateKey!=='custom'?'Every selected eligible tester has already received this task. Choose only testers who have not received it yet.':'None of the selected testers are currently eligible. Required tasks can only be sent to testers with active Beta access, completed Testing Setup, and a matched Production account.');
   const taskRef=doc(collection(db,'betaTasks'));
   const batch=writeBatch(db);
   batch.set(taskRef,{recordType:'Task',title,objective,instructions,responseType,dueAt:Timestamp.fromDate(due),status:'Active',recipientCount:testers.length,templateKey:templateKey||'custom',templateLabel:template?template.label:'Custom task',autoReminders,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),createdBy:adminEmail});
