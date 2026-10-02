@@ -60,6 +60,9 @@ let applicationRealtimeUnsubscribe = null;
 let applicationsRealtimeReady = false;
 let feedbackRealtimeReady = false;
 const MAX_ADMIN_NOTIFICATIONS = 20;
+// Build 171 live-update safety lock: new Beta applications, Help & Feedback tickets,
+// tester replies, and the open conversation message stream remain realtime onSnapshot
+// listeners. Firestore optimization must not replace these with polling or stale caches.
 
 function setBetaConnectionUI(connected){
   window.__REBATA_BETA_CONNECTED=!!connected;
@@ -142,18 +145,29 @@ async function requestAdminNotificationPermission(){
   try{await Notification.requestPermission();}catch(_){ }
   updateNotificationPermissionUI();
 }
+let adminMetricsRefreshTimer=null;
+function scheduleAdminMetricsRefresh(){clearTimeout(adminMetricsRefreshTimer);adminMetricsRefreshTimer=setTimeout(()=>{loadMetrics().then(()=>{renderMetrics();if(activeView==='overview')renderOverview();}).catch(()=>{});},2500);}
 function startApplicationsRealtimeAdmin(){
   if(applicationRealtimeUnsubscribe)return;
-  const q=query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(100));
+  // Build 170 Firestore efficiency: this listener exists only to surface newly submitted
+  // applications and keep the five-card Overview preview fresh. Loading the Applications
+  // workspace still performs its normal bounded 100-row query on demand. Listening to 100
+  // application documents at all times needlessly rebilled the Admin Portal whenever any
+  // older application changed.
+  const q=query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(5));
   applicationRealtimeUnsubscribe=onSnapshot(q,snap=>{
     const firstLoad=!applicationsRealtimeReady;
     const docs=snap.docs.map(normalizeDoc);
-    state.applications=docs;
-    state.recentApplications=docs.slice(0,5);
-    state.loaded.applications=true;
-    if(activeView==='applications')renderApplications();
+    state.recentApplications=docs;
+    if(state.loaded.applications){
+      const incoming=new Map(docs.map(a=>[a.id,a]));
+      state.applications=state.applications.map(a=>incoming.get(a.id)||a);
+      docs.forEach(a=>{if(!state.applications.some(existing=>existing.id===a.id))state.applications.unshift(a);});
+      state.applications=state.applications.slice(0,100);
+      if(activeView==='applications')renderApplications();
+    }
     if(activeView==='overview')renderOverview();
-    loadMetrics().then(()=>{renderMetrics();if(activeView==='overview')renderOverview();}).catch(()=>{});
+    scheduleAdminMetricsRefresh();
     if(!firstLoad){
       snap.docChanges().forEach(change=>{
         if(change.type!=='added')return;
@@ -493,7 +507,7 @@ async function countQuery(ref){const snap=await getCountFromServer(ref);return s
 async function loadMetrics(){
   const apps=collection(db,'betaApplications');
   const feedback=collection(db,'betaFeedback');
-  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsSnap]=await Promise.all([
+  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount]=await Promise.all([
     countQuery(apps),
     countQuery(query(apps,where('status','==','Applied'))),
     countQuery(query(apps,where('status','==','Approved'))),
@@ -504,9 +518,14 @@ async function loadMetrics(){
     countQuery(query(apps,where('platform','==','iOS'))),
     countQuery(query(apps,where('platform','==','Android'))),
     Promise.all([countQuery(query(feedback,where('status','==','New'))),countQuery(query(feedback,where('status','==','Waiting for RebataTrack')))]).then(([a,b])=>a+b),
-    getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)))
+    countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),where('recordType','==','Task'))).catch(async()=>{
+      // Legacy assignments created before recordType was standardized are uncommon. Only
+      // use the bounded document fallback if the compound count query is unavailable.
+      const fallback=await getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)));
+      return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
+    })
   ]);
-  const activeTasks=pendingAssignmentsSnap.docs.filter(d=>d.data().recordType!=='Announcement').length;
+  const activeTasks=Number(pendingAssignmentsCount||0);
   state.metrics={total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks};
 }
 async function loadRecent(){
@@ -603,7 +622,7 @@ function startFeedbackRealtimeAdmin(){
     if(activeView==='feedback')renderFeedback();
     if(activeView==='overview')renderOverview();
     if(activeDrawerFeedbackId){const active=state.feedback.find(f=>f.id===activeDrawerFeedbackId);if(active)syncOpenAdminFeedbackState(active);}
-    loadMetrics().then(()=>{renderMetrics();if(activeView==='overview')renderOverview();}).catch(()=>{});
+    scheduleAdminMetricsRefresh();
     if(!firstLoad){
       snap.docChanges().forEach(change=>{
         if(change.type!=='added')return;

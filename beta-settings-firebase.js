@@ -49,7 +49,7 @@ function touchActivity(forceWrite=false){
   const now=Date.now();
   sessionStorage.setItem(PORTAL_ACTIVITY_KEY,String(now));
   scheduleInactivityLogout();
-  if(auth.currentUser&&(forceWrite||now-lastActivityWrite>5*60*1000)){
+  if(auth.currentUser&&(forceWrite||now-lastActivityWrite>15*60*1000)){
     lastActivityWrite=now;
     updateDoc(doc(db,'betaUsers',auth.currentUser.uid),{lastPortalActivity:serverTimestamp(),updatedAt:serverTimestamp()}).catch(()=>{});
   }

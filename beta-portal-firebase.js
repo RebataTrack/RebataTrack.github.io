@@ -6,6 +6,10 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,auth,db,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,addDoc,collection,serverTimestamp,query,where,getDocs,orderBy,onSnapshot}=Compat;
+
+// Build 171 live-update safety lock: the signed-in tester profile and Help & Feedback
+// conversation streams remain realtime. This preserves access revocation, task/support
+// messaging, and live Admin/tester replies while other non-critical reads are throttled.
 // RebataTrack Beta Tester Portal - Website Build 131
 const loading = document.getElementById('portalLoading');
 const app = document.getElementById('portalApp');
@@ -27,7 +31,7 @@ let profileUnsubscribe = null;
 let conversationMessagesUnsubscribe = null;
 let conversationMessageCount = 0;
 let lastFirestoreActivityWrite = 0;
-const PORTAL_ACTIVITY_WRITE_MS = 5 * 60 * 1000;
+const PORTAL_ACTIVITY_WRITE_MS = 15 * 60 * 1000;
 const taskBackdrop = document.getElementById('portalTaskBackdrop');
 const taskSubmit = document.getElementById('portalTaskSubmit');
 const workerUrl = String(window.REBATIFY_BETA_SETTINGS?.emailWorkerUrl || '').trim().replace(/\/+$/, '');

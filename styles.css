@@ -2436,13 +2436,13 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 /* Website Build 166 — tester activity reflects real portal use; Active is limited to the last hour */
 
 
-/* Website Build 169 — direct testing-access actions and eligible Android bulk selection */
+/* Website Build 171 — direct testing-access actions and eligible Android bulk selection */
 .admin-readiness-action{appearance:none;border:1px solid #e5b94f;background:#fff3bf;color:#7b5600;border-radius:999px;padding:7px 11px;font:950 .68rem/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;cursor:pointer;box-shadow:0 5px 14px rgba(180,126,0,.10);transition:transform .12s ease,box-shadow .12s ease,background .12s ease}
 .admin-readiness-action:hover{background:#ffed9a;box-shadow:0 7px 18px rgba(180,126,0,.15);transform:translateY(-1px)}
 .admin-readiness-action:focus-visible{outline:3px solid rgba(229,185,79,.30);outline-offset:2px}
 .admin-readiness-action:disabled{cursor:wait;opacity:.62;transform:none;box-shadow:none}
 
-/* Website Build 169 — unread tester updates in Help & Feedback */
+/* Website Build 171 — unread tester updates in Help & Feedback */
 .admin-feedback-card.has-update{border-color:rgba(59,158,74,.34);box-shadow:0 9px 26px rgba(59,158,74,.08),0 8px 24px rgba(8,34,92,.035)}
 .admin-feedback-subject-wrap{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
 .admin-feedback-update-dot{width:9px;height:9px;flex:0 0 9px;border-radius:50%;background:#3B9E4A;box-shadow:0 0 0 4px rgba(59,158,74,.12)}

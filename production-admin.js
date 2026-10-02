@@ -298,7 +298,9 @@ async function bulkDeleteProductionUsers(){
     updateProductionSelectionBar();
     state.overview=null;
     state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
-    await Promise.all([loadOverview(true),loadAccess(true),loadAudit(true)]);
+    await loadOverview(true);
+    if(state.view==='access')await loadAccess(true);
+    if(state.view==='audit')await loadAudit(true);
     const deleted=deletedUids.size;
     const failures=results.filter(result=>!result.deleted);
     if(failures.length){
@@ -634,9 +636,23 @@ async function submitAction(kind,button){
     const successMessage=reset?'Password-reset email sent.':sampleRefresh?'Rolling sample data refreshed.':sampleCreate?'Sample account created with rolling data.':deleted?'Production account permanently deleted.':celebrationGrant?'Grant saved. The user will be greeted on their next supported app open.':'Production access updated.';
     setActionMessage(successMessage,'success');showProdToast(successMessage);
     const uid=sampleCreate?(actionResult.user?.uid||''):state.action.uid;
-    state.users=[];state.overview=null;state.identities=[];state.devices=[];state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
+    // Website Build 171 Firestore efficiency: a production mutation invalidates only the
+    // Admin datasets that can have changed. Keep the targeted user-detail refresh immediate,
+    // but do not reload the entire Users/Devices/Identity/Access/Audit workspace when that
+    // workspace is not currently visible. The Worker cache is invalidated by the mutation.
+    state.overview=null;
+    if(state.view==='users')state.users=[];
+    if(state.view==='devices')state.devices=[];
+    if(state.view==='identities')state.identities=[];
+    if(state.view==='access')state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
+    if(state.view==='audit')state.audit=[];
     closeAction();
-    await Promise.all([loadOverview(true),loadUsers(true),loadAudit(true),loadAccess(true)]);
+    await loadOverview(true);
+    if(state.view==='users')await loadUsers(true);
+    else if(state.view==='devices')await loadDevices(true);
+    else if(state.view==='identities')await loadIdentities(true);
+    else if(state.view==='access')await loadAccess(true);
+    else if(state.view==='audit')await loadAudit(true);
     if(deleted){closeUserDrawer();return;}
     if(uid)await openUser(uid);
   }catch(error){setActionMessage(error.message,'error');}
@@ -649,7 +665,16 @@ async function revokeAction(kind,button){
     const map={premium:'premium-revoke',review:'review-revoke',trial:'trial-revoke'};
     const payload={uid:state.action.uid,reason};if(kind==='trial')payload.deviceId=$('productionTrialDevice')?.value||state.selectedUserDetail?.trial?.override?.deviceId||'';if(kind==='review')payload.source=button.dataset.reviewSource||'admin';
     await callProduction(map[kind],payload);showProdToast('Production access revoked.');
-    const uid=state.action.uid; closeAction();state.users=[];state.overview=null;state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};await Promise.all([loadOverview(true),loadUsers(true),loadAccess(true),loadAudit(true)]);await openUser(uid);
+    const uid=state.action.uid;
+    closeAction();state.overview=null;
+    if(state.view==='users')state.users=[];
+    if(state.view==='access')state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
+    if(state.view==='audit')state.audit=[];
+    await loadOverview(true);
+    if(state.view==='users')await loadUsers(true);
+    else if(state.view==='access')await loadAccess(true);
+    else if(state.view==='audit')await loadAudit(true);
+    await openUser(uid);
   }catch(error){setActionMessage(error.message,'error');}
   finally{button.disabled=false;button.textContent=original;}
 }
