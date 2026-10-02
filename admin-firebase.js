@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 181
+// RebataTrack Admin Portal — Website Build 182
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -36,7 +36,7 @@ const readMeter=(function(){
 function docCount(snap){return snap&&snap.docs?snap.docs.length:(snap&&typeof snap.size==='number'?snap.size:0);}
 async function getDocs(ref,label='getDocs (unlabeled)'){const snap=await rawGetDocs(ref);readMeter.add(label,docCount(snap));return snap;}
 async function getDoc(ref,label='getDoc'){const snap=await rawGetDoc(ref);readMeter.add(label,1);return snap;}
-async function getCountFromServer(ref){const snap=await rawGetCountFromServer(ref);readMeter.add('count queries (metrics)',1);return snap;}
+async function getCountFromServer(ref){const snap=await rawGetCountFromServer(ref);readMeter.add('count via FULL document read (legacy fallback)',snap.data().count||0);return snap;}
 
 window.__REBATIFY_ADMIN_BOOT = window.__REBATIFY_ADMIN_BOOT || {};
 window.__REBATIFY_ADMIN_BOOT.moduleLoaded = true;
@@ -548,9 +548,52 @@ function confirmAction(message,tone){
   });
 }
 
+// NOTE: the Firebase runtime this site ships (firebase-runtime.js / firebase-compat-shim.js) implements getCountFromServer()
+// as a FULL document read (ref.get() then snapshot.size). Every call therefore billed one read per matching document.
+// It is kept only as a throttled fallback below.
 async function countQuery(ref){const snap=await getCountFromServer(ref);return snap.data().count||0;}
-async function loadMetrics(force=false){
-  if(!force&&lastMetricsLoadedAt&&Date.now()-lastMetricsLoadedAt<ADMIN_METRICS_CACHE_TTL_MS)return state.metrics;
+
+// Build 182: real server-side aggregation (Firestore runAggregationQuery over REST, authorised by the signed-in administrator's
+// ID token, so Security Rules still apply). Billed at 1 read per 1,000 matching index entries (minimum 1) instead of 1 read per document.
+async function aggregateCount(collectionId,filters=[]){
+  const user=auth&&auth.currentUser;if(!user)throw new Error('Administrator session is not available for server-side counts.');
+  const projectId=(window.REBATIFY_FIREBASE_CONFIG||{}).projectId;if(!projectId)throw new Error('Firebase project id is unavailable.');
+  const token=await user.getIdToken();
+  const fieldFilters=filters.map(([field,_op,value])=>({fieldFilter:{field:{fieldPath:field},op:'EQUAL',value:{stringValue:String(value)}}}));
+  const structuredQuery={from:[{collectionId}]};
+  if(fieldFilters.length===1)structuredQuery.where=fieldFilters[0];
+  else if(fieldFilters.length>1)structuredQuery.where={compositeFilter:{op:'AND',filters:fieldFilters}};
+  const response=await fetch('https://firestore.googleapis.com/v1/projects/'+encodeURIComponent(projectId)+'/databases/(default)/documents:runAggregationQuery',{
+    method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({structuredAggregationQuery:{structuredQuery,aggregations:[{alias:'count',count:{}}]}})
+  });
+  if(!response.ok){let detail='';try{detail=(await response.json())?.error?.message||'';}catch(_){ }throw new Error('Server-side count failed ('+response.status+') '+detail);}
+  const data=await response.json();
+  const row=Array.isArray(data)?data.find(item=>item&&item.result):data;
+  const n=Number(row&&row.result&&row.result.aggregateFields&&row.result.aggregateFields.count&&row.result.aggregateFields.count.integerValue||0);
+  readMeter.add('count via server aggregation (metrics)',Math.max(1,Math.ceil(n/1000)));
+  return n;
+}
+const ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS=10*60*1000;
+let lastLegacyMetricsAt=0;
+async function loadMetricsAggregated(){
+  const apps='betaApplications',feedback='betaFeedback';
+  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount]=await Promise.all([
+    aggregateCount(apps),
+    aggregateCount(apps,[['status','==','Applied']]),
+    aggregateCount(apps,[['status','==','Approved']]),
+    aggregateCount(apps,[['status','==','Active']]),
+    aggregateCount(apps,[['status','==','Waitlist']]),
+    aggregateCount(apps,[['status','==','Declined']]),
+    aggregateCount(apps,[['status','==','Inactive']]),
+    aggregateCount(apps,[['platform','==','iOS']]),
+    aggregateCount(apps,[['platform','==','Android']]),
+    Promise.all([aggregateCount(feedback,[['status','==','New']]),aggregateCount(feedback,[['status','==','Waiting for RebataTrack']])]).then(([a,b])=>a+b),
+    aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']])
+  ]);
+  return {total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
+}
+async function loadMetricsLegacy(){
   const apps=collection(db,'betaApplications');
   const feedback=collection(db,'betaFeedback');
   const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount]=await Promise.all([
@@ -571,8 +614,19 @@ async function loadMetrics(force=false){
       return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
     })
   ]);
-  const activeTasks=Number(pendingAssignmentsCount||0);
-  state.metrics={total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks};
+  return {total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
+}
+async function loadMetrics(force=false){
+  if(!force&&lastMetricsLoadedAt&&Date.now()-lastMetricsLoadedAt<ADMIN_METRICS_CACHE_TTL_MS)return state.metrics;
+  let result=null;
+  try{result=await loadMetricsAggregated();}
+  catch(error){
+    // If server-side counting is unavailable (for example Security Rules deny the aggregation request), the dashboard keeps working,
+    // but the expensive full-read fallback is rate-limited so it can never turn into a read storm.
+    console.warn('Server-side metrics counts were unavailable:',error);
+    if(Date.now()-lastLegacyMetricsAt>=ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS){lastLegacyMetricsAt=Date.now();result=await loadMetricsLegacy();}
+  }
+  if(result)state.metrics=result;
   lastMetricsLoadedAt=Date.now();
   return state.metrics;
 }
