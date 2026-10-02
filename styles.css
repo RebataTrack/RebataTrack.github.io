@@ -2558,3 +2558,66 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-support-quick-reply:hover{border-color:#b9cbe0;background:#f4f8fd;transform:translateY(-1px)}
 .admin-support-quick-reply:focus-visible{outline:3px solid rgba(20,92,242,.14);outline-offset:2px}
 @media(max-width:700px){.admin-support-quick-replies-head{align-items:flex-start;flex-direction:column;gap:3px}.admin-support-quick-replies-head small{text-align:left}.admin-support-quick-reply{flex:1 1 100%}}
+
+
+/* Website Build 182 — polished beta email reminder + support launcher */
+.beta-email-delivery-note{
+  margin:16px 0 6px;
+  padding:18px 20px;
+  border:1px solid rgba(33,113,181,.14);
+  border-radius:18px;
+  background:linear-gradient(180deg,rgba(33,113,181,.045),rgba(33,113,181,.025));
+  color:#5f7189;
+  font-size:.94rem;
+  line-height:1.62;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.76);
+}
+.beta-email-delivery-note>strong{display:block;color:#17365d;font-size:1.02rem;font-weight:850;margin:0 0 7px}
+.beta-email-delivery-note>span{display:block;max-width:100%}
+.beta-email-delivery-note>span strong{display:inline!important;color:#17365d;font-weight:800;margin:0!important}
+.beta-email-delivery-note a{display:inline;color:#2171B5;font-weight:800;text-decoration:none;overflow-wrap:anywhere;word-break:normal}
+.beta-email-delivery-note a:hover{text-decoration:underline}
+
+/* Keep the floating Help control primary, but make the launcher choices quiet, premium cards. */
+.portal-body .portal-support-launcher-panel{
+  width:min(380px,calc(100vw - 28px));
+  padding:22px;
+  border-radius:26px;
+  background:rgba(255,255,255,.985);
+  border:1px solid #e1e9f2;
+  box-shadow:0 28px 74px rgba(20,43,73,.18),0 8px 24px rgba(20,43,73,.08);
+  backdrop-filter:blur(22px);
+}
+.portal-body .portal-support-launcher-heading{margin-bottom:10px}
+.portal-body .portal-support-launcher-heading>div{gap:2px}
+.portal-body .portal-support-launcher-heading span{font-size:.64rem;letter-spacing:.11em;color:#2F7E3B}
+.portal-body .portal-support-launcher-heading strong{font-size:1.2rem;line-height:1.2;letter-spacing:-.02em;color:#10233b;margin-top:3px}
+.portal-body .portal-support-launcher-heading button{
+  width:36px;height:36px;border-radius:12px;border:1px solid #dce5ef;background:#fff;color:#62758d;
+  box-shadow:none!important;transform:none!important;font-size:1.2rem;font-weight:700;
+}
+.portal-body .portal-support-launcher-heading button:hover{background:#f6f8fb;color:#314a66;border-color:#cfdbe8}
+.portal-body .portal-support-launcher-panel>p{margin:0 0 16px;color:#6b7d93;font-size:.82rem;line-height:1.5}
+.portal-body .portal-support-launcher-action{
+  width:100%;display:grid!important;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;gap:12px;
+  min-height:74px;padding:13px 14px!important;border:1px solid #dfe7f0!important;border-radius:17px!important;
+  background:#fff!important;color:#17324e!important;box-shadow:0 4px 14px rgba(18,48,80,.045)!important;
+  text-align:left;cursor:pointer;transform:none!important;transition:border-color .18s ease,background .18s ease,box-shadow .18s ease,transform .18s ease!important;
+}
+.portal-body .portal-support-launcher-action+.portal-support-launcher-action{margin-top:10px}
+.portal-body .portal-support-launcher-action:hover{
+  background:#f7fbf8!important;border-color:rgba(59,158,74,.34)!important;box-shadow:0 9px 22px rgba(30,85,53,.08)!important;transform:translateY(-1px)!important;
+}
+.portal-body .portal-support-launcher-action>span:nth-child(2){display:flex;flex-direction:column;min-width:0}
+.portal-body .portal-support-launcher-action strong{color:#142f4b!important;font-size:.88rem;line-height:1.28;font-weight:850}
+.portal-body .portal-support-launcher-action small{margin-top:4px;color:#73849a!important;font-size:.72rem;line-height:1.35;white-space:normal}
+.portal-body .portal-support-launcher-action-icon{
+  width:44px;height:44px;border-radius:14px;background:#eef5ff!important;color:#2171B5!important;display:grid;place-items:center
+}
+.portal-body .portal-support-launcher-action-icon.green{background:#eef8f0!important;color:#3B9E4A!important}
+.portal-body .portal-support-launcher-action-icon svg{width:21px;height:21px}
+.portal-body .portal-support-launcher-inline-badge{background:#eef8f0!important;color:#2F7E3B!important;border:1px solid rgba(59,158,74,.14)}
+@media(max-width:620px){
+  .beta-email-delivery-note{padding:16px 17px;border-radius:16px;font-size:.91rem}
+  .portal-body .portal-support-launcher-panel{width:min(360px,calc(100vw - 20px));padding:18px;border-radius:22px}
+}
