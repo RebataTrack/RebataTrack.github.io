@@ -6,10 +6,10 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 179
+// RebataTrack Admin Portal — Website Build 180
 'use strict';
 
-// Build 179 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
+// Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
 // localStorage 'rebatatrack.readmeter' to '1') to show a live "Beta reads" badge; click it to print a per-source table.
 // Console: RebataTrackReadMeter.report() / .reset() / .total(). Firestore bills one read per document returned.
 const readMeter=(function(){
@@ -88,6 +88,14 @@ let emailChangeApplicationId = null;
 let applicationRealtimeUnsubscribe = null;
 let applicationsRealtimeReady = false;
 let feedbackRealtimeReady = false;
+
+const SUPPORT_REPLY_GREETING='Hello, and thank you for contacting RebataTrack Support!';
+const SUPPORT_REPLY_PRESETS=Object.freeze({
+  greeting:SUPPORT_REPLY_GREETING,
+  featureRequest:'Hello, and thank you for contacting RebataTrack Support! We have noted down your feedback request, and will review this functionality feature request. Thank you! - RebataTrack',
+  betaEmailUpdated:'Hello, and thank you for reaching out in our support ticket. We have swapped your approved beta access account to the new email you provided. Feel free to reach out should you have any more issues! Thank you! - RebataTrack'
+});
+
 const MAX_ADMIN_NOTIFICATIONS = 20;
 // Build 173 live-update safety lock: new Beta applications, Help & Feedback tickets,
 // tester replies, and the open conversation message stream remain realtime onSnapshot
@@ -608,7 +616,7 @@ async function loadTesters(force=false){
 }
 async function loadFeedback(force=false){
   if(state.loaded.feedback&&!force){renderFeedback();return;}
-  // Build 179 Firestore efficiency: the workspace reads only the 100 ticket documents. Private admin notes live in
+  // Build 180 Firestore efficiency: the workspace reads only the 100 ticket documents. Private admin notes live in
   // betaFeedbackAdmin and are fetched for ONE ticket when its drawer opens (ensureFeedbackNotesLoaded), instead of
   // reading up to 500 note documents every time the workspace loads. Only legacy tickets that still carry a note in
   // the tester-readable document need their private document checked (to migrate without overwriting).
@@ -1612,6 +1620,19 @@ function feedbackWorkflowOptions(f){
   const workflow=isSupportConversation(f)?SUPPORT_WORKFLOW:FEEDBACK_WORKFLOW;const status=canonicalFeedbackStatus(f.status);
   return workflow.map(x=>`<option${x===status?' selected':''}>${x}</option>`).join('');
 }
+
+function supportReplyPresetHtml(){
+  return `<div class="admin-support-quick-replies"><div class="admin-support-quick-replies-head"><span>Quick replies</span><small>Choose a starting response, then edit it before sending if needed.</small></div><div class="admin-support-quick-reply-actions"><button class="admin-support-quick-reply" type="button" data-support-reply-preset="greeting">Greeting</button><button class="admin-support-quick-reply" type="button" data-support-reply-preset="featureRequest">Feature request noted</button><button class="admin-support-quick-reply" type="button" data-support-reply-preset="betaEmailUpdated">Beta access email updated</button></div></div>`;
+}
+function setSupportReplyPreset(key){
+  const box=document.getElementById('drawerConversationReply');
+  const text=SUPPORT_REPLY_PRESETS[key];
+  if(!box||!text)return;
+  box.value=text;
+  box.dispatchEvent(new Event('input',{bubbles:true}));
+  box.focus();
+  box.setSelectionRange(box.value.length,box.value.length);
+}
 function adminConversationMessageHtml(m){
   const eventType=String(m.eventType||'');
   if(eventType==='retest-request')return `<div class="admin-chat-message admin-chat-event"><div><strong>RebataTrack · Retest requested</strong><time>${esc(formatDate(m.createdAt))}</time></div><p>${esc(m.body||'Retest requested.')}</p></div>`;
@@ -1630,6 +1651,9 @@ function subscribeAdminConversationMessages(feedbackId){
     const animate=adminConversationMessageCount>0&&rows.length>adminConversationMessageCount;
     adminConversationMessageCount=rows.length;
     list.innerHTML=rows.length?rows.map(adminConversationMessageHtml).join(''):'<div class="admin-empty-inline">No replies yet.</div>';
+    const replyBox=document.getElementById('drawerConversationReply');
+    const hasAdminReply=rows.some(row=>String(row.authorRole||'').toLowerCase()==='admin');
+    if(replyBox&&replyBox.dataset.supportInitialGreeting==='1'&&!hasAdminReply&&!String(replyBox.value||'').trim())replyBox.value=SUPPORT_REPLY_GREETING;
     requestAnimationFrame(()=>list.scrollTo({top:list.scrollHeight,behavior:animate?'smooth':'auto'}));
   },error=>{console.error('Realtime admin conversation listener failed:',error);if(activeDrawerFeedbackId===feedbackId)list.innerHTML='<div class="admin-empty-inline">Live conversation could not be loaded right now.</div>';});
 }
@@ -1644,7 +1668,7 @@ function openFeedbackRecord(f){
   const details=`<div class="admin-detail-grid"><div><span>Tester</span><strong>${esc(f.name)}</strong><small>${esc(f.email)}</small></div><div><span>Submitted</span><strong>${esc(formatDate(f.submittedAt))}</strong></div>${support?`<div><span>Workflow</span><strong>Account / Access Support</strong></div><div><span>Testing Platform</span><strong>${esc(f.platform||'Not provided')}</strong></div>`:`<div><span>Build</span><strong>${esc(f.appVersion||'Not provided')}</strong></div><div><span>Device / OS</span><strong>${esc(f.deviceDetails||[f.deviceModel,f.osVersion].filter(Boolean).join(' · ')||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(f.screenSize||'Not provided')}</strong></div><div><span>Page / Feature</span><strong>${esc(f.pageFeature||'Not provided')}</strong></div>`}</div>`;
   const supportEmailAction=support?`<div class="admin-support-identity-action"><button class="admin-secondary-button" data-feedback-change-email="${esc(f.id)}" type="button">Change Beta Email</button><span>${f.supportAccountEmail?'The corrected email from this ticket will be prefilled for verification.':'Use this when the tester supplied a corrected Apple Account or Google Play email.'}</span></div>`:'';
   const closed=adminConversationIsClosed(f);
-  const replyArea=closed?`<div class="admin-conversation-closed"><div><strong>This conversation is closed.</strong><span>The tester can review the history, but messaging is disabled until you reopen it.</span></div><button class="admin-primary-button" data-reopen-feedback="${esc(f.id)}" type="button">Reopen Conversation</button></div>`:`<div class="admin-conversation-reply"><label class="admin-detail-label" for="drawerConversationReply">Reply to tester</label><textarea id="drawerConversationReply" class="admin-detail-textarea" maxlength="5000" placeholder="Write a reply…"></textarea><button class="admin-primary-button" data-send-conversation-reply="${esc(f.id)}" type="button">Send Reply</button></div>`;
+  const replyArea=closed?`<div class="admin-conversation-closed"><div><strong>This conversation is closed.</strong><span>The tester can review the history, but messaging is disabled until you reopen it.</span></div><button class="admin-primary-button" data-reopen-feedback="${esc(f.id)}" type="button">Reopen Conversation</button></div>`:`<div class="admin-conversation-reply">${support?supportReplyPresetHtml():''}<label class="admin-detail-label" for="drawerConversationReply">Reply to tester</label><textarea id="drawerConversationReply" class="admin-detail-textarea" maxlength="5000" placeholder="Write a reply…"${support?' data-support-initial-greeting="1"':''}></textarea><button class="admin-primary-button" data-send-conversation-reply="${esc(f.id)}" type="button">Send Reply</button></div>`;
   openDrawer(support?'Support Conversation':'Tester Feedback',f.subject,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-feedback-type-chip">${esc(f.type)}</span><span class="admin-platform-pill">${esc(f.platform)}</span><span class="admin-subtle-chip">Tester sees: ${esc(publicStatus)}</span></div>${details}${supportEmailAction}${originalBlock}${retestBlock}<section class="admin-conversation-section"><div class="admin-feedback-section-head"><div><span>Conversation</span><strong>Replies <span class="admin-live-conversation"><i aria-hidden="true"></i> Live</span></strong></div></div><div class="admin-conversation-thread" id="drawerConversationThread"><div class="admin-empty-inline">Loading replies…</div></div>${replyArea}</section><div class="beta-field"><label for="drawerFeedbackStatus">Status</label><select id="drawerFeedbackStatus" class="admin-detail-select">${feedbackWorkflowOptions(f)}</select></div><div><label class="admin-detail-label" for="drawerFeedbackNotes">Private admin notes</label><textarea id="drawerFeedbackNotes" class="admin-detail-textarea" placeholder="${f.adminNotesLoaded===true?'Internal notes only administrators can see…':'Loading private notes…'}"${f.adminNotesLoaded===true?'':' disabled'}>${esc(f.adminNotes||'')}</textarea></div><button class="admin-primary-button" data-save-feedback="${esc(f.id)}" type="button">Save Status &amp; Notes</button><div class="admin-feedback-delete-zone"><div><strong>Delete conversation</strong><span>Permanently removes this Help &amp; Feedback item, all replies, and its private admin notes. The tester account and beta application are not deleted.</span></div><button class="admin-action-button danger-soft" data-delete-feedback="${esc(f.id)}" type="button">Delete Conversation</button></div></div>`);
   subscribeAdminConversationMessages(f.id);
   if(f.adminNotesLoaded!==true){
@@ -1844,7 +1868,7 @@ async function callWorkerAdminAction(type,payload={}){
   }finally{clearTimeout(timer);}
 }
 async function refreshApplicationAdminData(options={}){
-  // Build 179: only the 'delete' action cascades into task assignments on the server. Every other action changes just the
+  // Build 180: only the 'delete' action cascades into task assignments on the server. Every other action changes just the
   // application and tester records, so the cached assignments (up to 500 reads) stay valid.
   const assignmentsChanged=options.assignmentsChanged!==false;
   state.loaded.applications=false;
@@ -2112,6 +2136,7 @@ document.addEventListener('click',async e=>{
   const noteBtn=e.target.closest('[data-save-app-notes]');if(noteBtn){const a=await ensureApplicationLoaded(noteBtn.dataset.saveAppNotes);if(!a)return;const notes=document.getElementById('drawerApplicantNotes').value;try{await updateDoc(doc(db,'betaApplications',a.id),{notes,lastUpdated:serverTimestamp()});a.notes=notes;a.lastUpdated=new Date();showToast('Private notes saved.');}catch(err){showToast(friendlyFirebaseError(err),'error');}return;}
   const reopenFeedbackBtn=e.target.closest('[data-reopen-feedback]');if(reopenFeedbackBtn){const f=await ensureFeedbackLoaded(reopenFeedbackBtn.dataset.reopenFeedback);if(!f)return;const support=isSupportConversation(f);const status=support?'Waiting for RebataTrack':'Reviewing';reopenFeedbackBtn.disabled=true;const original=reopenFeedbackBtn.textContent;reopenFeedbackBtn.textContent='Reopening…';try{await updateDoc(doc(db,'betaFeedback',f.id),{status,updatedAt:serverTimestamp()});f.status=status;f.updatedAt=new Date();state.loaded.feedback=false;await loadFeedback(true);renderFeedback();const fresh=state.feedback.find(x=>x.id===f.id)||f;openFeedbackRecord(fresh);showToast('Conversation reopened. Messaging is available again.');}catch(err){showToast(friendlyFirebaseError(err),'error');reopenFeedbackBtn.disabled=false;reopenFeedbackBtn.textContent=original;}return;}
   const deleteFeedbackBtn=e.target.closest('[data-delete-feedback]');if(deleteFeedbackBtn){const f=await ensureFeedbackLoaded(deleteFeedbackBtn.dataset.deleteFeedback);if(!f)return;const label=isSupportConversation(f)?'support conversation':'feedback conversation';if(!(await confirmAction(`Permanently delete this ${label}? All replies and private admin notes will also be deleted. The tester account and beta application will remain. This cannot be undone.`,'danger')))return;deleteFeedbackBtn.disabled=true;const original=deleteFeedbackBtn.textContent;deleteFeedbackBtn.textContent='Deleting…';try{await deleteFeedbackConversation(f);closeDrawer();showToast('Conversation deleted.');}catch(err){showToast(friendlyFirebaseError(err),'error');deleteFeedbackBtn.disabled=false;deleteFeedbackBtn.textContent=original;}return;}
+  const supportPreset=e.target.closest('[data-support-reply-preset]');if(supportPreset){setSupportReplyPreset(supportPreset.dataset.supportReplyPreset);return;}
   const convoReply=e.target.closest('[data-send-conversation-reply]');if(convoReply){const f=await ensureFeedbackLoaded(convoReply.dataset.sendConversationReply);if(!f)return;if(adminConversationIsClosed(f)){showToast('Reopen this conversation before replying.','error');openFeedbackRecord(f);return;}const input=document.getElementById('drawerConversationReply');const body=String(input?.value||'').trim();if(!body){showToast('Write a reply before sending.','error');return;}convoReply.disabled=true;const original=convoReply.textContent;convoReply.textContent='Sending…';try{const ref=await addDoc(collection(db,'betaFeedback',f.id,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',body,createdAt:serverTimestamp()});const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Admin',updatedAt:serverTimestamp()};if(isSupportConversation(f))update.status='Waiting for Tester';await updateDoc(doc(db,'betaFeedback',f.id),update);f.lastMessageAt=new Date();f.lastMessageBy='Admin';f.updatedAt=new Date();if(isSupportConversation(f))f.status='Waiting for Tester';let emailFailed=false;try{await callWorkerAdminAction('conversation-reply-added',{feedbackId:f.id,messageId:ref.id});}catch(emailErr){emailFailed=true;console.warn('Conversation reply email failed:',emailErr);}if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}renderFeedback();syncOpenAdminFeedbackState(f);showToast(emailFailed?'Reply saved, but the tester email could not be sent.':'Reply sent to tester.',emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{convoReply.disabled=false;convoReply.textContent=original;}return;}
   const fbSave=e.target.closest('[data-save-feedback]');if(fbSave){
     const f=await ensureFeedbackLoaded(fbSave.dataset.saveFeedback);if(!f)return;const status=String(document.getElementById('drawerFeedbackStatus').value||'').trim();const notesBox=document.getElementById('drawerFeedbackNotes');const notesEditable=!!notesBox&&!notesBox.disabled;const notes=notesBox?notesBox.value:'';const support=isSupportConversation(f);const oldStatus=canonicalFeedbackStatus(f.status);const oldPublic=testerFacingFeedbackStatus(f);

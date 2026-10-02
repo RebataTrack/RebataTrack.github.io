@@ -2546,3 +2546,15 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .beta-email-delivery-note a,.beta-success-email-note a{color:#2171B5;font-weight:750;text-decoration:none}
 .beta-email-delivery-note a:hover,.beta-success-email-note a:hover{text-decoration:underline}
 .beta-success-email-note span{display:block}
+
+
+/* Website Build 180 — Support quick replies */
+.admin-support-quick-replies{margin:0 0 14px;padding:13px 14px;border:1px solid #dfe8f3;border-radius:15px;background:#f8fafc}
+.admin-support-quick-replies-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.admin-support-quick-replies-head span{font-size:.72rem;font-weight:900;color:#233d5b}
+.admin-support-quick-replies-head small{font-size:.63rem;color:#7d8da1;text-align:right}
+.admin-support-quick-reply-actions{display:flex;flex-wrap:wrap;gap:8px}
+.admin-support-quick-reply{appearance:none;border:1px solid #d3deeb;background:#fff;color:#2b4664;border-radius:11px;padding:8px 10px;font:800 .68rem/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer;transition:border-color .16s ease,background .16s ease,transform .16s ease}
+.admin-support-quick-reply:hover{border-color:#b9cbe0;background:#f4f8fd;transform:translateY(-1px)}
+.admin-support-quick-reply:focus-visible{outline:3px solid rgba(20,92,242,.14);outline-offset:2px}
+@media(max-width:700px){.admin-support-quick-replies-head{align-items:flex-start;flex-direction:column;gap:3px}.admin-support-quick-replies-head small{text-align:left}.admin-support-quick-reply{flex:1 1 100%}}
