@@ -2478,7 +2478,7 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-next-step-reminder{appearance:none;width:max-content;border:1px solid rgba(33,113,181,.25);background:#eef5ff;color:#2171b5;border-radius:999px;padding:6px 9px;font:900 .64rem/1.1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;cursor:pointer}.admin-next-step-reminder:hover{background:#e1edff}.admin-next-step-reminder:disabled{opacity:.55;cursor:wait}.admin-next-step-last{color:#8292a6!important}.admin-action-button.reminder{background:#eef5ff!important;color:#2171b5!important;border-color:rgba(33,113,181,.24)!important}
 @media(max-width:1100px){.admin-next-step-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.admin-next-step-grid{grid-template-columns:1fr}.admin-next-step-heading-actions{justify-content:flex-start}}
 
-/* Website Build 175 — Tester workspace organization pass */
+/* Website Build 176 — Beta email deliverability guidance */
 .admin-testers-heading{align-items:flex-start;gap:18px}.admin-testers-heading-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .admin-tester-overview-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 16px}
 .admin-tester-overview-card{padding:16px 17px;border-radius:18px;border:1px solid #e2eaf4;background:#fff;box-shadow:0 6px 18px rgba(21,54,92,.035)}
@@ -2529,3 +2529,20 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 @media(max-width:1250px){.admin-tester-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-tester-action-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.admin-tester-toolbar{grid-template-columns:minmax(240px,1.5fr) repeat(2,minmax(150px,.65fr))}.admin-tester-toolbar #testerAccessFilter{display:none}}
 @media(max-width:820px){.admin-testers-heading{display:grid}.admin-tester-overview-grid,.admin-tester-action-grid{grid-template-columns:1fr 1fr}.admin-tester-toolbar{grid-template-columns:1fr 1fr}.admin-tester-toolbar .admin-search{grid-column:1/-1}.admin-tester-action-footer{align-items:flex-start;flex-direction:column}.admin-tester-controls-body{padding:7px}}
 @media(max-width:560px){.admin-tester-overview-grid,.admin-tester-action-grid,.admin-tester-toolbar{grid-template-columns:1fr}.admin-tester-toolbar .admin-search{grid-column:auto}.admin-more-filters>div{left:0;right:auto}.admin-tester-control-group>summary{align-items:flex-start}.admin-testers-heading-actions .admin-secondary-button{width:100%}}
+
+
+/* Website Build 176 — beta email deliverability guidance */
+.beta-email-delivery-note{
+  margin:14px 0 4px;
+  padding:13px 15px;
+  border:1px solid rgba(33,113,181,.16);
+  border-radius:14px;
+  background:rgba(33,113,181,.05);
+  color:#5b6f88;
+  font-size:.9rem;
+  line-height:1.55;
+}
+.beta-email-delivery-note strong,.beta-success-email-note>strong{display:block;color:#1b365d;font-weight:800;margin-bottom:3px}
+.beta-email-delivery-note a,.beta-success-email-note a{color:#2171B5;font-weight:750;text-decoration:none}
+.beta-email-delivery-note a:hover,.beta-success-email-note a:hover{text-decoration:underline}
+.beta-success-email-note span{display:block}
