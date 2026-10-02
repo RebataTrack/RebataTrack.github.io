@@ -60,7 +60,7 @@ let applicationRealtimeUnsubscribe = null;
 let applicationsRealtimeReady = false;
 let feedbackRealtimeReady = false;
 const MAX_ADMIN_NOTIFICATIONS = 20;
-// Build 172 live-update safety lock: new Beta applications, Help & Feedback tickets,
+// Build 173 live-update safety lock: new Beta applications, Help & Feedback tickets,
 // tester replies, and the open conversation message stream remain realtime onSnapshot
 // listeners. Firestore optimization must not replace these with polling or stale caches.
 
@@ -1042,10 +1042,13 @@ function feedbackFiltered(){
 }
 function feedbackNeedsAdminResponse(f){
   if(!f)return false;
+  const status=canonicalFeedbackStatus(f.status);
+  // Closed conversations are resolved and must never be surfaced as awaiting an Admin reply,
+  // even when the last stored message was authored by the tester before the ticket was closed.
+  if(status==='Closed')return false;
   const lastBy=String(f.lastMessageBy||'').trim();
   if(lastBy==='Tester')return true;
   if(lastBy==='Admin')return false;
-  const status=canonicalFeedbackStatus(f.status);
   return status==='Waiting for RebataTrack'||status==='New';
 }
 function feedbackHasUnreadTesterUpdate(f){
