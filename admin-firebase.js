@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 183
+// RebataTrack Admin Portal — Website Build 185
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -585,7 +585,7 @@ const ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS=10*60*1000;
 let lastLegacyMetricsAt=0;
 async function loadMetricsAggregated(){
   const apps='betaApplications',feedback='betaFeedback';
-  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount]=await Promise.all([
+  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount,readyForYou]=await Promise.all([
     aggregateCount(apps),
     aggregateCount(apps,[['status','==','Applied']]),
     aggregateCount(apps,[['status','==','Approved']]),
@@ -596,9 +596,15 @@ async function loadMetricsAggregated(){
     aggregateCount(apps,[['platform','==','iOS']]),
     aggregateCount(apps,[['platform','==','Android']]),
     Promise.all([aggregateCount(feedback,[['status','==','New']]),aggregateCount(feedback,[['status','==','Waiting for RebataTrack']])]).then(([a,b])=>a+b),
-    aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']])
+    aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']]),
+    Promise.all([
+      aggregateCount('betaUsers',[['timelineStage','==','setupComplete'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
+      aggregateCount('betaUsers',[['timelineStage','==','setupComplete'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0),
+      aggregateCount('betaUsers',[['timelineStage','==','deviceReady'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
+      aggregateCount('betaUsers',[['timelineStage','==','deviceReady'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0)
+    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0))
   ]);
-  return {total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
+  return {total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0),readyForYou:Number(readyForYou||0)};
 }
 async function loadMetricsLegacy(){
   const apps=collection(db,'betaApplications');
@@ -862,7 +868,7 @@ function renderMetrics(){
   const setNavBadge=(id,v)=>{const el=document.getElementById(id);if(!el)return;const count=Number(v||0);el.textContent=count;el.hidden=count<1;};
   set('metricApplied',m.applied);set('metricApproved',m.approved);set('metricActive',m.active);set('metricFeedback',m.newFeedback);
   set('metricWaitlist',m.waitlist);set('metricDeclined',m.declined);set('metricInactive',m.inactive);set('iosCount',m.ios);set('androidCount',m.android);
-  setNavBadge('navPendingCount',m.applied);setNavBadge('navTaskCount',m.activeTasks);setNavBadge('navFeedbackCount',m.newFeedback);
+  setNavBadge('navPendingCount',m.applied);setNavBadge('navTesterActionCount',m.readyForYou);setNavBadge('navTaskCount',m.activeTasks);setNavBadge('navFeedbackCount',m.newFeedback);
   const total=Number(m.total||0);set('platformTotal',total+' applicant'+(total===1?'':'s'));
   document.getElementById('iosBar').style.width=(total?Math.round(Number(m.ios||0)/total*100):0)+'%';
   document.getElementById('androidBar').style.width=(total?Math.round(Number(m.android||0)/total*100):0)+'%';
@@ -1000,6 +1006,8 @@ function renderTesterNextStepSummary(){
   state.testers.forEach(t=>{const n=testerNextStep(t);if(Object.prototype.hasOwnProperty.call(counts,n.key))counts[n.key]++;});
   const set=(id,value)=>{const el=document.getElementById(id);if(el)el.textContent=String(value);};
   set('testerNeedPortalCount',counts.portalSignIn);set('testerNeedSetupCount',counts.testingSetup);set('testerNeedAppAccountCount',counts.appAccount);set('testerAdminSendCount',counts.adminSend);set('testerSetupCompleteCount',counts.complete);
+  const nav=document.getElementById('navTesterActionCount');if(nav){nav.textContent=String(counts.adminSend);nav.hidden=counts.adminSend<1;}
+  if(state.metrics)state.metrics.readyForYou=counts.adminSend;
   const bulk=document.getElementById('testerSendPendingReminders');if(bulk)bulk.disabled=(counts.portalSignIn+counts.testingSetup+counts.appAccount)===0;
 }
 function applyTesterNextStepFilter(key=''){
@@ -1150,8 +1158,7 @@ function testerProgressHtml(t){
   if(!mapping||mapping.matched!==true)mappingHtml='<span class="admin-progress-state pending">App account not matched</span>';
   else if(mapping.betaTrialActive)mappingHtml=`<span class="admin-progress-state complete">Beta access active</span>${mapping.expiresAt?`<small>Through ${esc(formatDate(mapping.expiresAt))}</small>`:''}`;
   else{const why=betaGrantReasonText(key);mappingHtml='<span class="admin-progress-state complete">App account matched</span>'+(why?`<small>${esc(why)}</small>`:'');}
-  const androidSent=t.platform==='Android'&&timestampToDate(t.androidTestingInviteSentAt);
-  return `<div class="admin-tester-progress-cell"><span class="admin-timeline-chip timeline-${esc(stage)}">${esc(timelineStageLabel(stage,t.platform))}</span>${androidSent?'<span class="admin-progress-state complete">Google Play link sent</span>':''}${mappingHtml}</div>`;
+  return `<div class="admin-tester-progress-cell"><span class="admin-timeline-chip timeline-${esc(stage)}">${esc(timelineStageLabel(stage,t.platform))}</span>${mappingHtml}</div>`;
 }
 function renderTesters(){
   renderTestingAccessReadinessSummary();
