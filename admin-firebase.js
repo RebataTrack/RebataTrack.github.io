@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 181
+// RebataTrack Admin Portal — Website Build 183
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -36,7 +36,7 @@ const readMeter=(function(){
 function docCount(snap){return snap&&snap.docs?snap.docs.length:(snap&&typeof snap.size==='number'?snap.size:0);}
 async function getDocs(ref,label='getDocs (unlabeled)'){const snap=await rawGetDocs(ref);readMeter.add(label,docCount(snap));return snap;}
 async function getDoc(ref,label='getDoc'){const snap=await rawGetDoc(ref);readMeter.add(label,1);return snap;}
-async function getCountFromServer(ref){const snap=await rawGetCountFromServer(ref);readMeter.add('count queries (metrics)',1);return snap;}
+async function getCountFromServer(ref){const snap=await rawGetCountFromServer(ref);readMeter.add('count via FULL document read (legacy fallback)',snap.data().count||0);return snap;}
 
 window.__REBATIFY_ADMIN_BOOT = window.__REBATIFY_ADMIN_BOOT || {};
 window.__REBATIFY_ADMIN_BOOT.moduleLoaded = true;
@@ -67,6 +67,13 @@ let androidTestingInviteUrl = '';
 let betaProgramEndDate = '';
 let betaProductionMapping = new Map();
 let suppressBetaProductionAutoRefresh = false;
+// Build 183: the Beta/Production status check reads every Production user, so it is cached for a short time, never run twice at once,
+// and the reason a trial was not granted is remembered so the tester card can show it.
+let betaGrantReasons = new Map();
+let betaMappingLoadedAt = 0;
+let betaMappingInFlight = null;
+let betaAutoSyncAttempted = false;
+const BETA_MAPPING_CACHE_TTL_MS = 2 * 60 * 1000;
 
 let state = {
   metrics: {},
@@ -548,9 +555,52 @@ function confirmAction(message,tone){
   });
 }
 
+// NOTE: the Firebase runtime this site ships (firebase-runtime.js / firebase-compat-shim.js) implements getCountFromServer()
+// as a FULL document read (ref.get() then snapshot.size). Every call therefore billed one read per matching document.
+// It is kept only as a throttled fallback below.
 async function countQuery(ref){const snap=await getCountFromServer(ref);return snap.data().count||0;}
-async function loadMetrics(force=false){
-  if(!force&&lastMetricsLoadedAt&&Date.now()-lastMetricsLoadedAt<ADMIN_METRICS_CACHE_TTL_MS)return state.metrics;
+
+// Build 182: real server-side aggregation (Firestore runAggregationQuery over REST, authorised by the signed-in administrator's
+// ID token, so Security Rules still apply). Billed at 1 read per 1,000 matching index entries (minimum 1) instead of 1 read per document.
+async function aggregateCount(collectionId,filters=[]){
+  const user=auth&&auth.currentUser;if(!user)throw new Error('Administrator session is not available for server-side counts.');
+  const projectId=(window.REBATIFY_FIREBASE_CONFIG||{}).projectId;if(!projectId)throw new Error('Firebase project id is unavailable.');
+  const token=await user.getIdToken();
+  const fieldFilters=filters.map(([field,_op,value])=>({fieldFilter:{field:{fieldPath:field},op:'EQUAL',value:{stringValue:String(value)}}}));
+  const structuredQuery={from:[{collectionId}]};
+  if(fieldFilters.length===1)structuredQuery.where=fieldFilters[0];
+  else if(fieldFilters.length>1)structuredQuery.where={compositeFilter:{op:'AND',filters:fieldFilters}};
+  const response=await fetch('https://firestore.googleapis.com/v1/projects/'+encodeURIComponent(projectId)+'/databases/(default)/documents:runAggregationQuery',{
+    method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({structuredAggregationQuery:{structuredQuery,aggregations:[{alias:'count',count:{}}]}})
+  });
+  if(!response.ok){let detail='';try{detail=(await response.json())?.error?.message||'';}catch(_){ }throw new Error('Server-side count failed ('+response.status+') '+detail);}
+  const data=await response.json();
+  const row=Array.isArray(data)?data.find(item=>item&&item.result):data;
+  const n=Number(row&&row.result&&row.result.aggregateFields&&row.result.aggregateFields.count&&row.result.aggregateFields.count.integerValue||0);
+  readMeter.add('count via server aggregation (metrics)',Math.max(1,Math.ceil(n/1000)));
+  return n;
+}
+const ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS=10*60*1000;
+let lastLegacyMetricsAt=0;
+async function loadMetricsAggregated(){
+  const apps='betaApplications',feedback='betaFeedback';
+  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount]=await Promise.all([
+    aggregateCount(apps),
+    aggregateCount(apps,[['status','==','Applied']]),
+    aggregateCount(apps,[['status','==','Approved']]),
+    aggregateCount(apps,[['status','==','Active']]),
+    aggregateCount(apps,[['status','==','Waitlist']]),
+    aggregateCount(apps,[['status','==','Declined']]),
+    aggregateCount(apps,[['status','==','Inactive']]),
+    aggregateCount(apps,[['platform','==','iOS']]),
+    aggregateCount(apps,[['platform','==','Android']]),
+    Promise.all([aggregateCount(feedback,[['status','==','New']]),aggregateCount(feedback,[['status','==','Waiting for RebataTrack']])]).then(([a,b])=>a+b),
+    aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']])
+  ]);
+  return {total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
+}
+async function loadMetricsLegacy(){
   const apps=collection(db,'betaApplications');
   const feedback=collection(db,'betaFeedback');
   const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount]=await Promise.all([
@@ -571,8 +621,19 @@ async function loadMetrics(force=false){
       return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
     })
   ]);
-  const activeTasks=Number(pendingAssignmentsCount||0);
-  state.metrics={total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks};
+  return {total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
+}
+async function loadMetrics(force=false){
+  if(!force&&lastMetricsLoadedAt&&Date.now()-lastMetricsLoadedAt<ADMIN_METRICS_CACHE_TTL_MS)return state.metrics;
+  let result=null;
+  try{result=await loadMetricsAggregated();}
+  catch(error){
+    // If server-side counting is unavailable (for example Security Rules deny the aggregation request), the dashboard keeps working,
+    // but the expensive full-read fallback is rate-limited so it can never turn into a read storm.
+    console.warn('Server-side metrics counts were unavailable:',error);
+    if(Date.now()-lastLegacyMetricsAt>=ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS){lastLegacyMetricsAt=Date.now();result=await loadMetricsLegacy();}
+  }
+  if(result)state.metrics=result;
   lastMetricsLoadedAt=Date.now();
   return state.metrics;
 }
@@ -1006,7 +1067,7 @@ async function resolveTesterProductionEmail(t){
   if(window.RebataTrackBetaEmailBridge?.call){
     await window.RebataTrackBetaEmailBridge.call('production-email-corrected',{email:betaEmail,name:t.name||'Tester',oldEmail:result.oldEmail||current,productionEmail:result.newEmail||betaEmail});
   }
-  await refreshBetaProductionMapping();
+  await refreshBetaProductionMapping({force:true});
   showToast(`Production email corrected to ${betaEmail}. The tester was notified.`,'success');
   openTesterRecord(t);
 }
@@ -1024,7 +1085,7 @@ async function linkTesterProductionAccount(t){
   if(window.RebataTrackBetaEmailBridge?.call){
     await window.RebataTrackBetaEmailBridge.call('production-account-linked',{email:betaEmail,name:t.name||'Tester',productionEmail});
   }
-  await refreshBetaProductionMapping();
+  await refreshBetaProductionMapping({force:true});
   showToast('Production account linked. The tester was notified and setup status has been recalculated.','success');
   openTesterRecord(t);
 }
@@ -1034,7 +1095,7 @@ async function unlinkTesterProductionAccount(t){
   if(!mapping?.manuallyLinked||!mapping.productionUid)return;
   if(!(await confirmAction(`Remove the manual Production-account link for ${t.name||betaEmail}?\n\nThis does not delete either account or change app data.`,'')))return;
   await window.RebataTrackProductionAdminBridge.call('beta-program-unlink',{productionUid:mapping.productionUid,reason:`Removed manual Beta-to-Production link for tester ${t.uid}.`});
-  await refreshBetaProductionMapping();
+  await refreshBetaProductionMapping({force:true});
   showToast('Manual Production-account link removed.','success');
   openTesterRecord(t);
 }
@@ -1043,7 +1104,7 @@ function testerProductionResolutionHtml(t){
   const m=betaProductionMapping.get(betaEmail);
   if(m?.matched===true){
     const source=m.manuallyLinked?'Manually linked by Admin':'Exact Beta email match';
-    return `<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">RebataTrack app account</span><p><strong>${esc(m.productionEmail||betaEmail)}</strong><br>${esc(source)}${m.betaTrialActive?' · Beta access active':''}</p></div>${m.manuallyLinked?`<div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-unlink-production-account="${esc(t.uid)}" type="button">Remove Manual Link</button></div>`:''}</div>`;
+    return `<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">RebataTrack app account</span><p><strong>${esc(m.productionEmail||betaEmail)}</strong><br>${esc(source)}${m.betaTrialActive?' · Beta access active':''}${!m.betaTrialActive&&betaGrantReasonText(betaEmail)?`<br><small>${esc(betaGrantReasonText(betaEmail))}</small>`:''}</p></div>${m.manuallyLinked?`<div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-unlink-production-account="${esc(t.uid)}" type="button">Remove Manual Link</button></div>`:''}</div>`;
   }
   return `<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Resolve RebataTrack app account</span><p>No Production account currently matches this approved Beta email. If the tester made a typo, correct the existing account email. If they intentionally used another email, link that existing account instead.</p></div><div class="admin-timeline-drawer-actions"><button class="admin-primary-button" data-correct-production-email="${esc(t.uid)}" type="button">Correct Misspelled App Email</button><button class="admin-secondary-button" data-link-production-account="${esc(t.uid)}" type="button">Link Different App Email</button></div></div>`;
 }
@@ -1088,7 +1149,7 @@ function testerProgressHtml(t){
   let mappingHtml='';
   if(!mapping||mapping.matched!==true)mappingHtml='<span class="admin-progress-state pending">App account not matched</span>';
   else if(mapping.betaTrialActive)mappingHtml=`<span class="admin-progress-state complete">Beta access active</span>${mapping.expiresAt?`<small>Through ${esc(formatDate(mapping.expiresAt))}</small>`:''}`;
-  else mappingHtml='<span class="admin-progress-state complete">App account matched</span>';
+  else{const why=betaGrantReasonText(key);mappingHtml='<span class="admin-progress-state complete">App account matched</span>'+(why?`<small>${esc(why)}</small>`:'');}
   const androidSent=t.platform==='Android'&&timestampToDate(t.androidTestingInviteSentAt);
   return `<div class="admin-tester-progress-cell"><span class="admin-timeline-chip timeline-${esc(stage)}">${esc(timelineStageLabel(stage,t.platform))}</span>${androidSent?'<span class="admin-progress-state complete">Google Play link sent</span>':''}${mappingHtml}</div>`;
 }
@@ -1778,17 +1839,69 @@ async function reconcileMatchedTesterTimelines(){
   candidates.forEach(t=>{t.timelineStage='activeTesting';t.timelineUpdatedAt=now;t.updatedAt=now;});
   return candidates.length;
 }
-async function refreshBetaProductionMapping(){
-  const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.call!=='function'||!betaProgramEndDate)return;
+function applyBetaProductionResult(result){
+  betaProductionMapping=new Map(((result&&result.mappings)||[]).map(m=>[String(m.email||'').toLowerCase(),m]));
+  const reasons=new Map();
+  ((result&&result.grantResults)||[]).forEach(g=>{if(g&&g.email&&!g.granted)reasons.set(String(g.email).toLowerCase(),g);});
+  betaGrantReasons=reasons;
+  renderBetaProgramSyncChip();
+}
+function invalidateBetaProductionMapping(){betaMappingLoadedAt=0;}
+function betaGrantReasonText(email){
+  const g=betaGrantReasons.get(String(email||'').toLowerCase());if(!g)return '';
+  if(g.awaitingTrustedDevice)return 'Waiting for the tester to open RebataTrack on a device signed in to this account.';
+  if(g.emailMismatch)return 'The app account email differs from the Beta email. Use Link Different App Email or correct it.';
+  if(g.expired)return 'Beta eligibility has expired. Check the Beta Program end date.';
+  if(g.eligible===false)return 'Not on the Beta eligibility list yet. Use Save & Sync to Production.';
+  if(g.error)return 'The Beta trial could not be granted: '+String(g.error).slice(0,140);
+  return '';
+}
+function renderBetaProgramSyncChip(){
+  const chip=document.getElementById('betaProgramSyncStatus');if(!chip||!betaMappingLoadedAt)return;
   const testers=eligibleBetaTesterPayload();
-  try{
-    const result=await bridge.call('beta-program-status',{testers});
-    betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));
-    await reconcileMatchedTesterTimelines();
-    renderTesters();
-    renderTaskRecipientPicker();
-  }
-  catch(error){console.warn('Could not refresh Beta/Production mapping:',error);}
+  const maps=testers.map(t=>betaProductionMapping.get(t.email)).filter(m=>m&&m.matched===true);
+  const waiting=maps.filter(m=>!m.betaTrialActive).length;
+  if(!testers.length){chip.textContent='No approved testers';chip.className='admin-subtle-chip';chip.title='';return;}
+  if(waiting>0){chip.textContent=waiting+' waiting for Beta trial';chip.className='admin-subtle-chip admin-service-disconnected';chip.title=waiting+' matched tester(s) do not have an active Beta trial yet. Open the tester card for the reason.';return;}
+  chip.textContent=maps.length?('Synced · '+maps.length+' Beta trial'+(maps.length===1?'':'s')+' active'):'No app accounts matched yet';
+  chip.className='admin-subtle-chip '+(maps.length?'admin-service-connected':'');
+  chip.title=testers.length+' approved tester(s), '+maps.length+' matched to an app account.';
+}
+async function maybeAutoSyncBetaProgram(){
+  // One automatic sync per admin session, and only when the Production worker said the missing piece is the eligibility record
+  // (something this sync can fix). Waiting on a device, an email mismatch, or an expired end date are not fixable here.
+  if(betaAutoSyncAttempted)return;
+  const fixable=eligibleBetaTesterPayload().filter(t=>{
+    const m=betaProductionMapping.get(t.email),g=betaGrantReasons.get(t.email);
+    return m&&m.matched===true&&!m.betaTrialActive&&g&&g.eligible===false&&!g.expired;
+  });
+  if(!fixable.length)return;
+  betaAutoSyncAttempted=true;
+  const result=await syncBetaProgramAfterTesterMutation();
+  if(result&&(result.error||result.skipped))return;
+  const fixed=fixable.filter(t=>{const m=betaProductionMapping.get(t.email);return m&&m.betaTrialActive;}).length;
+  if(fixed>0)showToast('Beta access synced for '+fixed+' tester'+(fixed===1?'':'s')+'.','success');
+}
+async function refreshBetaProductionMapping(options={}){
+  const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.call!=='function'||!betaProgramEndDate)return;
+  if(betaMappingInFlight)return betaMappingInFlight;
+  const testers=eligibleBetaTesterPayload();
+  if(!testers.length)return;   // nothing to look up yet (the connection event can fire before any tester is loaded)
+  const fresh=betaMappingLoadedAt&&Date.now()-betaMappingLoadedAt<BETA_MAPPING_CACHE_TTL_MS&&testers.every(t=>betaProductionMapping.has(t.email));
+  if(options.force!==true&&fresh)return;
+  betaMappingInFlight=(async()=>{
+    try{
+      const result=await bridge.call('beta-program-status',{testers});
+      applyBetaProductionResult(result);betaMappingLoadedAt=Date.now();
+      await reconcileMatchedTesterTimelines();
+      renderTesters();
+      renderTaskRecipientPicker();
+      await maybeAutoSyncBetaProgram();
+    }
+    catch(error){console.warn('Could not refresh Beta/Production mapping:',error);}
+    finally{betaMappingInFlight=null;}
+  })();
+  return betaMappingInFlight;
 }
 async function syncBetaProgramAfterTesterMutation(){
   const bridge=window.RebataTrackProductionAdminBridge;
@@ -1798,7 +1911,7 @@ async function syncBetaProgramAfterTesterMutation(){
   const testers=eligibleBetaTesterPayload();
   try{
     const result=await bridge.call('beta-program-configure',{endDate:dateText,endsAt:endIso,testers});
-    betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));
+    applyBetaProductionResult(result);betaMappingLoadedAt=Date.now();
     await reconcileMatchedTesterTimelines();
     renderTesters();
     return result;
@@ -1816,7 +1929,7 @@ async function saveAndSyncBetaProgram(){
   try{
     await setDoc(doc(db,'betaSystem','programSettings'),{betaProgramEndDate:dateText,betaProgramEndsAt:endIso,updatedAt:serverTimestamp()},{merge:true});betaProgramEndDate=dateText;
     const testers=eligibleBetaTesterPayload();const result=await bridge.call('beta-program-configure',{endDate:dateText,endsAt:endIso,testers});
-    betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));await reconcileMatchedTesterTimelines();renderTesters();
+    applyBetaProductionResult(result);betaMappingLoadedAt=Date.now();await reconcileMatchedTesterTimelines();renderTesters();
     if(status){status.textContent='Synced';status.className='admin-subtle-chip admin-service-connected';}
     if(message){message.textContent=`Synced ${testers.length} approved tester${testers.length===1?'':'s'} to Production eligibility. ${result.matchedCount||0} production account${Number(result.matchedCount||0)===1?' is':'s are'} currently matched.`;message.className='admin-connection-message success';}
   }catch(error){if(status){status.textContent='Sync failed';status.className='admin-subtle-chip admin-service-disconnected';}if(message){message.textContent=friendlyFirebaseError(error);message.className='admin-connection-message error';}}
@@ -2024,6 +2137,7 @@ async function refreshActiveView(){
     setTimeout(()=>location.replace('admin-login.html?error=access'),700);return;
   }
   document.getElementById('adminRefresh').classList.add('is-spinning');
+  invalidateBetaProductionMapping();
   try{
     await loadOverview(true);
     if(activeView==='applications')await loadApplications(true);
