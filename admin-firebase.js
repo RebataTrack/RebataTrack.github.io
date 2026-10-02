@@ -841,6 +841,10 @@ function renderTesterNextStepSummary(){
 function applyTesterNextStepFilter(key=''){
   const el=document.getElementById('testerNextStepFilter');if(el)el.value=key;renderTesters();
 }
+function clearTesterFilters(){
+  ['testerSearch','testerAccessFilter','testerPlatformFilter','testerActivityFilter','testerReadinessFilter','testerNextStepFilter'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  renderTesters();
+}
 async function sendTesterNextStepReminder(t){
   const n=testerNextStep(t);
   if(!n.reminderType)throw new Error('This tester does not currently have a tester-owned setup step to remind them about.');
@@ -883,25 +887,56 @@ function applyTesterReadinessQuickFilter(readiness='',platform=''){
   if(platformEl)platformEl.value=platform;
   renderTesters();
 }
+function testerActionHtml(t){
+  const next=testerNextStep(t);
+  const readiness=testerInviteReadiness(t);
+  const last=timestampToDate(t.lastSetupReminderAt);
+  const lastText=last?`Last reminder ${relativeDate(last)}`:'';
+  if(next.key==='adminSend'&&readiness.key==='ready'){
+    const actionLabel=t.platform==='Android'?'Send Android Link':t.platform==='iOS'?'Send TestFlight':'Send Access';
+    return `<div class="admin-tester-action-cell action-owner-admin"><span class="admin-owner-label">Your action</span><strong>${esc(next.label)}</strong><small>${esc(next.detail)}</small><button class="admin-readiness-action" type="button" data-send-ready-access="${esc(t.uid)}">${esc(actionLabel)}</button></div>`;
+  }
+  const button=next.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">Send Reminder</button>`:'';
+  const owner=next.reminderType?'Tester action':next.key==='complete'?'Complete':'Status';
+  return `<div class="admin-tester-action-cell next-step-${esc(next.key)}"><span class="admin-owner-label">${esc(owner)}</span><strong>${esc(next.label)}</strong><small>${esc(next.detail)}</small>${lastText?`<small class="admin-next-step-last">${esc(lastText)}</small>`:''}${button}</div>`;
+}
+function testerProgressHtml(t){
+  const stage=normalizeTimelineStage(t.timelineStage);
+  const key=String(t.email||'').trim().toLowerCase();
+  const mapping=betaProductionMapping.get(key);
+  let mappingHtml='';
+  if(!mapping||mapping.matched!==true)mappingHtml='<span class="admin-progress-state pending">App account not matched</span>';
+  else if(mapping.betaTrialActive)mappingHtml=`<span class="admin-progress-state complete">Beta access active</span>${mapping.expiresAt?`<small>Through ${esc(formatDate(mapping.expiresAt))}</small>`:''}`;
+  else mappingHtml='<span class="admin-progress-state complete">App account matched</span>';
+  const androidSent=t.platform==='Android'&&timestampToDate(t.androidTestingInviteSentAt);
+  return `<div class="admin-tester-progress-cell"><span class="admin-timeline-chip timeline-${esc(stage)}">${esc(timelineStageLabel(stage,t.platform))}</span>${androidSent?'<span class="admin-progress-state complete">Google Play link sent</span>':''}${mappingHtml}</div>`;
+}
 function renderTesters(){
   renderTestingAccessReadinessSummary();
   renderTesterNextStepSummary();
   const data=testerFiltered();const body=document.getElementById('testersTableBody');
   body.innerHTML=data.map(t=>{
-    const eligible=t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status);
     const activity=testerActivityInfo(t);const score=testerScore(t);const build=testerBuild(t);const device=testerDeviceSummary(t);
     const portalActivity=t.lastPortalActivity?relativeDate(t.lastPortalActivity):'Never';
     const loginActivity=t.lastLogin?relativeDate(t.lastLogin):'Never';
-    const feedbackActivity=score.lastFeedback?relativeDate(score.lastFeedback.submittedAt):'Never';
-    const inactiveText=!activity.anchor?'No portal activity recorded':activity.ageMs<DAY_MS?`${Math.max(1,activity.hours)} hour${Math.max(1,activity.hours)===1?'':'s'} since activity`:`${activity.days} day${activity.days===1?'':'s'} since activity`;
     const deviceLine=device||'Device not provided';
     const buildLine=build||'Build not provided';
-    return `<tr><td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td><td><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div></td><td><span class="admin-platform-pill">${esc(t.platform)}</span></td><td><div class="admin-activity-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small></div></td><td><div class="admin-last-active"><strong>Portal: ${esc(portalActivity)}</strong><small>Login: ${esc(loginActivity)}</small><small>Feedback: ${esc(feedbackActivity)}</small><small>${esc(inactiveText)}</small></div></td><td><div class="admin-scorecard-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No required tasks pending</small>'}</div></td><td><div class="admin-device-cell"><strong>${esc(buildLine)}</strong><small>${esc(deviceLine)}</small>${t.screenSize?`<small>${esc(t.screenSize)}</small>`:''}</div></td><td>${testerReadinessHtml(t)}</td><td>${testerNextStepHtml(t)}</td><td>${betaMappingHtml(t)}</td><td><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span></td><td>${timelineChipHtml(t)}</td><td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td></tr>`;
+    return `<tr>
+      <td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td>
+      <td><div class="admin-tester-identity-cell"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div><div class="admin-tester-meta-line"><span class="admin-platform-pill">${esc(t.platform)}</span><span>${esc(buildLine)}</span><span>${esc(deviceLine)}</span>${t.screenSize?`<span>${esc(t.screenSize)}</span>`:''}</div></div></td>
+      <td><div class="admin-tester-status-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small><span class="admin-last-seen">Portal ${esc(portalActivity)} · Login ${esc(loginActivity)}</span></div></td>
+      <td>${testerActionHtml(t)}</td>
+      <td>${testerProgressHtml(t)}</td>
+      <td><div class="admin-tester-participation-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>All required tasks clear</small>'}</div></td>
+      <td><div class="admin-tester-access-cell"><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span><small>${esc(t.status||'Tester')}</small></div></td>
+      <td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td>
+    </tr>`;
   }).join('');
   document.getElementById('testersEmpty').hidden=data.length>0;
   renderTesterActivityMetrics();
   updateTimelineSelectionUI();
 }
+
 function testingAccessSentEmailCopy(t){
   const platform=String(t.platform||'');
   if(platform==='iOS')return {title:'Your RebataTrack TestFlight invitation has been sent',message:'Your RebataTrack iOS testing invitation has been sent. Check the Apple Account email you confirmed during Testing Setup and open the TestFlight invitation to install or update RebataTrack. When you create or sign in to RebataTrack, use the exact same email address as your Beta Program account.'};
@@ -2076,7 +2111,7 @@ const announcementPublishButton=document.getElementById('announcementPublishButt
   document.querySelectorAll('[data-readiness-filter]').forEach(btn=>btn.addEventListener('click',()=>applyTesterReadinessQuickFilter(btn.dataset.readinessFilter||'',btn.dataset.platformFilter||'')));
   document.getElementById('testerReadinessShowAll')?.addEventListener('click',()=>applyTesterReadinessQuickFilter('',''));
   document.querySelectorAll('[data-next-step-filter]').forEach(btn=>btn.addEventListener('click',()=>applyTesterNextStepFilter(btn.dataset.nextStepFilter||'')));
-  document.getElementById('testerNextStepShowAll')?.addEventListener('click',()=>applyTesterNextStepFilter(''));
+  document.getElementById('testerNextStepShowAll')?.addEventListener('click',clearTesterFilters);
   document.getElementById('testerSendPendingReminders')?.addEventListener('click',async()=>{const btn=document.getElementById('testerSendPendingReminders');const original=btn.textContent;btn.disabled=true;btn.textContent='Sending Reminders…';try{const result=await sendAllPendingTesterReminders();if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Personalized reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.textContent=original;renderTesterNextStepSummary();}});
 ['feedbackSearch','feedbackStatusFilter','feedbackTypeFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderFeedback));
 

@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal</title>
 <link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=112" rel="apple-touch-icon"/><link href="favicon-32.png?v=112" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=112" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=173" rel="stylesheet"/>
+<link href="styles.css?v=174" rel="stylesheet"/>
 </head>
 <body class="admin-body">
 <div class="admin-loading-screen" id="adminLoading">
@@ -121,69 +121,78 @@
 <div class="admin-table-card"><div class="admin-table-scroll"><table class="admin-table"><thead><tr><th>Applicant</th><th>Platform</th><th>Applied</th><th>Status</th><th>Portal</th><th>Invite Email</th><th></th></tr></thead><tbody id="applicationsTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="applicationsEmpty">No applications match these filters.</div></div>
 </section>
 <section class="admin-view" data-admin-panel="testers">
-<div class="admin-page-heading"><div><div class="admin-section-kicker">Access Management</div><h2>Beta testers</h2><p>Monitor tester activity, participation, saved testing device details, access, required tasks, and each tester’s Beta Program timeline.</p></div></div>
-<div class="admin-activity-metrics">
-<article><span>Active</span><strong id="testerActivityActive">0</strong><small>Real Beta Portal activity within the last hour</small></article>
-<article><span>Recently Active</span><strong id="testerActivityRecent">0</strong><small>Last portal activity 1 hour–6 days ago</small></article>
-<article><span>Needs Attention</span><strong id="testerActivityAttention">0</strong><small>7–13 days without portal activity</small></article>
-<article><span>Inactive / Never Active</span><strong id="testerActivityInactive">0</strong><small>14+ days inactive or has never signed in</small></article>
-<article><span>Enabled Testers</span><strong id="testerActivityEnabled">0</strong><small>Beta access currently enabled</small></article>
-<article><span>Ready for Invite</span><strong id="testerInviteReady">0</strong><small>Completed all pre-invite setup steps</small></article>
-<article><span>Android Links Sent</span><strong id="testerAndroidLinksSent">0</strong><small>Google Play beta-testing links successfully sent</small></article>
-</div>
-<div class="admin-activity-policy"><strong>Portal activity status:</strong> <b>Active</b> means real Beta Portal activity within the last hour. <b>Recently Active</b> means 1 hour–6 days ago, <b>Needs Attention</b> means 7–13 days, <b>Inactive</b> means 14+ days, and <b>Never Active</b> means the tester has never signed in to the Beta Portal. Approval or tester-profile creation alone never counts as activity. Access is never disabled automatically by these activity labels.</div>
+<div class="admin-page-heading admin-testers-heading"><div><div class="admin-section-kicker">Tester Management</div><h2>Beta testers</h2><p>See what needs your attention first, then manage individual testers without scanning duplicate status panels.</p></div><div class="admin-testers-heading-actions"><button class="admin-secondary-button" id="testerSendPendingReminders" type="button">Send Pending Reminders</button></div></div>
 
-<article class="admin-panel admin-beta-program-panel">
-<div class="admin-panel-heading"><div><span class="admin-section-kicker">Beta Program Access</span><h3>Production account mapping &amp; Beta trial</h3><p>Approved testers should create their RebataTrack app account with the exact same email address used for the Beta Program. Set the Beta Program end date here, then sync eligibility to Production so matching app accounts can receive the Beta Program Admin Trial automatically.</p></div><span class="admin-subtle-chip" id="betaProgramSyncStatus">Not synced</span></div>
+<div class="admin-tester-overview-grid">
+<article class="admin-tester-overview-card active"><span>Active now</span><strong id="testerActivityActive">0</strong><small><b id="testerActivityRecent">0</b> recently active</small></article>
+<article class="admin-tester-overview-card attention"><span>Needs attention</span><strong id="testerActivityAttention">0</strong><small><b id="testerActivityInactive">0</b> inactive / never active</small></article>
+<article class="admin-tester-overview-card action"><span>Ready to send</span><strong id="testerInviteReady">0</strong><small><b id="testerAndroidLinksSent">0</b> Android links already sent</small></article>
+<article class="admin-tester-overview-card enabled"><span>Enabled testers</span><strong id="testerActivityEnabled">0</strong><small>Beta access currently enabled</small></article>
+</div>
+
+<article class="admin-panel admin-tester-action-center">
+<div class="admin-panel-heading"><div><span class="admin-section-kicker">Action Center</span><h3>What needs to happen next?</h3><p>One view of tester-owned steps and Admin-owned sends. Click a card to filter the tester list.</p></div><button class="admin-text-button" id="testerNextStepShowAll" type="button">Show all testers</button></div>
+<div class="admin-tester-action-grid">
+<button class="admin-tester-action-card waiting" data-next-step-filter="portalSignIn" type="button"><span>Portal sign-in</span><strong id="testerNeedPortalCount">0</strong><small>Tester has not signed in yet</small></button>
+<button class="admin-tester-action-card waiting" data-next-step-filter="testingSetup" type="button"><span>Testing Setup</span><strong id="testerNeedSetupCount">0</strong><small>Tester still has setup to finish</small></button>
+<button class="admin-tester-action-card waiting" data-next-step-filter="appAccount" type="button"><span>App login</span><strong id="testerNeedAppAccountCount">0</strong><small>Access sent, app account not matched</small></button>
+<button class="admin-tester-action-card action" data-next-step-filter="adminSend" type="button"><span>Ready for you</span><strong id="testerAdminSendCount">0</strong><small><b id="testerReadyIOSCount">0</b> iOS · <b id="testerReadyAndroidCount">0</b> Android</small></button>
+<button class="admin-tester-action-card complete" data-next-step-filter="complete" type="button"><span>Setup complete</span><strong id="testerSetupCompleteCount">0</strong><small><b id="testerAccessSentCount">0</b> have testing access sent</small></button>
+</div>
+<div class="admin-tester-action-footer"><span>Yellow = your action · Red = tester action · Green = complete</span><span>Use the filters below for activity, access, or invite-readiness details.</span></div>
+</article>
+
+<details class="admin-tester-controls" open>
+<summary><span><strong>Program controls</strong><small>Beta access, distribution links, and bulk timeline tools</small></span><span class="admin-details-chevron">⌄</span></summary>
+<div class="admin-tester-controls-body">
+<details class="admin-tester-control-group">
+<summary><span><strong>Beta Program access</strong><small>End date and Production account synchronization</small></span><span class="admin-subtle-chip" id="betaProgramSyncStatus">Not synced</span></summary>
+<div class="admin-tester-control-content">
 <div class="admin-android-invite-config">
 <div class="beta-field admin-android-invite-url-field"><label for="betaProgramEndDate">Beta Program end date</label><input id="betaProgramEndDate" type="date"><small class="portal-field-help">Beta Program Admin Trial access ends at the end of this date. The original device trial remains separate and untouched.</small></div>
 <button class="admin-primary-button" id="betaProgramSaveSync" type="button">Save &amp; Sync to Production</button>
 </div>
-<div class="admin-activity-policy"><strong>Email matching rule:</strong> the RebataTrack app account must use the tester's exact Beta Program email address. Matching is case-insensitive. A different app-account email will not receive the automatic Beta Program trial.</div>
+<div class="admin-activity-policy compact"><strong>Email matching rule:</strong> the RebataTrack app account must use the tester's exact Beta Program email address. Matching is case-insensitive.</div>
 <div class="admin-connection-message" id="betaProgramSyncMessage" aria-live="polite"></div>
-</article>
-<article class="admin-panel admin-android-invite-panel">
-<div class="admin-panel-heading"><div><span class="admin-section-kicker">Android Distribution</span><h3>Google Play beta-testing invite</h3><p>Paste the Google Play beta-testing opt-in link once, then send it to one tester, a selected group, or all eligible Android testers. Successful sends automatically update each tester to <strong>Google Play Testing Link Sent</strong>.</p></div><span class="admin-subtle-chip admin-service-disconnected" id="androidInviteConfigStatus">Link not saved</span></div>
+</div>
+</details>
+
+<details class="admin-tester-control-group">
+<summary><span><strong>Android distribution</strong><small>Google Play beta-testing link and send controls</small></span><span class="admin-subtle-chip admin-service-disconnected" id="androidInviteConfigStatus">Link not saved</span></summary>
+<div class="admin-tester-control-content">
 <div class="admin-android-invite-config">
-<div class="beta-field admin-android-invite-url-field"><label for="androidTestingInviteUrl">Google Play beta-testing invite URL</label><input autocomplete="off" id="androidTestingInviteUrl" inputmode="url" placeholder="https://play.google.com/apps/testing/com.example.app" type="url"/><small class="portal-field-help">Use the opt-in link from Play Console → Test and release → Testing → Closed testing → Testers. The link is copied into each tester's portal record only after their email is successfully sent.</small></div>
+<div class="beta-field admin-android-invite-url-field"><label for="androidTestingInviteUrl">Google Play beta-testing invite URL</label><input autocomplete="off" id="androidTestingInviteUrl" inputmode="url" placeholder="https://play.google.com/apps/testing/com.example.app" type="url"/><small class="portal-field-help">Use the opt-in link from Play Console → Testing → Closed testing → Testers.</small></div>
 <button class="admin-secondary-button" id="androidInviteSave" type="button">Save Link</button>
 </div>
 <div class="admin-android-invite-actions">
-<div class="admin-timeline-select-tools"><span class="admin-detail-label">Recipients</span><div><button class="admin-text-button" id="androidInviteSelectAll" type="button">Select all eligible Android</button><button class="admin-text-button" id="androidInviteClearSelection" type="button">Clear</button></div></div>
-<div class="admin-android-invite-action-buttons"><button class="admin-primary-button" id="androidInviteSendSelected" type="button">Send to Selected Android Testers</button><button class="admin-secondary-button" id="androidInviteSendAll" type="button">Send to All Eligible Android Testers</button></div>
+<div class="admin-timeline-select-tools"><span class="admin-detail-label">Recipients</span><div><button class="admin-text-button" id="androidInviteSelectAll" type="button">Select eligible Android</button><button class="admin-text-button" id="androidInviteClearSelection" type="button">Clear</button></div></div>
+<div class="admin-android-invite-action-buttons"><button class="admin-primary-button" id="androidInviteSendSelected" type="button">Send to Selected</button><button class="admin-secondary-button" id="androidInviteSendAll" type="button">Send to All Eligible Android</button></div>
 </div>
-<div class="admin-timeline-stage-guide admin-android-invite-guide"><strong>Email steps included automatically:</strong><span><b>1.</b> Sign in to Google Play with the approved beta Google Account</span><span><b>2.</b> Open the beta-testing link</span><span><b>3.</b> Join / become a tester</span><span><b>4.</b> Open the Google Play listing and install RebataTrack</span><span><b>5.</b> Return to the Beta Portal and begin testing</span></div>
-</article>
-<article class="admin-panel admin-timeline-bulk-panel">
-<div class="admin-panel-heading"><div><span class="admin-section-kicker">Program Timeline</span><h3>Progress tester timelines</h3><p>Move one tester or a selected group to the milestone they have reached. The tester portal will show all earlier milestones as complete and the next action as current.</p></div><span class="admin-subtle-chip" id="timelineSelectionCount">0 selected</span></div>
+</div>
+</details>
+
+<details class="admin-tester-control-group">
+<summary><span><strong>Bulk timeline &amp; tester actions</strong><small>Move selected testers between milestones or delete selected testers</small></span><span class="admin-subtle-chip" id="timelineSelectionCount">0 selected</span></summary>
+<div class="admin-tester-control-content">
 <div class="admin-timeline-bulk-controls">
 <div class="admin-timeline-select-tools"><span class="admin-detail-label">Select testers</span><div><button class="admin-text-button" id="timelineSelectAll" type="button">Select all</button><button class="admin-text-button" id="timelineSelectIOS" type="button">Select iOS</button><button class="admin-text-button" id="timelineSelectAndroid" type="button">Select Android</button><button class="admin-text-button" id="timelineClearSelection" type="button">Clear</button></div></div>
 <div class="beta-field admin-timeline-stage-field"><label for="bulkTimelineStage">Move selected testers to</label><select id="bulkTimelineStage"><option value="approved">Testing Setup Required</option><option value="setupComplete">Testing Setup Complete</option><option value="inviteSent">Testing Access Sent</option><option value="activeTesting">Active Beta Testing</option></select></div>
-<button class="admin-primary-button admin-timeline-apply" id="bulkTimelineApply" type="button">Update Selected Timelines</button><button class="admin-action-button danger-soft admin-bulk-delete-testers" id="bulkTesterDelete" type="button" disabled>Delete Selected Testers</button>
+<button class="admin-primary-button admin-timeline-apply" id="bulkTimelineApply" type="button">Update Selected</button><button class="admin-action-button danger-soft admin-bulk-delete-testers" id="bulkTesterDelete" type="button" disabled>Delete Selected</button>
 </div>
-<div class="admin-timeline-stage-guide"><strong>Timeline stages:</strong><span><b>Approved</b> → prepare device and wait for access</span><span><b>Testing Access Sent</b> → accept invitation/link, install RebataTrack, create app account</span><span><b>Active Testing</b> → ongoing workflows, required tasks, and feedback</span></div>
-</article>
-<article class="admin-panel admin-testing-readiness-panel">
-<div class="admin-panel-heading"><div><span class="admin-section-kicker">Testing Access Readiness</span><h3>Who is ready for their testing link?</h3><p>These counts update with each tester record. Yellow means an invite/link is ready for you to send; green means testing access has already been sent.</p></div><button class="admin-text-button" id="testerReadinessShowAll" type="button">Show all testers</button></div>
-<div class="admin-testing-readiness-grid">
-<button class="admin-testing-readiness-card action" data-readiness-filter="ready" data-platform-filter="iOS" type="button"><span>iOS ready</span><strong id="testerReadyIOSCount">0</strong><small>Send TestFlight</small></button>
-<button class="admin-testing-readiness-card action" data-readiness-filter="ready" data-platform-filter="Android" type="button"><span>Android ready</span><strong id="testerReadyAndroidCount">0</strong><small>Send Google Play link</small></button>
-<button class="admin-testing-readiness-card pending" data-readiness-filter="needsSetup" data-platform-filter="" type="button"><span>Setup incomplete</span><strong id="testerNeedsSetupCount">0</strong><small>Still waiting on tester</small></button>
-<button class="admin-testing-readiness-card complete" data-readiness-filter="sent" data-platform-filter="" type="button"><span>Access sent</span><strong id="testerAccessSentCount">0</strong><small>No send action needed</small></button>
 </div>
-</article>
-<article class="admin-panel admin-next-step-panel">
-<div class="admin-panel-heading"><div><span class="admin-section-kicker">Tester Next Steps</span><h3>Who is still waiting on a tester action?</h3><p>These stages are calculated from portal sign-in, Testing Setup, whether testing access has been sent, and whether the tester has created or signed in to RebataTrack. Reminder emails automatically match the step each tester still needs to complete.</p></div><div class="admin-next-step-heading-actions"><button class="admin-text-button" id="testerNextStepShowAll" type="button">Show all testers</button><button class="admin-secondary-button" id="testerSendPendingReminders" type="button">Send Pending Reminders</button></div></div>
-<div class="admin-next-step-grid">
-<button class="admin-next-step-card pending" data-next-step-filter="portalSignIn" type="button"><span>Portal sign-in needed</span><strong id="testerNeedPortalCount">0</strong><small>Approved but has not signed in</small></button>
-<button class="admin-next-step-card pending" data-next-step-filter="testingSetup" type="button"><span>Testing Setup needed</span><strong id="testerNeedSetupCount">0</strong><small>Portal opened, setup incomplete</small></button>
-<button class="admin-next-step-card pending" data-next-step-filter="appAccount" type="button"><span>App login needed</span><strong id="testerNeedAppAccountCount">0</strong><small>Testing access sent, app account not yet seen</small></button>
-<button class="admin-next-step-card action" data-next-step-filter="adminSend" type="button"><span>Ready for you</span><strong id="testerAdminSendCount">0</strong><small>Send TestFlight / Google Play access</small></button>
-<button class="admin-next-step-card complete" data-next-step-filter="complete" type="button"><span>Setup complete</span><strong id="testerSetupCompleteCount">0</strong><small>No setup reminder needed</small></button>
+</details>
 </div>
-</article>
-<div class="admin-toolbar"><div class="admin-search"><span><svg aria-hidden="true" viewbox="0 0 24 24"><circle cx="10.5" cy="10.5" fill="none" r="6.5" stroke="currentColor" stroke-width="2"></circle><path d="m15.5 15.5 4 4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path></svg></span><input id="testerSearch" placeholder="Search tester" type="search"/></div><select class="admin-filter" id="testerPlatformFilter"><option value="">All platforms</option><option value="iOS">iOS</option><option value="Android">Android</option></select><select class="admin-filter" id="testerActivityFilter"><option value="">All activity</option><option>Active</option><option>Recently Active</option><option>Needs Attention</option><option>Inactive</option><option>Never Active</option></select><select class="admin-filter" id="testerReadinessFilter"><option value="">All invite readiness</option><option value="ready">Ready for invite</option><option value="needsSetup">Not ready</option><option value="sent">Access already sent</option><option value="notEligible">Not eligible</option></select><select class="admin-filter" id="testerNextStepFilter"><option value="">All next steps</option><option value="portalSignIn">Portal sign-in needed</option><option value="testingSetup">Testing Setup needed</option><option value="appAccount">App login needed</option><option value="adminSend">Ready for Admin send</option><option value="complete">Setup complete</option></select><select class="admin-filter" id="testerAccessFilter"><option value="">All access</option><option>Enabled</option><option>Disabled</option></select></div>
-<div class="admin-table-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Platform</th><th>Activity</th><th>Last Active</th><th>Scorecard</th><th>Build / Device</th><th>Invitation Readiness</th><th>Next Step</th><th>App Account Mapping</th><th>Access</th><th>Timeline</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
+</details>
+
+<div class="admin-tester-list-header"><div><span class="admin-section-kicker">Tester Directory</span><h3>All testers</h3><p>Each row now groups related information together: identity, current status, next action, progress, participation, and access.</p></div></div>
+<div class="admin-toolbar admin-tester-toolbar">
+<div class="admin-search"><span><svg aria-hidden="true" viewbox="0 0 24 24"><circle cx="10.5" cy="10.5" fill="none" r="6.5" stroke="currentColor" stroke-width="2"></circle><path d="m15.5 15.5 4 4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path></svg></span><input id="testerSearch" placeholder="Search tester, email, device, or status" type="search"/></div>
+<select class="admin-filter" id="testerPlatformFilter"><option value="">All platforms</option><option value="iOS">iOS</option><option value="Android">Android</option></select>
+<select class="admin-filter" id="testerNextStepFilter"><option value="">All next steps</option><option value="portalSignIn">Portal sign-in needed</option><option value="testingSetup">Testing Setup needed</option><option value="appAccount">App login needed</option><option value="adminSend">Ready for Admin send</option><option value="complete">Setup complete</option></select>
+<select class="admin-filter" id="testerAccessFilter"><option value="">All access</option><option>Enabled</option><option>Disabled</option></select>
+<details class="admin-more-filters"><summary>More filters</summary><div><select class="admin-filter" id="testerActivityFilter"><option value="">All activity</option><option>Active</option><option>Recently Active</option><option>Needs Attention</option><option>Inactive</option><option>Never Active</option></select><select class="admin-filter" id="testerReadinessFilter"><option value="">All invite readiness</option><option value="ready">Ready for invite</option><option value="needsSetup">Not ready</option><option value="sent">Access already sent</option><option value="notEligible">Not eligible</option></select></div></details>
+</div>
+<div class="admin-table-card admin-testers-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Current status</th><th>Next action</th><th>Progress</th><th>Participation</th><th>Access</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
 </section>
 <section class="admin-view" data-admin-panel="tasks">
 <div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Missed required deadlines automatically remove beta access.</p></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
@@ -341,7 +350,7 @@ setTimeout(function(){
   }
 }, 12000);
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=173"></script><script src="production-admin.js?v=173"></script>
-<footer data-rebatatrack-website-build="173" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 173</footer>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=174"></script><script src="production-admin.js?v=174"></script>
+<footer data-rebatatrack-website-build="174" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 174</footer>
 </body>
 </html>
