@@ -866,6 +866,18 @@ async function sendAllPendingTesterReminders(){
   }
   return {cancelled:false,sent,failed,errors};
 }
+async function sendTesterReminderGroup(stepKey){
+  const labels={portalSignIn:'Beta Portal sign-in',testingSetup:'Testing Setup',appAccount:'RebataTrack app login'};
+  const recipients=state.testers.filter(t=>testerNextStep(t).key===stepKey&&!!testerNextStep(t).reminderType);
+  if(!recipients.length)throw new Error(`There are no testers currently waiting on ${labels[stepKey]||'that step'}.`);
+  if(!(await confirmAction(`Send a friendly ${labels[stepKey]||'next-step'} reminder to ${recipients.length} tester${recipients.length===1?'':'s'}?`, '')))return {cancelled:true,sent:0,failed:0};
+  let sent=0,failed=0;const errors=[];
+  for(const t of recipients){
+    try{await sendTesterNextStepReminder(t);sent++;}
+    catch(error){failed++;errors.push(`${t.name||t.email||'Tester'}: ${friendlyFirebaseError(error)}`);}
+  }
+  return {cancelled:false,sent,failed,errors};
+}
 
 function renderTestingAccessReadinessSummary(){
   const testers=Array.isArray(state.testers)?state.testers:[];
@@ -2111,6 +2123,8 @@ const announcementPublishButton=document.getElementById('announcementPublishButt
   document.querySelectorAll('[data-readiness-filter]').forEach(btn=>btn.addEventListener('click',()=>applyTesterReadinessQuickFilter(btn.dataset.readinessFilter||'',btn.dataset.platformFilter||'')));
   document.getElementById('testerReadinessShowAll')?.addEventListener('click',()=>applyTesterReadinessQuickFilter('',''));
   document.querySelectorAll('[data-next-step-filter]').forEach(btn=>btn.addEventListener('click',()=>applyTesterNextStepFilter(btn.dataset.nextStepFilter||'')));
+document.querySelectorAll('[data-access-filter]').forEach(btn=>btn.addEventListener('click',()=>{const el=document.getElementById('testerAccessFilter');if(el)el.value=btn.dataset.accessFilter||'';renderTesters();}));
+document.querySelectorAll('[data-send-reminder-group]').forEach(btn=>btn.addEventListener('click',async()=>{const key=btn.dataset.sendReminderGroup||'';const original=btn.innerHTML;btn.disabled=true;try{const result=await sendTesterReminderGroup(key);if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Friendly reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;renderTesterNextStepSummary();}}));
   document.getElementById('testerNextStepShowAll')?.addEventListener('click',clearTesterFilters);
   document.getElementById('testerSendPendingReminders')?.addEventListener('click',async()=>{const btn=document.getElementById('testerSendPendingReminders');const original=btn.textContent;btn.disabled=true;btn.textContent='Sending Reminders…';try{const result=await sendAllPendingTesterReminders();if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Personalized reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.textContent=original;renderTesterNextStepSummary();}});
 ['feedbackSearch','feedbackStatusFilter','feedbackTypeFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderFeedback));

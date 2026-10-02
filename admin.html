@@ -123,21 +123,17 @@
 <section class="admin-view" data-admin-panel="testers">
 <div class="admin-page-heading admin-testers-heading"><div><div class="admin-section-kicker">Tester Management</div><h2>Beta testers</h2><p>See what needs your attention first, then manage individual testers without scanning duplicate status panels.</p></div><div class="admin-testers-heading-actions"><button class="admin-secondary-button" id="testerSendPendingReminders" type="button">Send Pending Reminders</button></div></div>
 
-<div class="admin-tester-overview-grid">
-<article class="admin-tester-overview-card active"><span>Active now</span><strong id="testerActivityActive">0</strong><small><b id="testerActivityRecent">0</b> recently active</small></article>
-<article class="admin-tester-overview-card attention"><span>Needs attention</span><strong id="testerActivityAttention">0</strong><small><b id="testerActivityInactive">0</b> inactive / never active</small></article>
-<article class="admin-tester-overview-card action"><span>Ready to send</span><strong id="testerInviteReady">0</strong><small><b id="testerAndroidLinksSent">0</b> Android links already sent</small></article>
-<article class="admin-tester-overview-card enabled"><span>Enabled testers</span><strong id="testerActivityEnabled">0</strong><small>Beta access currently enabled</small></article>
-</div>
+
 
 <article class="admin-panel admin-tester-action-center">
-<div class="admin-panel-heading"><div><span class="admin-section-kicker">Action Center</span><h3>What needs to happen next?</h3><p>One view of tester-owned steps and Admin-owned sends. Click a card to filter the tester list.</p></div><button class="admin-text-button" id="testerNextStepShowAll" type="button">Show all testers</button></div>
+<div class="admin-panel-heading"><div><span class="admin-section-kicker">Action Center</span><h3>What needs to happen next?</h3><p>Red cards are tester-owned steps. Click one to send that reminder to everyone currently waiting on that step.</p></div><button class="admin-text-button" id="testerNextStepShowAll" type="button">Show all testers</button></div>
 <div class="admin-tester-action-grid">
-<button class="admin-tester-action-card waiting" data-next-step-filter="portalSignIn" type="button"><span>Portal sign-in</span><strong id="testerNeedPortalCount">0</strong><small>Tester has not signed in yet</small></button>
-<button class="admin-tester-action-card waiting" data-next-step-filter="testingSetup" type="button"><span>Testing Setup</span><strong id="testerNeedSetupCount">0</strong><small>Tester still has setup to finish</small></button>
-<button class="admin-tester-action-card waiting" data-next-step-filter="appAccount" type="button"><span>App login</span><strong id="testerNeedAppAccountCount">0</strong><small>Access sent, app account not matched</small></button>
+<button class="admin-tester-action-card waiting" data-send-reminder-group="portalSignIn" type="button"><span>Portal sign-in</span><strong id="testerNeedPortalCount">0</strong><small>Send a friendly sign-in reminder to these testers</small></button>
+<button class="admin-tester-action-card waiting" data-send-reminder-group="testingSetup" type="button"><span>Testing Setup</span><strong id="testerNeedSetupCount">0</strong><small>Remind these testers to finish Testing Setup</small></button>
+<button class="admin-tester-action-card waiting" data-send-reminder-group="appAccount" type="button"><span>App login</span><strong id="testerNeedAppAccountCount">0</strong><small>Remind these testers to finish their RebataTrack app login</small></button>
 <button class="admin-tester-action-card action" data-next-step-filter="adminSend" type="button"><span>Ready for you</span><strong id="testerAdminSendCount">0</strong><small><b id="testerReadyIOSCount">0</b> iOS · <b id="testerReadyAndroidCount">0</b> Android</small></button>
 <button class="admin-tester-action-card complete" data-next-step-filter="complete" type="button"><span>Setup complete</span><strong id="testerSetupCompleteCount">0</strong><small><b id="testerAccessSentCount">0</b> have testing access sent</small></button>
+<button class="admin-tester-action-card enabled" data-access-filter="Enabled" type="button"><span>Enabled testers</span><strong id="testerActivityEnabled">0</strong><small>Beta access currently enabled</small></button>
 </div>
 <div class="admin-tester-action-footer"><span>Yellow = your action · Red = tester action · Green = complete</span><span>Use the filters below for activity, access, or invite-readiness details.</span></div>
 </article>
@@ -351,6 +347,6 @@ setTimeout(function(){
 }, 12000);
 </script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=174"></script><script src="production-admin.js?v=174"></script>
-<footer data-rebatatrack-website-build="174" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 174</footer>
+<footer data-rebatatrack-website-build="175" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 175</footer>
 </body>
 </html>
