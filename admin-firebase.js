@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 191
+// RebataTrack Admin Portal — Website Build 192
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -601,7 +601,10 @@ async function loadMetricsAggregated(){
     aggregateCount(apps,[['platform','==','iOS']]),
     aggregateCount(apps,[['platform','==','Android']]),
     Promise.all([aggregateCount(feedback,[['status','==','New']]),aggregateCount(feedback,[['status','==','Waiting for RebataTrack']])]).then(([a,b])=>a+b),
-    aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']]),
+    Promise.all([
+      aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']]),
+      aggregateCount('betaTaskAssignments',[['status','==','Review Required'],['recordType','==','Task']]).catch(()=>0)
+    ]).then(([a,b])=>Number(a||0)+Number(b||0)),
     Promise.all([
       aggregateCount('betaUsers',[['timelineStage','==','setupComplete'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
       aggregateCount('betaUsers',[['timelineStage','==','setupComplete'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0),
@@ -644,12 +647,13 @@ async function loadMetricsLegacy(){
     countQuery(query(apps,where('platform','==','iOS'))),
     countQuery(query(apps,where('platform','==','Android'))),
     Promise.all([countQuery(query(feedback,where('status','==','New'))),countQuery(query(feedback,where('status','==','Waiting for RebataTrack')))]).then(([a,b])=>a+b),
-    countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),where('recordType','==','Task'))).catch(async()=>{
-      // Legacy assignments created before recordType was standardized are uncommon. Only
-      // use the bounded document fallback if the compound count query is unavailable.
-      const fallback=await getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)),'metrics fallback: pending assignments');
-      return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
-    })
+    Promise.all([
+      countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),where('recordType','==','Task'))).catch(async()=>{
+        const fallback=await getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)),'metrics fallback: pending assignments');
+        return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
+      }),
+      countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Review Required'),where('recordType','==','Task'))).catch(()=>0)
+    ]).then(([a,b])=>Number(a||0)+Number(b||0))
   ]);
   const fullySetUpCounts=await Promise.all([
     Promise.all([
@@ -892,7 +896,7 @@ async function reconcilePendingTasksForInactiveTesters(){
     const email=String(t.email||'').trim().toLowerCase();if(email)inactiveEmails.add(email);
   });
   const stale=regularAssignments().filter(a=>{
-    if(a.status!=='Pending')return false;
+    if(!['Pending','Review Required'].includes(a.status))return false;
     const email=String(a.email||'').trim().toLowerCase();
     return (a.testerUid&&inactiveUids.has(a.testerUid))||(email&&inactiveEmails.has(email));
   });
@@ -1477,39 +1481,47 @@ function renderTaskRecipientPicker(){
   updateTaskRecipientSummary();
 }
 function taskAssignmentStats(taskId){
-  const rows=state.taskAssignments.filter(a=>a.taskId===taskId);
+  const historyRows=state.taskAssignments.filter(a=>a.taskId===taskId);
+  const excludedStatuses=new Set(['Removed by Admin','Cancelled','Cancelled - Tester Removed','Overdue - Removed','Missed - Reviewed']);
+  const rows=historyRows.filter(a=>!excludedStatuses.has(a.status));
   const completed=rows.filter(a=>a.status==='Completed').length;
-  const removed=rows.filter(a=>a.status==='Overdue - Removed').length;
-  const accessEnded=rows.filter(a=>a.status==='Cancelled - Tester Removed').length;
-  const cancelled=rows.filter(a=>a.status==='Cancelled').length;
+  const reviewRequired=rows.filter(a=>a.status==='Review Required').length;
   const pending=rows.filter(a=>a.status==='Pending').length;
   const reminded=rows.filter(a=>a.status==='Pending'&&a.lastReminderSentAt).length;
-  return {rows,total:rows.length,completed,removed,accessEnded,cancelled,pending,reminded};
+  const removedByAdmin=historyRows.filter(a=>a.status==='Removed by Admin').length;
+  const removed=historyRows.filter(a=>a.status==='Overdue - Removed').length;
+  const accessEnded=historyRows.filter(a=>a.status==='Cancelled - Tester Removed').length;
+  const cancelled=historyRows.filter(a=>a.status==='Cancelled').length;
+  const reviewedKept=historyRows.filter(a=>a.status==='Missed - Reviewed').length;
+  return {rows,historyRows,total:rows.length,historyTotal:historyRows.length,completed,reviewRequired,pending,reminded,removedByAdmin,removed,accessEnded,cancelled,reviewedKept};
 }
 function taskDisplayStatus(t,stats){
   if(t.status==='Cancelled')return 'Cancelled';
   // A task campaign with no remaining assignments is not active.
   // This also corrects older 0/0 task records whose task document still says Active.
   if(stats.total===0)return 'Closed';
+  if(stats.reviewRequired>0)return 'Review Required';
   if(stats.completed===stats.total)return 'Completed';
   if(stats.pending===0)return 'Closed';
   return t.status||'Active';
 }
 function renderTaskDashboard(){
   const pending=regularAssignments().filter(a=>a.status==='Pending').sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
+  const review=regularAssignments().filter(a=>a.status==='Review Required').sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
   const now=Date.now(), day=DAY_MS;
-  const open=regularTasks().filter(t=>t.status!=='Cancelled'&&taskAssignmentStats(t.id).pending>0).length;
+  const open=regularTasks().filter(t=>{const s=taskAssignmentStats(t.id);return t.status!=='Cancelled'&&(s.pending>0||s.reviewRequired>0);}).length;
   const dueSoon=pending.filter(a=>{const d=timestampToDate(a.dueAt);return d&&d.getTime()>now&&d.getTime()-now<=day;}).length;
   const reminded=pending.filter(a=>a.lastReminderSentAt).length;
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
   set('taskMetricOpen',open);set('taskMetricPending',pending.length);set('taskMetricDueSoon',dueSoon);set('taskMetricReminded',reminded);
   const list=document.getElementById('taskNeedsAttention');if(!list)return;
-  list.innerHTML=pending.length?pending.map(a=>{const d=timestampToDate(a.dueAt);const overdue=!!d&&d.getTime()<now;return `<div class="admin-task-attention-row${overdue?' is-overdue':''}"><div class="admin-task-attention-copy"><strong>${esc(a.name||'Tester')} · ${esc(a.taskTitle||'Required task')}</strong><span>${esc(a.email||'')} · ${esc(a.platform||'')}</span></div><div class="admin-task-attention-due">${overdue?'<strong>OVERDUE — ACCESS REMOVAL PENDING</strong><br>':'Due '}${esc(formatDate(a.dueAt))}</div><button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${a.lastReminderSentAt?'Remind Again':'Send Reminder'}</button></div>`;}).join(''):'<div class="admin-empty-inline">No outstanding required tasks.</div>';
+  const rows=[...review,...pending];
+  list.innerHTML=rows.length?rows.map(a=>{const isReview=a.status==='Review Required';const d=timestampToDate(a.dueAt);const overdue=!!d&&d.getTime()<now;return `<div class="admin-task-attention-row${isReview||overdue?' is-overdue':''}"><div class="admin-task-attention-copy"><strong>${esc(a.name||'Tester')} · ${esc(a.taskTitle||'Required task')}</strong><span>${esc(a.email||'')} · ${esc(a.platform||'')}</span></div><div class="admin-task-attention-due">${isReview?'<strong>MISSED DEADLINE — REVIEW REQUIRED</strong><br>':'Due '}${esc(formatDate(a.dueAt))}</div>${isReview?`<button class="admin-task-remind-button" data-review-missed-tester="${esc(a.testerUid||'')}" type="button">Review Tester</button><button class="admin-task-remind-button" data-review-task-keep="${esc(a.id)}" type="button">Keep Active</button>`:`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${a.lastReminderSentAt?'Remind Again':'Send Reminder'}</button>`}</div>`;}).join(''):'<div class="admin-empty-inline">No outstanding required tasks or missed-deadline reviews.</div>';
 }
 function renderTasks(){
   const body=document.getElementById('tasksTableBody'); if(!body)return;
   const tasks=regularTasks();
-  body.innerHTML=tasks.map(t=>{const stats=taskAssignmentStats(t.id);const pct=stats.total?Math.round(stats.completed/stats.total*100):0;const displayStatus=taskDisplayStatus(t,stats);return `<tr><td><strong>${esc(t.title||'Required task')}</strong><small style="display:block;color:#718095;margin-top:3px">${esc(t.templateLabel||t.responseType||'Custom task')}</small></td><td>${esc(formatDate(t.dueAt))}</td><td>${stats.total}</td><td><div class="admin-task-progress"><strong>${stats.completed}/${stats.total}</strong><span class="admin-task-progress-bar"><span style="width:${pct}%"></span></span></div></td><td><strong>${stats.pending}</strong></td><td><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></td><td><button class="admin-table-open" data-open-task="${esc(t.id)}" type="button">Manage</button></td></tr>`;}).join('');
+  body.innerHTML=tasks.map(t=>{const stats=taskAssignmentStats(t.id);const pct=stats.total?Math.round(stats.completed/stats.total*100):0;const displayStatus=taskDisplayStatus(t,stats);const pendingLabel=stats.reviewRequired?`${stats.pending} + ${stats.reviewRequired} review`:String(stats.pending);return `<tr><td><strong>${esc(t.title||'Required task')}</strong><small style="display:block;color:#718095;margin-top:3px">${esc(t.templateLabel||t.responseType||'Custom task')}</small></td><td>${esc(formatDate(t.dueAt))}</td><td>${stats.total}</td><td><div class="admin-task-progress"><strong>${stats.completed}/${stats.total}</strong><span class="admin-task-progress-bar"><span style="width:${pct}%"></span></span></div></td><td><strong>${esc(pendingLabel)}</strong></td><td><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></td><td><button class="admin-table-open" data-open-task="${esc(t.id)}" type="button">Manage</button></td></tr>`;}).join('');
   document.getElementById('tasksEmpty').hidden=tasks.length>0;
   renderTaskDashboard();
 }
@@ -1591,14 +1603,14 @@ function openTaskRecord(t){
   const coverage=taskRecipientCoverage(t);
   const due=timestampToDate(t.dueAt);
   const deadlineOpen=!!due&&due.getTime()>Date.now()&&t.status!=='Cancelled';
-  const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const reminder=a.status==='Pending'?`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${a.emailStatus==='Error'?'Retry Task Email':'Send Reminder'}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';return `<div class="admin-task-assignment"><div class="admin-task-assignment-top"><div><strong>${esc(a.name||'Tester')}</strong><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(overdue?'Removal Pending':a.status)}">${esc(overdue?'Removal Pending':a.status)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Email: ${esc(a.emailStatus||'Unknown')}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — run a deadline check now.':esc(assignmentReminderText(a))}</div>`:''}<div class="admin-task-assignment-actions">${reminder}${remove}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
+  const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminder=a.status==='Pending'?`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${a.emailStatus==='Error'?'Retry Task Email':'Send Reminder'}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const reviewActions=isReview?`<button class="admin-task-remind-button" data-review-missed-tester="${esc(a.testerUid||'')}" type="button">Review Tester</button><button class="admin-task-remind-button" data-review-task-keep="${esc(a.id)}" type="button">Keep Active</button>`:'';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><strong>${esc(a.name||'Tester')}</strong><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Email: ${esc(a.emailStatus||'Unknown')}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> Review the tester and decide whether to keep them active or disable Beta access.</div>':''}<div class="admin-task-assignment-actions">${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
   const newRows=coverage.notAssigned.length?coverage.notAssigned.map(x=>`<div class="admin-task-assignment admin-task-unassigned"><div class="admin-task-assignment-top"><div><strong>${esc(x.name||'Tester')}</strong><small>${esc(x.email||'')} · ${esc(x.platform||'')}</small></div><span class="admin-status-pill status-pending">Not sent</span></div><div class="admin-task-assignment-reminder">This tester is fully set up and eligible, but has never received this task.</div>${deadlineOpen?`<div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-assign-existing-task="${esc(t.id)}" data-task-tester="${esc(x.uid)}" type="button">Send Task</button></div>`:''}</div>`).join(''):'<div class="admin-empty-inline">Every currently eligible tester has already received this task.</div>';
   const addNew=coverage.notAssigned.length&&deadlineOpen?`<button class="admin-action-button approve" data-task-action="assign-new-eligible" data-task-id="${esc(t.id)}" type="button">Send to Newly Eligible (${coverage.notAssigned.length})</button>`:'';
   const deadlineNote=coverage.notAssigned.length&&!deadlineOpen?'<div class="admin-task-coverage-note is-warning"><strong>New eligible testers detected</strong><span>The original task deadline has passed or the task was cancelled, so it cannot be sent to them without creating a new task.</span></div>':'';
   const cancel=(t.status==='Active'&&stats.pending>0)?`<button class="admin-action-button danger-soft" data-task-action="cancel" data-task-id="${esc(t.id)}" type="button">Cancel Task</button>`:'';
   const remind=stats.pending?`<button class="admin-action-button approve" data-task-action="remind-pending" data-task-id="${esc(t.id)}" type="button">Remind Pending Testers (${stats.pending})</button>`:'';
   const deleteTask=`<button class="admin-action-button danger" data-task-action="delete-task" data-task-id="${esc(t.id)}" type="button">Delete Task from All Testers</button>`;
-  openDrawer('Beta Program Task',t.title||'Required Task',`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-status-pill ${statusClass(taskDisplayStatus(t,stats))}">${esc(taskDisplayStatus(t,stats))}</span><span class="admin-subtle-chip">Due ${esc(formatDate(t.dueAt))}</span></div>${t.objective?`<div class="admin-feedback-detail"><span>Testing Objective</span><p>${esc(t.objective)}</p></div>`:''}<div class="admin-feedback-detail"><span>Instructions</span><p>${esc(t.instructions||'')}</p></div><div class="admin-task-coverage"><div><span>Already received</span><strong>${coverage.assigned}</strong></div><div><span>Currently eligible</span><strong>${coverage.eligible}</strong></div><div class="${coverage.notAssigned.length?'needs-send':''}"><span>Eligible · not sent</span><strong>${coverage.notAssigned.length}</strong></div></div>${deadlineNote}<div class="admin-detail-grid"><div><span>Template</span><strong>${esc(t.templateLabel||'Custom')}</strong></div><div><span>Response Type</span><strong>${esc(t.responseType||'Acknowledgement')}</strong></div><div><span>Recipients</span><strong>${stats.total}</strong></div><div><span>Completed</span><strong>${stats.completed}</strong></div><div><span>Pending</span><strong>${stats.pending}</strong></div><div><span>Reminded</span><strong>${stats.reminded}</strong></div><div><span>Removed for Missed Deadline</span><strong>${stats.removed}</strong></div><div><span>Closed After Tester Removal</span><strong>${stats.accessEnded}</strong></div><div><span>Automatic Reminders</span><strong>${t.autoReminders===false?'Off':'On'}</strong></div></div><div><label class="admin-detail-label">Newly eligible — not yet sent</label><div class="admin-task-response-list">${newRows}</div></div><div><label class="admin-detail-label">Assignment history</label><div class="admin-task-response-list">${rows}</div></div><div class="admin-drawer-actions">${addNew}${remind}${cancel}${deleteTask}</div></div>`);
+  openDrawer('Beta Program Task',t.title||'Required Task',`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-status-pill ${statusClass(taskDisplayStatus(t,stats))}">${esc(taskDisplayStatus(t,stats))}</span><span class="admin-subtle-chip">Due ${esc(formatDate(t.dueAt))}</span></div>${t.objective?`<div class="admin-feedback-detail"><span>Testing Objective</span><p>${esc(t.objective)}</p></div>`:''}<div class="admin-feedback-detail"><span>Instructions</span><p>${esc(t.instructions||'')}</p></div><div class="admin-task-coverage"><div><span>Already received</span><strong>${coverage.assigned}</strong></div><div><span>Currently eligible</span><strong>${coverage.eligible}</strong></div><div class="${coverage.notAssigned.length?'needs-send':''}"><span>Eligible · not sent</span><strong>${coverage.notAssigned.length}</strong></div></div>${deadlineNote}<div class="admin-detail-grid"><div><span>Template</span><strong>${esc(t.templateLabel||'Custom')}</strong></div><div><span>Response Type</span><strong>${esc(t.responseType||'Acknowledgement')}</strong></div><div><span>Recipients</span><strong>${stats.total}</strong></div><div><span>Completed</span><strong>${stats.completed}</strong></div><div><span>Pending</span><strong>${stats.pending}</strong></div><div><span>Review Required</span><strong>${stats.reviewRequired}</strong></div><div><span>Reminded</span><strong>${stats.reminded}</strong></div><div><span>Removed from Task</span><strong>${stats.removedByAdmin}</strong></div><div><span>Missed · Kept Active</span><strong>${stats.reviewedKept}</strong></div><div><span>Closed After Tester Removal</span><strong>${stats.accessEnded}</strong></div><div><span>Automatic Reminders</span><strong>${t.autoReminders===false?'Off':'On'}</strong></div></div><div><label class="admin-detail-label">Newly eligible — not yet sent</label><div class="admin-task-response-list">${newRows}</div></div><div><label class="admin-detail-label">Assignment history</label><div class="admin-task-response-list">${rows}</div></div><div class="admin-drawer-actions">${addNew}${remind}${cancel}${deleteTask}</div></div>`);
 }
 async function assignExistingTaskToTesters(t,testers){
   if(!t)throw new Error('Task not found.');
@@ -1715,6 +1727,13 @@ async function removeTaskAssignment(a){
   await updateDoc(doc(db,'betaTaskAssignments',a.id),{status:'Removed by Admin',removedAt:serverTimestamp(),updatedAt:serverTimestamp()});
   a.status='Removed by Admin';a.removedAt=new Date();
   // Preserve durable assignment history so the tester is not later mistaken for someone who never received this task.
+  renderTasks();
+  if(state.loaded.testers)renderTesters();
+}
+async function keepTesterActiveAfterMissedTask(a){
+  if(!a||a.status!=='Review Required')return;
+  await updateDoc(doc(db,'betaTaskAssignments',a.id),{status:'Missed - Reviewed',reviewedAt:serverTimestamp(),reviewDecision:'Keep Active',updatedAt:serverTimestamp()});
+  a.status='Missed - Reviewed';a.reviewedAt=new Date();a.reviewDecision='Keep Active';
   renderTasks();
   if(state.loaded.testers)renderTesters();
 }
@@ -2467,6 +2486,19 @@ document.addEventListener('click',async e=>{
     finally{removeTaskAssignmentBtn.disabled=false;}
     return;
   }
+  const keepAfterMissedBtn=e.target.closest('[data-review-task-keep]');if(keepAfterMissedBtn){
+    const a=state.taskAssignments.find(x=>x.id===keepAfterMissedBtn.dataset.reviewTaskKeep);if(!a)return;
+    if(!(await confirmAction(`Keep ${a.name||a.email||'this tester'} active despite missing this task deadline? Their Beta access will stay unchanged and this missed task will be marked reviewed.`,'')))return;
+    keepAfterMissedBtn.disabled=true;
+    try{await keepTesterActiveAfterMissedTask(a);showToast('Missed task reviewed. Tester kept active.');const task=findTask(a.taskId);if(task&&document.getElementById('adminDrawer')?.getAttribute('aria-hidden')==='false')openTaskRecord(task);}
+    catch(err){showToast(friendlyFirebaseError(err),'error');}
+    finally{keepAfterMissedBtn.disabled=false;}
+    return;
+  }
+  const reviewMissedTesterBtn=e.target.closest('[data-review-missed-tester]');if(reviewMissedTesterBtn){
+    const tester=findTester(reviewMissedTesterBtn.dataset.reviewMissedTester);if(!tester){showToast('Tester record is unavailable. Refresh the Tasks workspace and try again.','error');return;}
+    openTesterRecord(tester);return;
+  }
   const taskActionBtn=e.target.closest('[data-task-action]');if(taskActionBtn){
     const t=findTask(taskActionBtn.dataset.taskId);
     if(t&&taskActionBtn.dataset.taskAction==='assign-new-eligible'){
@@ -2604,7 +2636,7 @@ document.getElementById('adminRefresh').addEventListener('click',refreshActiveVi
 document.getElementById('adminMenuToggle').addEventListener('click',()=>document.body.classList.toggle('admin-nav-open'));
 document.getElementById('adminLogout').addEventListener('click',async()=>{await signOut(auth).catch(()=>{});location.replace('admin-login.html');});
 const deadlineCheckBtn=document.getElementById('taskRunDeadlineCheck');
-if(deadlineCheckBtn)deadlineCheckBtn.addEventListener('click',async()=>{const original=deadlineCheckBtn.textContent;deadlineCheckBtn.disabled=true;deadlineCheckBtn.textContent='Checking…';try{const result=await runDeadlineCheckNow();const errors=Array.isArray(result.errors)?result.errors:[];showToast(errors.length?`Deadline check completed with ${errors.length} error${errors.length===1?'':'s'}. ${errors[0]}`:`Deadline check complete. ${Number(result.removed||0)} tester${Number(result.removed||0)===1?'':'s'} removed; ${Number(result.remindersSent||0)} reminder${Number(result.remindersSent||0)===1?'':'s'} sent.`,errors.length?'error':'success');}catch(err){showToast('Deadline check failed. '+friendlyFirebaseError(err),'error');}finally{deadlineCheckBtn.disabled=false;deadlineCheckBtn.textContent=original;}});
+if(deadlineCheckBtn)deadlineCheckBtn.addEventListener('click',async()=>{const original=deadlineCheckBtn.textContent;deadlineCheckBtn.disabled=true;deadlineCheckBtn.textContent='Checking…';try{const result=await runDeadlineCheckNow();const errors=Array.isArray(result.errors)?result.errors:[];showToast(errors.length?`Deadline check completed with ${errors.length} error${errors.length===1?'':'s'}. ${errors[0]}`:`Deadline check complete. ${Number(result.reviewRequired||0)} tester${Number(result.reviewRequired||0)===1?'':'s'} moved to review; ${Number(result.remindersSent||0)} reminder${Number(result.remindersSent||0)===1?'':'s'} sent.`,errors.length?'error':'success');}catch(err){showToast('Deadline check failed. '+friendlyFirebaseError(err),'error');}finally{deadlineCheckBtn.disabled=false;deadlineCheckBtn.textContent=original;}});
 const timelineSelectAll=document.getElementById('timelineSelectAll');if(timelineSelectAll)timelineSelectAll.addEventListener('click',()=>selectTimelineTesters('All'));
 const timelineSelectIOS=document.getElementById('timelineSelectIOS');if(timelineSelectIOS)timelineSelectIOS.addEventListener('click',()=>selectTimelineTesters('iOS'));
 const timelineSelectAndroid=document.getElementById('timelineSelectAndroid');if(timelineSelectAndroid)timelineSelectAndroid.addEventListener('click',()=>selectTimelineTesters('Android'));
@@ -2623,7 +2655,7 @@ document.getElementById('taskSelectIOS').addEventListener('click',()=>selectTask
 document.getElementById('taskSelectAndroid').addEventListener('click',()=>selectTaskRecipients('Android'));
 document.getElementById('taskClearAll').addEventListener('click',()=>{document.querySelectorAll('[data-task-recipient]').forEach(el=>el.checked=false);updateTaskRecipientSummary();});
 document.getElementById('taskRecipientList').addEventListener('change',e=>{if(e.target.matches('[data-task-recipient]'))updateTaskRecipientSummary();});
-document.getElementById('taskSendButton').addEventListener('click',async()=>{const btn=document.getElementById('taskSendButton');const original=btn.innerHTML;if(!(await confirmAction('Send this required task to the selected testers? They will receive an email and must complete it by the deadline to keep beta access active.','')))return;btn.disabled=true;btn.innerHTML='Sending Task…';try{const result=await createRequiredTask();const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} testers. ${result.failed} email${result.failed===1?'':'s'} could not be sent.${firstError}`:`Required task sent to ${result.total} tester${result.total===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.innerHTML=original;}});
+document.getElementById('taskSendButton').addEventListener('click',async()=>{const btn=document.getElementById('taskSendButton');const original=btn.innerHTML;if(!(await confirmAction('Send this required task to the selected testers? They will receive an email and should complete it by the deadline. Missed deadlines are sent to Admin review; access is not changed automatically.','')))return;btn.disabled=true;btn.innerHTML='Sending Task…';try{const result=await createRequiredTask();const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} testers. ${result.failed} email${result.failed===1?'':'s'} could not be sent.${firstError}`:`Required task sent to ${result.total} tester${result.total===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.innerHTML=original;}});
 const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
 document.addEventListener('click',async event=>{

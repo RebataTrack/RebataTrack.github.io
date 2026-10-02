@@ -281,7 +281,7 @@ function renderRequiredTask(){
   const overdue=taskIsOverdue(activeTask);
   const modal=taskBackdrop.querySelector('.portal-task-modal');if(modal)modal.classList.toggle('is-overdue',overdue);
   setTaskMessage('');
-  if(overdue){response.innerHTML='<div class="portal-task-overdue">This required task deadline has passed. Your RebataTrack Beta Program access is scheduled for automatic removal because the task was not completed on time.</div>';}
+  if(overdue){response.innerHTML='<div class="portal-task-overdue">This required task deadline has passed. The missed task is awaiting RebataTrack review. Your Beta access is not changed automatically.</div>';}
   else if(activeTask.responseType==='Short Answer')response.innerHTML='<label for="portalTaskShortAnswer">Your response</label><input id="portalTaskShortAnswer" type="text" maxlength="500" placeholder="Enter your response"/>';
   else if(activeTask.responseType==='Long Answer')response.innerHTML='<label for="portalTaskLongAnswer">Your response</label><textarea id="portalTaskLongAnswer" maxlength="5000" placeholder="Enter your response"></textarea>';
   else if(activeTask.responseType==='Yes / No')response.innerHTML='<label for="portalTaskYesNo">Your response</label><select id="portalTaskYesNo"><option value="">Choose one</option><option value="Yes">Yes</option><option value="No">No</option></select>';
@@ -507,7 +507,7 @@ function collectTaskResponse(task){
 }
 async function completeRequiredTask(){
   if(!activeTask||!auth.currentUser)return;
-  if(taskIsOverdue(activeTask)){setTaskMessage('This task deadline has passed and can no longer be completed.','error');return;}
+  if(taskIsOverdue(activeTask)){setTaskMessage('This task deadline has passed and is awaiting RebataTrack review.','error');return;}
   const response=collectTaskResponse(activeTask);
   if(!response){setTaskMessage(activeTask.responseType==='Acknowledgement'?'Confirm that you completed or reviewed this task before continuing.':'A response is required before you can continue.','error');return;}
   const original=taskSubmit.innerHTML;taskSubmit.disabled=true;taskSubmit.innerHTML='Saving…';setTaskMessage('');

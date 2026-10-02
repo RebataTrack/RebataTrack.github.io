@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal</title>
 <link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=112" rel="apple-touch-icon"/><link href="favicon-32.png?v=112" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=112" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=191" rel="stylesheet"/>
+<link href="styles.css?v=192" rel="stylesheet"/>
 </head>
 <body class="admin-body">
 <div class="admin-loading-screen" id="adminLoading">
@@ -192,7 +192,7 @@
 <div class="admin-table-card admin-testers-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Current status</th><th>Next action</th><th>Progress</th><th>Participation</th><th>Access</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
 </section>
 <section class="admin-view" data-admin-panel="tasks">
-<div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Missed required deadlines automatically remove beta access.</p></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
+<div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Missed required deadlines are placed into an Admin review list. Beta access is never disabled automatically.</p></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
 <div class="admin-task-metrics">
 <article><span>Open Tasks</span><strong id="taskMetricOpen">0</strong><small>Task campaigns still active</small></article>
 <article><span>Pending Responses</span><strong id="taskMetricPending">0</strong><small>Tester assignments not completed</small></article>
@@ -200,7 +200,7 @@
 <article><span>Reminded</span><strong id="taskMetricReminded">0</strong><small>Pending assignments reminded</small></article>
 </div>
 <article class="admin-panel admin-task-attention-panel">
-<div class="admin-panel-heading"><div><span class="admin-section-kicker">Needs Attention</span><h3>Testers still needing to complete tasks</h3><p>Automatic reminders are sent about 24 hours and 4 hours before the deadline when enabled. You can also remind a tester manually at any time.</p></div></div>
+<div class="admin-panel-heading"><div><span class="admin-section-kicker">Needs Attention</span><h3>Testers still needing to complete tasks</h3><p>Automatic reminders are sent about 24 hours and 4 hours before the deadline when enabled. Missed deadlines appear here for your review before any access decision is made.</p></div></div>
 <div class="admin-task-attention-list" id="taskNeedsAttention"><div class="admin-empty-inline">No outstanding required tasks.</div></div>
 </article>
 <div class="admin-task-layout">
@@ -241,7 +241,7 @@
 </div>
 <div class="admin-task-recipient-header"><div><strong>Recipients</strong><span id="taskRecipientSummary">0 selected</span><small class="admin-task-recipient-eligibility">Only testers with active Beta access, completed Testing Setup, and a matched Production account are included.</small></div><div><button class="admin-text-button" id="taskSelectAll" type="button">Select all</button><button class="admin-text-button" id="taskSelectIOS" type="button">Select iOS</button><button class="admin-text-button" id="taskSelectAndroid" type="button">Select Android</button><button class="admin-text-button" id="taskClearAll" type="button">Clear</button></div></div>
 <div class="admin-task-recipient-list" id="taskRecipientList"><div class="admin-empty-inline">Loading task-eligible testers…</div></div>
-<div class="admin-task-warning"><strong>Required participation task</strong><span>If a tester does not complete this task by the deadline, their Beta Program access will be disabled automatically and they will be marked inactive.</span></div>
+<div class="admin-task-warning"><strong>Required participation task</strong><span>If a tester does not complete this task by the deadline, the assignment moves to Review Required. You decide whether to keep the tester active or disable Beta access.</span></div>
 <button class="admin-primary-button admin-task-send" id="taskSendButton" type="button">Send Required Task <span>→</span></button>
 </article>
 <article class="admin-panel admin-task-list-panel">
@@ -347,7 +347,7 @@ setTimeout(function(){
   }
 }, 12000);
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=191"></script><script src="production-admin.js?v=179"></script>
-<footer data-rebatatrack-website-build="191" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 191</footer>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=192"></script><script src="production-admin.js?v=179"></script>
+<footer data-rebatatrack-website-build="192" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 192</footer>
 </body>
 </html>
