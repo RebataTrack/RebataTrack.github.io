@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs,getDoc,getCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 128
+// RebataTrack Admin Portal — Website Build 178
 'use strict';
 
 window.__REBATIFY_ADMIN_BOOT = window.__REBATIFY_ADMIN_BOOT || {};
@@ -146,7 +146,14 @@ async function requestAdminNotificationPermission(){
   updateNotificationPermissionUI();
 }
 let adminMetricsRefreshTimer=null;
-function scheduleAdminMetricsRefresh(){clearTimeout(adminMetricsRefreshTimer);adminMetricsRefreshTimer=setTimeout(()=>{loadMetrics().then(()=>{renderMetrics();if(activeView==='overview')renderOverview();}).catch(()=>{});},2500);}
+let lastMetricsLoadedAt=0;
+const ADMIN_METRICS_CACHE_TTL_MS=60*1000;
+const ADMIN_FEEDBACK_REALTIME_LIMIT=20;
+const feedbackRealtimeSignatures=new Map();
+function scheduleAdminMetricsRefresh(){
+  clearTimeout(adminMetricsRefreshTimer);
+  adminMetricsRefreshTimer=setTimeout(()=>{loadMetrics(false).then(()=>{renderMetrics();if(activeView==='overview')renderOverview();}).catch(()=>{});},5000);
+}
 function startApplicationsRealtimeAdmin(){
   if(applicationRealtimeUnsubscribe)return;
   // Build 170 Firestore efficiency: this listener exists only to surface newly submitted
@@ -504,7 +511,8 @@ function confirmAction(message,tone){
 }
 
 async function countQuery(ref){const snap=await getCountFromServer(ref);return snap.data().count||0;}
-async function loadMetrics(){
+async function loadMetrics(force=false){
+  if(!force&&lastMetricsLoadedAt&&Date.now()-lastMetricsLoadedAt<ADMIN_METRICS_CACHE_TTL_MS)return state.metrics;
   const apps=collection(db,'betaApplications');
   const feedback=collection(db,'betaFeedback');
   const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount]=await Promise.all([
@@ -527,16 +535,19 @@ async function loadMetrics(){
   ]);
   const activeTasks=Number(pendingAssignmentsCount||0);
   state.metrics={total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks};
+  lastMetricsLoadedAt=Date.now();
+  return state.metrics;
 }
 async function loadRecent(){
-  const [appsSnap,fbSnap]=await Promise.all([
-    getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(5))),
-    getDocs(query(collection(db,'betaFeedback'),orderBy('submittedAt','desc'),limit(5)))
-  ]);
-  state.recentApplications=appsSnap.docs.map(normalizeDoc);
-  state.recentFeedback=fbSnap.docs.map(normalizeDoc);
+  // The dedicated realtime listeners already own the Overview previews. Avoid issuing
+  // duplicate five-row collection queries every time Overview refreshes. Only use a
+  // bounded fallback if a realtime listener could not be attached.
+  const jobs=[];
+  if(!applicationRealtimeUnsubscribe)jobs.push(getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(5))).then(snap=>{state.recentApplications=snap.docs.map(normalizeDoc);}));
+  if(!feedbackRealtimeUnsubscribe)jobs.push(getDocs(query(collection(db,'betaFeedback'),orderBy('updatedAt','desc'),limit(5))).then(snap=>{state.recentFeedback=snap.docs.map(normalizeDoc);}));
+  if(jobs.length)await Promise.all(jobs);
 }
-async function loadOverview(){await Promise.all([loadMetrics(),loadRecent()]);renderMetrics();renderOverview();}
+async function loadOverview(forceMetrics=false){await Promise.all([loadMetrics(forceMetrics),loadRecent()]);renderMetrics();renderOverview();}
 async function loadApplications(force=false){
   if(state.loaded.applications&&!force){renderApplications();return;}
   const snap=await getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(100)));
@@ -612,27 +623,60 @@ function syncOpenAdminFeedbackState(f){
 }
 function startFeedbackRealtimeAdmin(){
   if(feedbackRealtimeUnsubscribe)return;
-  const q=query(collection(db,'betaFeedback'),orderBy('submittedAt','desc'),limit(100));
+  // Build 178 Firestore efficiency: this is a narrow live-change feed, not the full
+  // Help & Feedback dataset. Any new ticket or tester reply updates `updatedAt`, so it
+  // enters this recent window immediately. The full 100-row workspace remains a
+  // one-time, on-demand read when Help & Feedback (or tester scoring) is opened.
+  const q=query(collection(db,'betaFeedback'),orderBy('updatedAt','desc'),limit(ADMIN_FEEDBACK_REALTIME_LIMIT));
   feedbackRealtimeUnsubscribe=onSnapshot(q,snap=>{
     const firstLoad=!feedbackRealtimeReady;
+    const incoming=snap.docs.map(normalizeDoc);
     const privateNotes=new Map(state.feedback.map(f=>[f.id,String(f.adminNotes||'')]));
-    state.feedback=snap.docs.map(normalizeDoc).map(f=>({...f,adminNotes:privateNotes.get(f.id)||''}));
-    state.recentFeedback=state.feedback.slice(0,5);
-    state.loaded.feedback=true;
-    if(activeView==='feedback')renderFeedback();
-    if(activeView==='overview')renderOverview();
-    if(activeDrawerFeedbackId){const active=state.feedback.find(f=>f.id===activeDrawerFeedbackId);if(active)syncOpenAdminFeedbackState(active);}
-    scheduleAdminMetricsRefresh();
-    if(!firstLoad){
-      snap.docChanges().forEach(change=>{
-        if(change.type!=='added')return;
-        const f=normalizeDoc(change.doc);
-        const who=(f.fullName||f.name||f.email||'A tester').trim();
-        const kind=isSupportConversation(f)?'New help ticket':'New feedback ticket';
-        const summary=(f.subject||f.type||'New conversation').trim();
-        pushAdminNotification('feedback','feedback',f.id,kind,`${who} · ${summary}`,(f.submittedAt||new Date()));
-      });
+    state.recentFeedback=incoming.slice(0,5).map(f=>({...f,adminNotes:privateNotes.get(f.id)||''}));
+
+    // If the full workspace is already loaded, merge only changed/recent records into
+    // that in-memory dataset. Never replace the 100-row workspace with the 20-row live
+    // window, and never trigger another collection read just because a snapshot arrived.
+    if(state.loaded.feedback){
+      const byId=new Map(state.feedback.map(f=>[f.id,f]));
+      incoming.forEach(f=>{const existing=byId.get(f.id)||{};byId.set(f.id,{...existing,...f,adminNotes:privateNotes.get(f.id)||existing.adminNotes||''});});
+      state.feedback=[...byId.values()].sort((a,b)=>adminNotificationDateMs(b.submittedAt)-adminNotificationDateMs(a.submittedAt)).slice(0,100);
+      if(activeView==='feedback')renderFeedback();
+      if(activeDrawerFeedbackId){const active=state.feedback.find(f=>f.id===activeDrawerFeedbackId);if(active)syncOpenAdminFeedbackState(active);}
+      if(state.loaded.testers)renderTesters();
     }
+    if(activeView==='overview')renderOverview();
+    scheduleAdminMetricsRefresh();
+
+    incoming.forEach(f=>{
+      const previous=feedbackRealtimeSignatures.get(f.id);
+      const submittedMs=adminNotificationDateMs(f.submittedAt);
+      const messageMs=adminNotificationDateMs(f.lastMessageAt||f.updatedAt||f.submittedAt);
+      const retestDate=timestampToDate(f.retestedAt);
+      const retestMs=retestDate?retestDate.getTime():0;
+      const signature={messageMs,lastBy:String(f.lastMessageBy||''),retestMs,status:canonicalFeedbackStatus(f.status)};
+      feedbackRealtimeSignatures.set(f.id,signature);
+      if(firstLoad)return;
+      const who=(f.fullName||f.name||f.email||'A tester').trim();
+      if(!previous){
+        // A genuinely new ticket has submittedAt close to its current update time. An
+        // older conversation entering the recent window after an update must not be
+        // mislabeled as a new ticket.
+        if(submittedMs&&Math.abs(messageMs-submittedMs)<=5*60*1000){
+          const kind=isSupportConversation(f)?'New help ticket':'New feedback ticket';
+          const summary=(f.subject||f.type||'New conversation').trim();
+          pushAdminNotification('feedback','feedback',f.id,kind,`${who} · ${summary}`,(f.submittedAt||new Date()));
+        }
+        return;
+      }
+      if(retestMs>Number(previous.retestMs||0)){
+        pushAdminNotification('feedback','feedback',f.id,'New retest update',`${who} · ${(f.subject||f.type||'Feedback').trim()}`,(f.retestedAt||f.updatedAt||new Date()));
+        return;
+      }
+      if(signature.lastBy==='Tester'&&messageMs>Number(previous.messageMs||0)){
+        pushAdminNotification('feedback','feedback',f.id,'New tester reply',`${who} · ${(f.subject||f.type||'Conversation').trim()}`,(f.lastMessageAt||f.updatedAt||new Date()));
+      }
+    });
     feedbackRealtimeReady=true;
     setBetaConnectionUI(true);
   },error=>{setBetaConnectionUI(false);console.error('Realtime admin Help & Feedback listener failed:',error);});
@@ -1743,8 +1787,12 @@ async function refreshApplicationAdminData(options={}){
   state.loaded.tasks=false;
   const previousSuppress=suppressBetaProductionAutoRefresh;
   if(options.skipBetaMapping)suppressBetaProductionAutoRefresh=true;
-  try{await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);}finally{suppressBetaProductionAutoRefresh=previousSuppress;}
-  await loadOverview();
+  try{
+    const refreshes=[loadApplications(true),loadTesters(true)];
+    if(['testers','tasks','announcements'].includes(activeView))refreshes.push(loadTasks(true));
+    await Promise.all(refreshes);
+  }finally{suppressBetaProductionAutoRefresh=previousSuppress;}
+  await loadOverview(true);
   if(activeView==='applications')renderApplications();
   if(activeView==='testers')renderTesters();
   if(activeView==='tasks')renderTasks();
@@ -1863,7 +1911,7 @@ async function refreshActiveView(){
   }
   document.getElementById('adminRefresh').classList.add('is-spinning');
   try{
-    await loadOverview();
+    await loadOverview(true);
     if(activeView==='applications')await loadApplications(true);
     if(activeView==='testers'){await Promise.all([loadTesters(true),loadTasks(true),loadFeedback(true)]);renderTesters();}
     if(activeView==='tasks'){await loadTesters(true);await loadTasks(true);}
