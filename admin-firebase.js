@@ -5,9 +5,38 @@ var Core=window.RebataTrackFirebaseCore;
 var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
-const {onAuthStateChanged,signOut,collection,doc,getDocs,getDoc,getCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 178
+const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
+// RebataTrack Admin Portal — Website Build 179
 'use strict';
+
+// Build 179 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
+// localStorage 'rebatatrack.readmeter' to '1') to show a live "Beta reads" badge; click it to print a per-source table.
+// Console: RebataTrackReadMeter.report() / .reset() / .total(). Firestore bills one read per document returned.
+const readMeter=(function(){
+  const totals=new Map();let sessionTotal=0;let badge=null;
+  const enabled=(function(){try{return /[?&]readmeter=1/.test(location.search)||localStorage.getItem('rebatatrack.readmeter')==='1';}catch(_){return false;}})();
+  function paint(){
+    if(!enabled)return;
+    if(!badge){badge=document.createElement('button');badge.type='button';badge.setAttribute('aria-label','Beta Firestore reads this session');
+      badge.style.cssText='position:fixed;left:12px;bottom:12px;z-index:99999;padding:7px 11px;border-radius:999px;border:1px solid rgba(20,92,242,.35);background:#fff;color:#145cf2;font:700 12px -apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 4px 14px rgba(15,23,42,.18);cursor:pointer';
+      badge.addEventListener('click',()=>api.report());document.body.appendChild(badge);}
+    badge.textContent='Beta reads: '+sessionTotal;
+  }
+  const api={
+    add(label,count){const n=Math.max(0,Number(count)||0);sessionTotal+=n;const r=totals.get(label)||{calls:0,reads:0};r.calls++;r.reads+=n;totals.set(label,r);paint();},
+    total(){return sessionTotal;},
+    reset(){totals.clear();sessionTotal=0;paint();},
+    rows(){return [...totals.entries()].map(([source,r])=>({source,calls:r.calls,reads:r.reads})).sort((a,b)=>b.reads-a.reads);},
+    report(){const rows=api.rows();console.table(rows);console.log('Beta Firestore reads this session:',sessionTotal);return rows;}
+  };
+  window.RebataTrackReadMeter=api;
+  if(enabled)(document.body?paint():document.addEventListener('DOMContentLoaded',paint));
+  return api;
+})();
+function docCount(snap){return snap&&snap.docs?snap.docs.length:(snap&&typeof snap.size==='number'?snap.size:0);}
+async function getDocs(ref,label='getDocs (unlabeled)'){const snap=await rawGetDocs(ref);readMeter.add(label,docCount(snap));return snap;}
+async function getDoc(ref,label='getDoc'){const snap=await rawGetDoc(ref);readMeter.add(label,1);return snap;}
+async function getCountFromServer(ref){const snap=await rawGetCountFromServer(ref);readMeter.add('count queries (metrics)',1);return snap;}
 
 window.__REBATIFY_ADMIN_BOOT = window.__REBATIFY_ADMIN_BOOT || {};
 window.__REBATIFY_ADMIN_BOOT.moduleLoaded = true;
@@ -164,6 +193,7 @@ function startApplicationsRealtimeAdmin(){
   const q=query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(5));
   applicationRealtimeUnsubscribe=onSnapshot(q,snap=>{
     const firstLoad=!applicationsRealtimeReady;
+    readMeter.add(firstLoad?'live: applications (initial)':'live: applications (changes)',firstLoad?snap.docs.length:snap.docChanges().length);
     const docs=snap.docs.map(normalizeDoc);
     state.recentApplications=docs;
     if(state.loaded.applications){
@@ -203,15 +233,15 @@ function timelineStageLabel(value,platform=''){
   if(stage==='approved')return 'Testing Setup Required';
   if(stage==='setupComplete')return 'Testing Setup Complete';
   if(stage==='inviteSent')return platform==='iOS'?'TestFlight Invite Sent':platform==='Android'?'Testing Link Sent':'Testing Access Sent';
-  return 'Ongoing Testing';
+  return 'Active Beta Testing';
 }
 
 function timelineStageOptions(platform,current){
   const labels=platform==='iOS'
-    ? {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'TestFlight Invitation Sent',activeTesting:'Ongoing Testing'}
+    ? {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'TestFlight Invitation Sent',activeTesting:'Active Beta Testing'}
     : platform==='Android'
-      ? {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'Google Play Testing Link Sent',activeTesting:'Ongoing Testing'}
-      : {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'Testing Access Sent',activeTesting:'Ongoing Testing'};
+      ? {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'Google Play Testing Link Sent',activeTesting:'Active Beta Testing'}
+      : {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'Testing Access Sent',activeTesting:'Active Beta Testing'};
   const normalized=normalizeTimelineStage(current);
   return TIMELINE_STAGES.map(stage=>`<option value="${stage}"${stage===normalized?' selected':''}>${esc(labels[stage])}</option>`).join('');
 }
@@ -529,7 +559,7 @@ async function loadMetrics(force=false){
     countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),where('recordType','==','Task'))).catch(async()=>{
       // Legacy assignments created before recordType was standardized are uncommon. Only
       // use the bounded document fallback if the compound count query is unavailable.
-      const fallback=await getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)));
+      const fallback=await getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)),'metrics fallback: pending assignments');
       return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
     })
   ]);
@@ -543,14 +573,14 @@ async function loadRecent(){
   // duplicate five-row collection queries every time Overview refreshes. Only use a
   // bounded fallback if a realtime listener could not be attached.
   const jobs=[];
-  if(!applicationRealtimeUnsubscribe)jobs.push(getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(5))).then(snap=>{state.recentApplications=snap.docs.map(normalizeDoc);}));
-  if(!feedbackRealtimeUnsubscribe)jobs.push(getDocs(query(collection(db,'betaFeedback'),orderBy('updatedAt','desc'),limit(5))).then(snap=>{state.recentFeedback=snap.docs.map(normalizeDoc);}));
+  if(!applicationRealtimeUnsubscribe)jobs.push(getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(5)),'overview fallback: applications').then(snap=>{state.recentApplications=snap.docs.map(normalizeDoc);}));
+  if(!feedbackRealtimeUnsubscribe)jobs.push(getDocs(query(collection(db,'betaFeedback'),orderBy('updatedAt','desc'),limit(5)),'overview fallback: feedback').then(snap=>{state.recentFeedback=snap.docs.map(normalizeDoc);}));
   if(jobs.length)await Promise.all(jobs);
 }
 async function loadOverview(forceMetrics=false){await Promise.all([loadMetrics(forceMetrics),loadRecent()]);renderMetrics();renderOverview();}
 async function loadApplications(force=false){
   if(state.loaded.applications&&!force){renderApplications();return;}
-  const snap=await getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(100)));
+  const snap=await getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(100)),'workspace: applications (100)');
   state.applications=snap.docs.map(normalizeDoc);state.loaded.applications=true;renderApplications();
 }
 async function repairMissingAndroidInviteUrls(testers=state.testers){
@@ -570,7 +600,7 @@ async function repairMissingAndroidInviteUrls(testers=state.testers){
 }
 async function loadTesters(force=false){
   if(state.loaded.testers&&!force){renderTesters();return;}
-  const snap=await getDocs(query(collection(db,'betaUsers'),orderBy('createdAt','desc'),limit(100)));
+  const snap=await getDocs(query(collection(db,'betaUsers'),orderBy('createdAt','desc'),limit(100)),'workspace: testers (100)');
   state.testers=snap.docs.map(s=>({uid:s.id,...s.data()}));state.loaded.testers=true;
   try{await repairMissingAndroidInviteUrls(state.testers);}catch(error){console.warn('Could not repair missing Android testing links:',error);}
   renderTesters();
@@ -578,17 +608,23 @@ async function loadTesters(force=false){
 }
 async function loadFeedback(force=false){
   if(state.loaded.feedback&&!force){renderFeedback();return;}
-  const [snap,notesSnap]=await Promise.all([
-    getDocs(query(collection(db,'betaFeedback'),orderBy('submittedAt','desc'),limit(100))),
-    getDocs(query(collection(db,'betaFeedbackAdmin'),limit(500)))
-  ]);
-  const privateNotes=new Map(notesSnap.docs.map(d=>[d.id,String(d.data().adminNotes||'')]));
+  // Build 179 Firestore efficiency: the workspace reads only the 100 ticket documents. Private admin notes live in
+  // betaFeedbackAdmin and are fetched for ONE ticket when its drawer opens (ensureFeedbackNotesLoaded), instead of
+  // reading up to 500 note documents every time the workspace loads. Only legacy tickets that still carry a note in
+  // the tester-readable document need their private document checked (to migrate without overwriting).
+  const snap=await getDocs(query(collection(db,'betaFeedback'),orderBy('submittedAt','desc'),limit(100)),'workspace: feedback (100)');
   const raw=snap.docs.map(normalizeDoc);
+  const previous=new Map(state.feedback.map(f=>[f.id,f]));
+  const privateNotes=new Map();
 
   // Build 67 privacy migration: legacy private notes are copied to the admin-only
   // collection and the tester-readable betaFeedback.adminNotes field is cleared.
   const legacy=raw.filter(f=>String(f.adminNotes||'').length>0);
   if(legacy.length){
+    await Promise.all(legacy.map(async f=>{
+      const existing=await getDoc(doc(db,'betaFeedbackAdmin',f.id),'legacy note check');
+      if(existing.exists())privateNotes.set(f.id,String(existing.data().adminNotes||''));
+    }));
     const batch=writeBatch(db);
     legacy.forEach(f=>{
       const legacyNote=String(f.adminNotes||'');
@@ -606,9 +642,22 @@ async function loadFeedback(force=false){
     await batch.commit();
   }
 
-  state.feedback=raw.map(f=>({...f,adminNotes:privateNotes.has(f.id)?privateNotes.get(f.id):''}));
+  state.feedback=raw.map(f=>{
+    const known=privateNotes.has(f.id);const prev=previous.get(f.id);const prevLoaded=!!(prev&&prev.adminNotesLoaded===true);
+    return {...f,adminNotes:known?privateNotes.get(f.id):(prevLoaded?String(prev.adminNotes||''):''),adminNotesLoaded:known||prevLoaded};
+  });
   state.loaded.feedback=true;renderFeedback();
   startFeedbackRealtimeAdmin();
+}
+
+// Fetches one ticket's private admin note (1 read) the first time it is needed. Never overwrites a note that is already known.
+async function ensureFeedbackNotesLoaded(f){
+  if(!f||!f.id||f.adminNotesLoaded===true)return f;
+  const snap=await getDoc(doc(db,'betaFeedbackAdmin',f.id),'private note (one ticket)');
+  f.adminNotes=snap.exists()?String(snap.data().adminNotes||''):'';
+  f.adminNotesLoaded=true;
+  const inWorkspace=state.feedback.find(x=>x.id===f.id);if(inWorkspace&&inWorkspace!==f){inWorkspace.adminNotes=f.adminNotes;inWorkspace.adminNotesLoaded=true;}
+  return f;
 }
 
 function syncOpenAdminFeedbackState(f){
@@ -630,6 +679,7 @@ function startFeedbackRealtimeAdmin(){
   const q=query(collection(db,'betaFeedback'),orderBy('updatedAt','desc'),limit(ADMIN_FEEDBACK_REALTIME_LIMIT));
   feedbackRealtimeUnsubscribe=onSnapshot(q,snap=>{
     const firstLoad=!feedbackRealtimeReady;
+    readMeter.add(firstLoad?'live: feedback (initial)':'live: feedback (changes)',firstLoad?snap.docs.length:snap.docChanges().length);
     const incoming=snap.docs.map(normalizeDoc);
     const privateNotes=new Map(state.feedback.map(f=>[f.id,String(f.adminNotes||'')]));
     state.recentFeedback=incoming.slice(0,5).map(f=>({...f,adminNotes:privateNotes.get(f.id)||''}));
@@ -685,8 +735,8 @@ function startFeedbackRealtimeAdmin(){
 async function loadTasks(force=false){
   if(state.loaded.tasks&&!force){renderTasks();renderTaskRecipientPicker();return;}
   const [taskSnap,assignmentSnap]=await Promise.all([
-    getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100))),
-    getDocs(query(collection(db,'betaTaskAssignments'),limit(500)))
+    getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100)),'workspace: tasks (100)'),
+    getDocs(query(collection(db,'betaTaskAssignments'),limit(500)),'workspace: task assignments (up to 500)')
   ]);
   state.tasks=taskSnap.docs.map(normalizeDoc);
   state.taskAssignments=assignmentSnap.docs.map(normalizeDoc);
@@ -1112,7 +1162,7 @@ async function sendAndroidTestingInvite(t,url){
       emailTemplateVersion:'android-beta-access-v3'
     });
     const currentStage=normalizeTimelineStage(t.timelineStage);
-    const nextStage=timelineStageRank(currentStage)<timelineStageRank('activeTesting')?'activeTesting':currentStage;
+    const nextStage=timelineStageRank(currentStage)<timelineStageRank('inviteSent')?'inviteSent':currentStage;
     const sendCount=(Number(t.androidTestingInviteSendCount)||0)+1;
     try{
       await updateDoc(doc(db,'betaUsers',t.uid),{androidTestingInviteUrl:url,androidTestingInviteSentAt:serverTimestamp(),androidTestingInviteEmailStatus:'Sent',androidTestingInviteSendCount:sendCount,timelineStage:nextStage,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()});
@@ -1145,15 +1195,10 @@ async function setTesterTimelineStage(t,stage){
     renderTesters();
     return {emailSent:true,emailFailed:false,emailError:''};
   }
-  // Releasing testing access is the handoff into ongoing beta testing. Keep the
-  // legacy inviteSent stage available for manual historical correction, but any
-  // real iOS/other access-send action advances directly to activeTesting.
-  const releasedAccess=normalized==='inviteSent';
-  const persistedStage=releasedAccess?'activeTesting':normalized;
-  await updateDoc(doc(db,'betaUsers',t.uid),{timelineStage:persistedStage,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()});
-  t.timelineStage=persistedStage;t.timelineUpdatedAt=new Date();t.updatedAt=new Date();
+  await updateDoc(doc(db,'betaUsers',t.uid),{timelineStage:normalized,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()});
+  t.timelineStage=normalized;t.timelineUpdatedAt=new Date();t.updatedAt=new Date();
   let emailSent=false,emailFailed=false,emailError='';
-  if(releasedAccess&&timelineStageRank(previous)<timelineStageRank('activeTesting')){
+  if(normalized==='inviteSent'&&previous!=='inviteSent'){
     try{await sendTestingAccessSentNotification(t);emailSent=true;}
     catch(error){emailFailed=true;emailError=friendlyFirebaseError(error);console.warn('Testing access sent email failed:',error);}
   }
@@ -1180,8 +1225,8 @@ async function bulkSetTimelineStage(stage){
       const result=await sendAndroidTestingInvites(android,url);emailSent+=result.sent;emailFailed+=result.failed;emailErrors.push(...result.errors);
     }
     if(other.length){
-      const releasedStage='activeTesting';const batch=writeBatch(db);other.forEach(t=>batch.update(doc(db,'betaUsers',t.uid),{timelineStage:releasedStage,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()}));await batch.commit();
-      const now=new Date();other.forEach(t=>{t.timelineStage=releasedStage;t.timelineUpdatedAt=now;t.updatedAt=now;});
+      const batch=writeBatch(db);other.forEach(t=>batch.update(doc(db,'betaUsers',t.uid),{timelineStage:normalized,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()}));await batch.commit();
+      const now=new Date();other.forEach(t=>{t.timelineStage=normalized;t.timelineUpdatedAt=now;t.updatedAt=now;});
       for(const t of other){try{await sendTestingAccessSentNotification(t);emailSent++;}catch(error){emailFailed++;emailErrors.push(friendlyFirebaseError(error));}}
     }
     selectedTimelineTesters.clear();renderTesters();
@@ -1579,6 +1624,7 @@ function subscribeAdminConversationMessages(feedbackId){
   list.innerHTML='<div class="admin-empty-inline">Connecting live conversation…</div>';
   adminConversationMessageCount=0;
   adminConversationUnsubscribe=onSnapshot(query(collection(db,'betaFeedback',feedbackId,'messages'),orderBy('createdAt','asc')),snap=>{
+    readMeter.add('live: open conversation messages',snap.docChanges().length);
     if(activeDrawerFeedbackId!==feedbackId)return;
     const rows=snap.docs.map(normalizeDoc);
     const animate=adminConversationMessageCount>0&&rows.length>adminConversationMessageCount;
@@ -1599,15 +1645,26 @@ function openFeedbackRecord(f){
   const supportEmailAction=support?`<div class="admin-support-identity-action"><button class="admin-secondary-button" data-feedback-change-email="${esc(f.id)}" type="button">Change Beta Email</button><span>${f.supportAccountEmail?'The corrected email from this ticket will be prefilled for verification.':'Use this when the tester supplied a corrected Apple Account or Google Play email.'}</span></div>`:'';
   const closed=adminConversationIsClosed(f);
   const replyArea=closed?`<div class="admin-conversation-closed"><div><strong>This conversation is closed.</strong><span>The tester can review the history, but messaging is disabled until you reopen it.</span></div><button class="admin-primary-button" data-reopen-feedback="${esc(f.id)}" type="button">Reopen Conversation</button></div>`:`<div class="admin-conversation-reply"><label class="admin-detail-label" for="drawerConversationReply">Reply to tester</label><textarea id="drawerConversationReply" class="admin-detail-textarea" maxlength="5000" placeholder="Write a reply…"></textarea><button class="admin-primary-button" data-send-conversation-reply="${esc(f.id)}" type="button">Send Reply</button></div>`;
-  openDrawer(support?'Support Conversation':'Tester Feedback',f.subject,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-feedback-type-chip">${esc(f.type)}</span><span class="admin-platform-pill">${esc(f.platform)}</span><span class="admin-subtle-chip">Tester sees: ${esc(publicStatus)}</span></div>${details}${supportEmailAction}${originalBlock}${retestBlock}<section class="admin-conversation-section"><div class="admin-feedback-section-head"><div><span>Conversation</span><strong>Replies <span class="admin-live-conversation"><i aria-hidden="true"></i> Live</span></strong></div></div><div class="admin-conversation-thread" id="drawerConversationThread"><div class="admin-empty-inline">Loading replies…</div></div>${replyArea}</section><div class="beta-field"><label for="drawerFeedbackStatus">Status</label><select id="drawerFeedbackStatus" class="admin-detail-select">${feedbackWorkflowOptions(f)}</select></div><div><label class="admin-detail-label" for="drawerFeedbackNotes">Private admin notes</label><textarea id="drawerFeedbackNotes" class="admin-detail-textarea" placeholder="Internal notes only administrators can see…">${esc(f.adminNotes||'')}</textarea></div><button class="admin-primary-button" data-save-feedback="${esc(f.id)}" type="button">Save Status &amp; Notes</button><div class="admin-feedback-delete-zone"><div><strong>Delete conversation</strong><span>Permanently removes this Help &amp; Feedback item, all replies, and its private admin notes. The tester account and beta application are not deleted.</span></div><button class="admin-action-button danger-soft" data-delete-feedback="${esc(f.id)}" type="button">Delete Conversation</button></div></div>`);
+  openDrawer(support?'Support Conversation':'Tester Feedback',f.subject,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-feedback-type-chip">${esc(f.type)}</span><span class="admin-platform-pill">${esc(f.platform)}</span><span class="admin-subtle-chip">Tester sees: ${esc(publicStatus)}</span></div>${details}${supportEmailAction}${originalBlock}${retestBlock}<section class="admin-conversation-section"><div class="admin-feedback-section-head"><div><span>Conversation</span><strong>Replies <span class="admin-live-conversation"><i aria-hidden="true"></i> Live</span></strong></div></div><div class="admin-conversation-thread" id="drawerConversationThread"><div class="admin-empty-inline">Loading replies…</div></div>${replyArea}</section><div class="beta-field"><label for="drawerFeedbackStatus">Status</label><select id="drawerFeedbackStatus" class="admin-detail-select">${feedbackWorkflowOptions(f)}</select></div><div><label class="admin-detail-label" for="drawerFeedbackNotes">Private admin notes</label><textarea id="drawerFeedbackNotes" class="admin-detail-textarea" placeholder="${f.adminNotesLoaded===true?'Internal notes only administrators can see…':'Loading private notes…'}"${f.adminNotesLoaded===true?'':' disabled'}>${esc(f.adminNotes||'')}</textarea></div><button class="admin-primary-button" data-save-feedback="${esc(f.id)}" type="button">Save Status &amp; Notes</button><div class="admin-feedback-delete-zone"><div><strong>Delete conversation</strong><span>Permanently removes this Help &amp; Feedback item, all replies, and its private admin notes. The tester account and beta application are not deleted.</span></div><button class="admin-action-button danger-soft" data-delete-feedback="${esc(f.id)}" type="button">Delete Conversation</button></div></div>`);
   subscribeAdminConversationMessages(f.id);
+  if(f.adminNotesLoaded!==true){
+    ensureFeedbackNotesLoaded(f).then(()=>{
+      if(activeDrawerFeedbackId!==f.id)return;
+      const box=document.getElementById('drawerFeedbackNotes');
+      if(box&&box.disabled){box.value=f.adminNotes||'';box.disabled=false;box.placeholder='Internal notes only administrators can see…';}
+    }).catch(error=>{
+      console.warn('Could not load the private note for this ticket:',error);
+      const box=document.getElementById('drawerFeedbackNotes');
+      if(box)box.placeholder='Private notes could not be loaded. Close and reopen this ticket to retry. Saving will not change the note.';
+    });
+  }
 }
 
 async function deleteFeedbackConversation(f){
   if(!f||!f.id)throw new Error('Conversation could not be found.');
   if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}
   adminConversationMessageCount=0;
-  const messageSnap=await getDocs(collection(db,'betaFeedback',f.id,'messages'));
+  const messageSnap=await getDocs(collection(db,'betaFeedback',f.id,'messages'),'delete conversation: messages');
   const refs=messageSnap.docs.map(d=>d.ref);
   refs.push(doc(db,'betaFeedbackAdmin',f.id));
   refs.push(doc(db,'betaFeedback',f.id));
@@ -1787,14 +1844,17 @@ async function callWorkerAdminAction(type,payload={}){
   }finally{clearTimeout(timer);}
 }
 async function refreshApplicationAdminData(options={}){
+  // Build 179: only the 'delete' action cascades into task assignments on the server. Every other action changes just the
+  // application and tester records, so the cached assignments (up to 500 reads) stay valid.
+  const assignmentsChanged=options.assignmentsChanged!==false;
   state.loaded.applications=false;
   state.loaded.testers=false;
-  state.loaded.tasks=false;
+  if(assignmentsChanged)state.loaded.tasks=false;
   const previousSuppress=suppressBetaProductionAutoRefresh;
   if(options.skipBetaMapping)suppressBetaProductionAutoRefresh=true;
   try{
     const refreshes=[loadApplications(true),loadTesters(true)];
-    if(['testers','tasks','announcements'].includes(activeView))refreshes.push(loadTasks(true));
+    if(assignmentsChanged&&['testers','tasks','announcements'].includes(activeView))refreshes.push(loadTasks(true));
     await Promise.all(refreshes);
   }finally{suppressBetaProductionAutoRefresh=previousSuppress;}
   await loadOverview(true);
@@ -1807,7 +1867,7 @@ async function refreshApplicationAdminData(options={}){
 async function runApplicationAdminAction(a,action){
   const result=await callWorkerAdminAction('admin-application-action',{applicationId:a.id,action});
   const changesEligibility=['approve','waitlist','decline','inactive','active','delete'].includes(action);
-  await refreshApplicationAdminData({skipBetaMapping:changesEligibility});
+  await refreshApplicationAdminData({skipBetaMapping:changesEligibility,assignmentsChanged:action==='delete'});
   if(changesEligibility){
     const betaSync=await syncBetaProgramAfterTesterMutation();
     if(betaSync&&betaSync.error)result.betaSyncError=betaSync.error;
@@ -1827,11 +1887,11 @@ async function markLinkedApplicationsRemoved(t){
   const email=String(t?.email||'').trim().toLowerCase();
   const matches=new Map();
   if(uid){
-    const byUid=await getDocs(query(collection(db,'betaApplications'),where('testerUid','==',uid),limit(100)));
+    const byUid=await getDocs(query(collection(db,'betaApplications'),where('testerUid','==',uid),limit(100)),'lookup: applications by tester uid');
     byUid.docs.forEach(d=>matches.set(d.id,d));
   }
   if(email){
-    const byEmail=await getDocs(query(collection(db,'betaApplications'),where('email','==',email),limit(100)));
+    const byEmail=await getDocs(query(collection(db,'betaApplications'),where('email','==',email),limit(100)),'lookup: applications by email');
     byEmail.docs.forEach(d=>matches.set(d.id,d));
   }
   if(!matches.size)return 0;
@@ -2054,18 +2114,18 @@ document.addEventListener('click',async e=>{
   const deleteFeedbackBtn=e.target.closest('[data-delete-feedback]');if(deleteFeedbackBtn){const f=await ensureFeedbackLoaded(deleteFeedbackBtn.dataset.deleteFeedback);if(!f)return;const label=isSupportConversation(f)?'support conversation':'feedback conversation';if(!(await confirmAction(`Permanently delete this ${label}? All replies and private admin notes will also be deleted. The tester account and beta application will remain. This cannot be undone.`,'danger')))return;deleteFeedbackBtn.disabled=true;const original=deleteFeedbackBtn.textContent;deleteFeedbackBtn.textContent='Deleting…';try{await deleteFeedbackConversation(f);closeDrawer();showToast('Conversation deleted.');}catch(err){showToast(friendlyFirebaseError(err),'error');deleteFeedbackBtn.disabled=false;deleteFeedbackBtn.textContent=original;}return;}
   const convoReply=e.target.closest('[data-send-conversation-reply]');if(convoReply){const f=await ensureFeedbackLoaded(convoReply.dataset.sendConversationReply);if(!f)return;if(adminConversationIsClosed(f)){showToast('Reopen this conversation before replying.','error');openFeedbackRecord(f);return;}const input=document.getElementById('drawerConversationReply');const body=String(input?.value||'').trim();if(!body){showToast('Write a reply before sending.','error');return;}convoReply.disabled=true;const original=convoReply.textContent;convoReply.textContent='Sending…';try{const ref=await addDoc(collection(db,'betaFeedback',f.id,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',body,createdAt:serverTimestamp()});const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Admin',updatedAt:serverTimestamp()};if(isSupportConversation(f))update.status='Waiting for Tester';await updateDoc(doc(db,'betaFeedback',f.id),update);f.lastMessageAt=new Date();f.lastMessageBy='Admin';f.updatedAt=new Date();if(isSupportConversation(f))f.status='Waiting for Tester';let emailFailed=false;try{await callWorkerAdminAction('conversation-reply-added',{feedbackId:f.id,messageId:ref.id});}catch(emailErr){emailFailed=true;console.warn('Conversation reply email failed:',emailErr);}if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}renderFeedback();syncOpenAdminFeedbackState(f);showToast(emailFailed?'Reply saved, but the tester email could not be sent.':'Reply sent to tester.',emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{convoReply.disabled=false;convoReply.textContent=original;}return;}
   const fbSave=e.target.closest('[data-save-feedback]');if(fbSave){
-    const f=await ensureFeedbackLoaded(fbSave.dataset.saveFeedback);if(!f)return;const status=String(document.getElementById('drawerFeedbackStatus').value||'').trim();const notes=document.getElementById('drawerFeedbackNotes').value;const support=isSupportConversation(f);const oldStatus=canonicalFeedbackStatus(f.status);const oldPublic=testerFacingFeedbackStatus(f);
+    const f=await ensureFeedbackLoaded(fbSave.dataset.saveFeedback);if(!f)return;const status=String(document.getElementById('drawerFeedbackStatus').value||'').trim();const notesBox=document.getElementById('drawerFeedbackNotes');const notesEditable=!!notesBox&&!notesBox.disabled;const notes=notesBox?notesBox.value:'';const support=isSupportConversation(f);const oldStatus=canonicalFeedbackStatus(f.status);const oldPublic=testerFacingFeedbackStatus(f);
     try{
       if(support&&!SUPPORT_WORKFLOW.includes(status))throw new Error('Choose a valid support status.');if(!support&&!FEEDBACK_WORKFLOW.includes(status))throw new Error('Choose a valid feedback status.');
       const enteringRetest=!support&&status==='Needs Retest'&&oldStatus!=='Needs Retest';
       const update={status,adminNotes:'',updatedAt:serverTimestamp()};
       if(enteringRetest){update.lastMessageAt=serverTimestamp();update.lastMessageBy='Admin';if(f.retestedAt){update.retestedAt=null;update.retestResult='';update.retestNotes='';}}
-      const batch=writeBatch(db);batch.update(doc(db,'betaFeedback',f.id),update);batch.set(doc(db,'betaFeedbackAdmin',f.id),{feedbackId:f.id,adminNotes:notes,updatedAt:serverTimestamp(),updatedBy:adminEmail},{merge:true});
+      const batch=writeBatch(db);batch.update(doc(db,'betaFeedback',f.id),update);if(notesEditable)batch.set(doc(db,'betaFeedbackAdmin',f.id),{feedbackId:f.id,adminNotes:notes,updatedAt:serverTimestamp(),updatedBy:adminEmail},{merge:true});
       if(enteringRetest){const messageRef=doc(collection(db,'betaFeedback',f.id,'messages'));batch.set(messageRef,{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',eventType:'retest-request',body:'RebataTrack has requested a retest for this issue. Please test the latest fix and submit your retest result.',createdAt:serverTimestamp()});}
       await batch.commit();
-      f.status=status;f.adminNotes=notes;f.updatedAt=new Date();if(enteringRetest){f.lastMessageAt=new Date();f.lastMessageBy='Admin';if('retestedAt' in update){f.retestedAt=null;f.retestResult='';f.retestNotes='';}}
+      f.status=status;if(notesEditable){f.adminNotes=notes;f.adminNotesLoaded=true;}f.updatedAt=new Date();if(enteringRetest){f.lastMessageAt=new Date();f.lastMessageBy='Admin';if('retestedAt' in update){f.retestedAt=null;f.retestResult='';f.retestNotes='';}}
       const newPublic=testerFacingFeedbackStatus(f);let emailFailed=false;if(newPublic!==oldPublic){const meaningful=support?['Waiting for you','Resolved'].includes(newPublic):['Reviewing','Fix in progress','Needs retest','Resolved'].includes(newPublic);if(meaningful){try{await callWorkerAdminAction('feedback-status-update',{feedbackId:f.id});}catch(emailErr){emailFailed=true;console.warn('Conversation status email failed:',emailErr);}}}
-      state.loaded.feedback=false;await loadFeedback(true);await loadMetrics();renderMetrics();renderOverview();if(state.loaded.testers)renderTesters();const base=enteringRetest?'Feedback updated. A retest request was added to the tester conversation.':support?'Support conversation updated.':'Feedback updated.';showToast(emailFailed?base+' The status was saved, but the tester email could not be sent.':base,emailFailed?'error':'success');const fresh=state.feedback.find(x=>x.id===f.id)||f;openFeedbackRecord(fresh);
+      if(state.loaded.feedback){const cached=state.feedback.find(x=>x.id===f.id);if(cached&&cached!==f){cached.status=f.status;cached.updatedAt=f.updatedAt;if(notesEditable){cached.adminNotes=f.adminNotes;cached.adminNotesLoaded=true;}if('lastMessageAt' in f)cached.lastMessageAt=f.lastMessageAt;if('lastMessageBy' in f)cached.lastMessageBy=f.lastMessageBy;if('retestedAt' in f)cached.retestedAt=f.retestedAt;}renderFeedback();}await loadMetrics();renderMetrics();renderOverview();if(state.loaded.testers)renderTesters();const base=enteringRetest?'Feedback updated. A retest request was added to the tester conversation.':support?'Support conversation updated.':'Feedback updated.';showToast(emailFailed?base+' The status was saved, but the tester email could not be sent.':base,emailFailed?'error':'success');const fresh=state.feedback.find(x=>x.id===f.id)||f;openFeedbackRecord(fresh);
     }catch(err){showToast(friendlyFirebaseError(err),'error');}return;
   }
   const emailSave=e.target.closest('[data-save-email-worker]');if(emailSave){emailSave.disabled=true;const original=emailSave.textContent;emailSave.textContent='Saving…';try{await saveEmailServiceSettings();showToast('Cloudflare email service connected.');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{emailSave.disabled=false;emailSave.textContent=original;}return;}
