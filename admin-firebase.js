@@ -203,15 +203,15 @@ function timelineStageLabel(value,platform=''){
   if(stage==='approved')return 'Testing Setup Required';
   if(stage==='setupComplete')return 'Testing Setup Complete';
   if(stage==='inviteSent')return platform==='iOS'?'TestFlight Invite Sent':platform==='Android'?'Testing Link Sent':'Testing Access Sent';
-  return 'Active Beta Testing';
+  return 'Ongoing Testing';
 }
 
 function timelineStageOptions(platform,current){
   const labels=platform==='iOS'
-    ? {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'TestFlight Invitation Sent',activeTesting:'Active Beta Testing'}
+    ? {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'TestFlight Invitation Sent',activeTesting:'Ongoing Testing'}
     : platform==='Android'
-      ? {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'Google Play Testing Link Sent',activeTesting:'Active Beta Testing'}
-      : {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'Testing Access Sent',activeTesting:'Active Beta Testing'};
+      ? {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'Google Play Testing Link Sent',activeTesting:'Ongoing Testing'}
+      : {approved:'Testing Setup Required',setupComplete:'Testing Setup Complete',inviteSent:'Testing Access Sent',activeTesting:'Ongoing Testing'};
   const normalized=normalizeTimelineStage(current);
   return TIMELINE_STAGES.map(stage=>`<option value="${stage}"${stage===normalized?' selected':''}>${esc(labels[stage])}</option>`).join('');
 }
@@ -1112,7 +1112,7 @@ async function sendAndroidTestingInvite(t,url){
       emailTemplateVersion:'android-beta-access-v3'
     });
     const currentStage=normalizeTimelineStage(t.timelineStage);
-    const nextStage=timelineStageRank(currentStage)<timelineStageRank('inviteSent')?'inviteSent':currentStage;
+    const nextStage=timelineStageRank(currentStage)<timelineStageRank('activeTesting')?'activeTesting':currentStage;
     const sendCount=(Number(t.androidTestingInviteSendCount)||0)+1;
     try{
       await updateDoc(doc(db,'betaUsers',t.uid),{androidTestingInviteUrl:url,androidTestingInviteSentAt:serverTimestamp(),androidTestingInviteEmailStatus:'Sent',androidTestingInviteSendCount:sendCount,timelineStage:nextStage,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()});
@@ -1145,10 +1145,15 @@ async function setTesterTimelineStage(t,stage){
     renderTesters();
     return {emailSent:true,emailFailed:false,emailError:''};
   }
-  await updateDoc(doc(db,'betaUsers',t.uid),{timelineStage:normalized,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()});
-  t.timelineStage=normalized;t.timelineUpdatedAt=new Date();t.updatedAt=new Date();
+  // Releasing testing access is the handoff into ongoing beta testing. Keep the
+  // legacy inviteSent stage available for manual historical correction, but any
+  // real iOS/other access-send action advances directly to activeTesting.
+  const releasedAccess=normalized==='inviteSent';
+  const persistedStage=releasedAccess?'activeTesting':normalized;
+  await updateDoc(doc(db,'betaUsers',t.uid),{timelineStage:persistedStage,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()});
+  t.timelineStage=persistedStage;t.timelineUpdatedAt=new Date();t.updatedAt=new Date();
   let emailSent=false,emailFailed=false,emailError='';
-  if(normalized==='inviteSent'&&previous!=='inviteSent'){
+  if(releasedAccess&&timelineStageRank(previous)<timelineStageRank('activeTesting')){
     try{await sendTestingAccessSentNotification(t);emailSent=true;}
     catch(error){emailFailed=true;emailError=friendlyFirebaseError(error);console.warn('Testing access sent email failed:',error);}
   }
@@ -1175,8 +1180,8 @@ async function bulkSetTimelineStage(stage){
       const result=await sendAndroidTestingInvites(android,url);emailSent+=result.sent;emailFailed+=result.failed;emailErrors.push(...result.errors);
     }
     if(other.length){
-      const batch=writeBatch(db);other.forEach(t=>batch.update(doc(db,'betaUsers',t.uid),{timelineStage:normalized,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()}));await batch.commit();
-      const now=new Date();other.forEach(t=>{t.timelineStage=normalized;t.timelineUpdatedAt=now;t.updatedAt=now;});
+      const releasedStage='activeTesting';const batch=writeBatch(db);other.forEach(t=>batch.update(doc(db,'betaUsers',t.uid),{timelineStage:releasedStage,timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()}));await batch.commit();
+      const now=new Date();other.forEach(t=>{t.timelineStage=releasedStage;t.timelineUpdatedAt=now;t.updatedAt=now;});
       for(const t of other){try{await sendTestingAccessSentNotification(t);emailSent++;}catch(error){emailFailed++;emailErrors.push(friendlyFirebaseError(error));}}
     }
     selectedTimelineTesters.clear();renderTesters();

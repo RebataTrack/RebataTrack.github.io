@@ -523,7 +523,7 @@ function timelineStep(number,status,title,body,actionHtml=''){
     title==='Watch for your RebataTrack TestFlight invitation'||
     title==='Prepare your Android phone & watch for testing access'
   );
-  const statusLabel=isInvitationWait?'Waiting':({complete:'Completed',now:'Action Needed',waiting:'Upcoming',next:'Upcoming',ongoing:'In Progress'}[status]||status);
+  const statusLabel=isInvitationWait?'Waiting':({complete:'Completed',now:'Action Needed',waiting:'Upcoming',next:'Upcoming',ongoing:'Ongoing Testing'}[status]||status);
   const marker=status==='complete'
     ? `<span class="portal-timeline-complete-marker" aria-label="Step ${number} completed"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12.5 4.2 4.2L19 7"/></svg></span>`
     : `<span>${number}</span>`;
@@ -635,7 +635,7 @@ function renderProgramTimeline(profile){
     else if(!setupDone){visuals=['complete','complete','now','waiting','waiting'];currentLabel='Testing Setup Required';}
     else if(stage==='approved'||stage==='setupComplete'){visuals=['complete','complete','complete','now','waiting'];currentLabel='Waiting for TestFlight Invitation';}
     else if(stage==='inviteSent'){visuals=['complete','complete','complete','complete','now'];currentLabel='TestFlight Invitation Sent';}
-    else{visuals=['complete','complete','complete','complete','ongoing'];currentLabel='Active Beta Testing';}
+    else{visuals=['complete','complete','complete','complete','ongoing'];currentLabel='Ongoing Testing';}
   }else{
     content=[
       ['Approved for the RebataTrack Beta Program','Your application is approved and your private Beta Portal access is active.',''],
@@ -646,7 +646,7 @@ function renderProgramTimeline(profile){
     if(!setupDone){visuals=['complete','now','waiting','waiting'];currentLabel='Testing Setup Required';}
     else if(stage==='approved'||stage==='setupComplete'){visuals=['complete','complete','now','waiting'];currentLabel='Waiting for Testing Access';}
     else if(stage==='inviteSent'){visuals=['complete','complete','complete','now'];currentLabel='Google Play Testing Link Sent';}
-    else{visuals=['complete','complete','complete','ongoing'];currentLabel='Active Beta Testing';}
+    else{visuals=['complete','complete','complete','ongoing'];currentLabel='Ongoing Testing';}
   }
   timeline.innerHTML=content.map((item,index)=>timelineStep(index+1,visuals[index],item[0],item[1],item[2])).join('');
   bindTestFlightButtons(timeline);
