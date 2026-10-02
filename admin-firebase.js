@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 180
+// RebataTrack Admin Portal — Website Build 181
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1200,6 +1200,7 @@ async function setTesterTimelineStage(t,stage){
   if(t.platform==='Android'&&normalized==='inviteSent'){
     const url=await resolveAndroidInviteUrlForSend();
     await sendAndroidTestingInvite(t,url);
+    await reconcileMatchedTesterTimelines();
     renderTesters();
     return {emailSent:true,emailFailed:false,emailError:''};
   }
@@ -1210,6 +1211,7 @@ async function setTesterTimelineStage(t,stage){
     try{await sendTestingAccessSentNotification(t);emailSent=true;}
     catch(error){emailFailed=true;emailError=friendlyFirebaseError(error);console.warn('Testing access sent email failed:',error);}
   }
+  if(normalized==='inviteSent')await reconcileMatchedTesterTimelines();
   renderTesters();return {emailSent,emailFailed,emailError};
 }
 async function bulkSetTimelineStage(stage){
@@ -1237,6 +1239,7 @@ async function bulkSetTimelineStage(stage){
       const now=new Date();other.forEach(t=>{t.timelineStage=normalized;t.timelineUpdatedAt=now;t.updatedAt=now;});
       for(const t of other){try{await sendTestingAccessSentNotification(t);emailSent++;}catch(error){emailFailed++;emailErrors.push(friendlyFirebaseError(error));}}
     }
+    await reconcileMatchedTesterTimelines();
     selectedTimelineTesters.clear();renderTesters();
     return {cancelled:false,count:selected.length,emailSent,emailFailed,emailErrors};
   }
@@ -1755,12 +1758,33 @@ async function loadBetaProgramSettings(){
 function eligibleBetaTesterPayload(){
   return state.testers.filter(t=>t&&t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status)&&String(t.email||'').trim()).map(t=>({betaUid:t.uid,email:String(t.email||'').trim().toLowerCase(),name:t.name||'',platform:t.platform||''}));
 }
+async function reconcileMatchedTesterTimelines(){
+  // Build 181: testing access being sent is NOT enough to begin active testing.
+  // Promote only testers whose access has already been released AND whose approved
+  // Beta profile is now matched to a Production RebataTrack account (exact email or
+  // an Admin-confirmed manual link). Never move an active tester backward here.
+  const candidates=(state.testers||[]).filter(t=>{
+    if(!t||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))return false;
+    if(normalizeTimelineStage(t.timelineStage)!=='inviteSent')return false;
+    const email=String(t.email||'').trim().toLowerCase();
+    const mapping=betaProductionMapping.get(email);
+    return !!(mapping&&mapping.matched===true);
+  });
+  if(!candidates.length)return 0;
+  const batch=writeBatch(db);
+  candidates.forEach(t=>batch.update(doc(db,'betaUsers',t.uid),{timelineStage:'activeTesting',timelineUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()}));
+  await batch.commit();
+  const now=new Date();
+  candidates.forEach(t=>{t.timelineStage='activeTesting';t.timelineUpdatedAt=now;t.updatedAt=now;});
+  return candidates.length;
+}
 async function refreshBetaProductionMapping(){
   const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.call!=='function'||!betaProgramEndDate)return;
   const testers=eligibleBetaTesterPayload();
   try{
     const result=await bridge.call('beta-program-status',{testers});
     betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));
+    await reconcileMatchedTesterTimelines();
     renderTesters();
     renderTaskRecipientPicker();
   }
@@ -1775,6 +1799,7 @@ async function syncBetaProgramAfterTesterMutation(){
   try{
     const result=await bridge.call('beta-program-configure',{endDate:dateText,endsAt:endIso,testers});
     betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));
+    await reconcileMatchedTesterTimelines();
     renderTesters();
     return result;
   }catch(error){
@@ -1791,7 +1816,7 @@ async function saveAndSyncBetaProgram(){
   try{
     await setDoc(doc(db,'betaSystem','programSettings'),{betaProgramEndDate:dateText,betaProgramEndsAt:endIso,updatedAt:serverTimestamp()},{merge:true});betaProgramEndDate=dateText;
     const testers=eligibleBetaTesterPayload();const result=await bridge.call('beta-program-configure',{endDate:dateText,endsAt:endIso,testers});
-    betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));renderTesters();
+    betaProductionMapping=new Map((result.mappings||[]).map(m=>[String(m.email||'').toLowerCase(),m]));await reconcileMatchedTesterTimelines();renderTesters();
     if(status){status.textContent='Synced';status.className='admin-subtle-chip admin-service-connected';}
     if(message){message.textContent=`Synced ${testers.length} approved tester${testers.length===1?'':'s'} to Production eligibility. ${result.matchedCount||0} production account${Number(result.matchedCount||0)===1?' is':'s are'} currently matched.`;message.className='admin-connection-message success';}
   }catch(error){if(status){status.textContent='Sync failed';status.className='admin-subtle-chip admin-service-disconnected';}if(message){message.textContent=friendlyFirebaseError(error);message.className='admin-connection-message error';}}
