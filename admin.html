@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal</title>
 <link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=112" rel="apple-touch-icon"/><link href="favicon-32.png?v=112" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=112" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=186" rel="stylesheet"/>
+<link href="styles.css?v=187" rel="stylesheet"/>
 </head>
 <body class="admin-body">
 <div class="admin-loading-screen" id="adminLoading">
@@ -77,10 +77,10 @@
 <button class="admin-primary-button" data-jump-view="applications" type="button">Review Applications <span>→</span></button>
 </div>
 <div class="admin-metrics-grid">
-<article class="admin-metric admin-metric-primary"><span>Awaiting Review</span><strong id="metricApplied">0</strong><small>Applications needing a decision</small></article>
-<article class="admin-metric"><span>Approved</span><strong id="metricApproved">0</strong><small>Tester invitations approved</small></article>
-<article class="admin-metric"><span>Active Testers</span><strong id="metricActive">0</strong><small>Currently participating</small></article>
-<article class="admin-metric admin-metric-green"><span>Open Help Items</span><strong id="metricFeedback">0</strong><small>New feedback or support waiting on RebataTrack</small></article>
+<article class="admin-metric admin-metric-primary"><span>Applications Received</span><strong id="metricApplicationsReceived">0</strong><small>Total Beta applications received</small></article>
+<article class="admin-metric"><span>Accepted Testers</span><strong id="metricAcceptedTesters">0</strong><small>Applications accepted into the Beta</small></article>
+<article class="admin-metric admin-metric-green"><span>Fully Set Up</span><strong id="metricFullySetUp">0</strong><small>Setup complete + Production account active</small></article>
+<article class="admin-metric"><span>Open Help Items</span><strong id="metricFeedback">0</strong><small>Feedback or support waiting on you</small></article>
 </div>
 <div class="admin-overview-grid">
 <article class="admin-panel admin-platform-panel">
@@ -90,6 +90,7 @@
 <div><div class="admin-platform-label"><span>Android</span><strong id="androidCount">0</strong></div><div class="admin-bar-track"><span class="green" id="androidBar"></span></div></div>
 </div>
 <div class="admin-status-mini-grid">
+<div><span>Awaiting Review</span><strong id="metricApplied">0</strong></div>
 <div><span>Waitlist</span><strong id="metricWaitlist">0</strong></div>
 <div><span>Declined</span><strong id="metricDeclined">0</strong></div>
 <div><span>Inactive</span><strong id="metricInactive">0</strong></div>
@@ -346,7 +347,7 @@ setTimeout(function(){
   }
 }, 12000);
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=186"></script><script src="production-admin.js?v=179"></script>
-<footer data-rebatatrack-website-build="186" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 186</footer>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=187"></script><script src="production-admin.js?v=179"></script>
+<footer data-rebatatrack-website-build="187" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 187</footer>
 </body>
 </html>

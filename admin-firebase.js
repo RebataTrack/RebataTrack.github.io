@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 186
+// RebataTrack Admin Portal — Website Build 187
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -585,7 +585,7 @@ const ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS=10*60*1000;
 let lastLegacyMetricsAt=0;
 async function loadMetricsAggregated(){
   const apps='betaApplications',feedback='betaFeedback';
-  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount,readyForYou]=await Promise.all([
+  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount,readyForYou,fullySetUp]=await Promise.all([
     aggregateCount(apps),
     aggregateCount(apps,[['status','==','Applied']]),
     aggregateCount(apps,[['status','==','Approved']]),
@@ -602,9 +602,16 @@ async function loadMetricsAggregated(){
       aggregateCount('betaUsers',[['timelineStage','==','setupComplete'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0),
       aggregateCount('betaUsers',[['timelineStage','==','deviceReady'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
       aggregateCount('betaUsers',[['timelineStage','==','deviceReady'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0)
+    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)),
+    Promise.all([
+      aggregateCount('betaUsers',[['timelineStage','==','activeTesting'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
+      aggregateCount('betaUsers',[['timelineStage','==','activeTesting'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0),
+      aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
+      aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0)
     ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0))
   ]);
-  return {total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0),readyForYou:Number(readyForYou||0)};
+  const accepted=Number(approved||0)+Number(active||0)+Number(inactive||0);
+  return {total,applied,approved,active,accepted,fullySetUp:Number(fullySetUp||0),waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0),readyForYou:Number(readyForYou||0)};
 }
 async function loadMetricsLegacy(){
   const apps=collection(db,'betaApplications');
@@ -627,7 +634,14 @@ async function loadMetricsLegacy(){
       return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
     })
   ]);
-  return {total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
+  const fullySetUp=await Promise.all([
+    countQuery(query(collection(db,'betaUsers'),where('timelineStage','==','activeTesting'),where('accessStatus','==','Enabled'),where('status','==','Approved'))).catch(()=>0),
+    countQuery(query(collection(db,'betaUsers'),where('timelineStage','==','activeTesting'),where('accessStatus','==','Enabled'),where('status','==','Active'))).catch(()=>0),
+    countQuery(query(collection(db,'betaUsers'),where('timelineStage','==','installed'),where('accessStatus','==','Enabled'),where('status','==','Approved'))).catch(()=>0),
+    countQuery(query(collection(db,'betaUsers'),where('timelineStage','==','installed'),where('accessStatus','==','Enabled'),where('status','==','Active'))).catch(()=>0)
+  ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0));
+  const accepted=Number(approved||0)+Number(active||0)+Number(inactive||0);
+  return {total,applied,approved,active,accepted,fullySetUp:Number(fullySetUp||0),waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
 }
 async function loadMetrics(force=false){
   if(!force&&lastMetricsLoadedAt&&Date.now()-lastMetricsLoadedAt<ADMIN_METRICS_CACHE_TTL_MS)return state.metrics;
@@ -866,8 +880,8 @@ function renderMetrics(){
   const m=state.metrics||{};
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v==null?0:v;};
   const setNavBadge=(id,v)=>{const el=document.getElementById(id);if(!el)return;const count=Number(v||0);el.textContent=count;el.hidden=count<1;};
-  set('metricApplied',m.applied);set('metricApproved',m.approved);set('metricActive',m.active);set('metricFeedback',m.newFeedback);
-  set('metricWaitlist',m.waitlist);set('metricDeclined',m.declined);set('metricInactive',m.inactive);set('iosCount',m.ios);set('androidCount',m.android);
+  set('metricApplicationsReceived',m.total);set('metricAcceptedTesters',m.accepted);set('metricFullySetUp',m.fullySetUp);set('metricFeedback',m.newFeedback);
+  set('metricApplied',m.applied);set('metricWaitlist',m.waitlist);set('metricDeclined',m.declined);set('metricInactive',m.inactive);set('iosCount',m.ios);set('androidCount',m.android);
   setNavBadge('navPendingCount',m.applied);setNavBadge('navTesterActionCount',m.readyForYou);setNavBadge('navTaskCount',m.activeTasks);setNavBadge('navFeedbackCount',m.newFeedback);
   const total=Number(m.total||0);set('platformTotal',total+' applicant'+(total===1?'':'s'));
   document.getElementById('iosBar').style.width=(total?Math.round(Number(m.ios||0)/total*100):0)+'%';
