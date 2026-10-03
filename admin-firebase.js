@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 195
+// RebataTrack Admin Portal — Website Build 196
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1889,6 +1889,62 @@ function subscribeAdminConversationMessages(feedbackId){
     requestAnimationFrame(()=>list.scrollTo({top:list.scrollHeight,behavior:animate?'smooth':'auto'}));
   },error=>{console.error('Realtime admin conversation listener failed:',error);if(activeDrawerFeedbackId===feedbackId)list.innerHTML='<div class="admin-empty-inline">Live conversation could not be loaded right now.</div>';});
 }
+const supportProductionLookupAttempted=new Set();
+function supportProductionMatchHtml(f){
+  if(!isEmailSupportConversation(f))return '';
+  const uid=String(f.productionUserUid||f.ownerUid||'').trim();
+  if(uid){
+    const label=String(f.productionUserName||f.productionUserEmail||f.email||'Production user').trim();
+    const email=String(f.productionUserEmail||f.email||'').trim();
+    return `<div class="admin-support-identity-action" id="supportProductionMatch"><button class="admin-secondary-button" data-open-production-user="${esc(uid)}" type="button">Open Production User</button><span><strong>Production account matched</strong>${label?` · ${esc(label)}`:''}${email&&email.toLowerCase()!==label.toLowerCase()?` · ${esc(email)}`:''}</span></div>`;
+  }
+  return `<div class="admin-support-identity-action" id="supportProductionMatch"><span class="admin-secondary-button" aria-disabled="true">Checking Production Account…</span><span>RebataTrack will try to match this ticket to a production user by the sender email.</span></div>`;
+}
+function refreshSupportProductionMatch(f){
+  if(activeDrawerFeedbackId!==f.id)return;
+  const el=document.getElementById('supportProductionMatch');
+  if(!el)return;
+  const uid=String(f.productionUserUid||f.ownerUid||'').trim();
+  if(uid){
+    const label=String(f.productionUserName||f.productionUserEmail||f.email||'Production user').trim();
+    const email=String(f.productionUserEmail||f.email||'').trim();
+    el.innerHTML=`<button class="admin-secondary-button" data-open-production-user="${esc(uid)}" type="button">Open Production User</button><span><strong>Production account matched</strong>${label?` · ${esc(label)}`:''}${email&&email.toLowerCase()!==label.toLowerCase()?` · ${esc(email)}`:''}</span>`;
+  }else{
+    el.innerHTML='<span class="admin-secondary-button" aria-disabled="true">No Production Match</span><span>No production account currently uses this exact email. The ticket remains available as normal support.</span>';
+  }
+}
+async function ensureEmailSupportProductionLink(f){
+  if(!f||!f.id||!isEmailSupportConversation(f))return;
+  if(String(f.productionUserUid||f.ownerUid||'').trim()){refreshSupportProductionMatch(f);return;}
+  if(supportProductionLookupAttempted.has(f.id))return;
+  supportProductionLookupAttempted.add(f.id);
+  const bridge=window.RebataTrackProductionAdminBridge;
+  if(!bridge||typeof bridge.call!=='function'){supportProductionLookupAttempted.delete(f.id);return;}
+  try{
+    const result=await bridge.call('user-by-email',{email:String(f.email||'').trim().toLowerCase()});
+    if(!result?.matched||!result?.user?.uid){refreshSupportProductionMatch(f);return;}
+    const u=result.user;
+    const link={
+      ownerUid:u.uid,
+      productionUserUid:u.uid,
+      productionUserEmail:u.email||f.email||'',
+      productionUserName:u.name||'',
+      productionUserMatchMethod:'email',
+      productionUserMatchedAt:serverTimestamp(),
+      updatedAt:serverTimestamp()
+    };
+    await updateDoc(doc(db,'betaFeedback',f.id),link);
+    f.ownerUid=u.uid;f.productionUserUid=u.uid;f.productionUserEmail=u.email||f.email||'';f.productionUserName=u.name||'';f.productionUserMatchMethod='email';
+    refreshSupportProductionMatch(f);
+    if(activeView==='feedback')renderFeedback();
+  }catch(error){
+    console.warn('Could not match support ticket to a Production account:',error);
+    supportProductionLookupAttempted.delete(f.id);
+    const el=document.getElementById('supportProductionMatch');
+    if(el&&activeDrawerFeedbackId===f.id)el.innerHTML='<span class="admin-secondary-button" aria-disabled="true">Production Match Unavailable</span><span>The ticket is still usable. Account matching will be tried again the next time it is opened.</span>';
+  }
+}
+
 function openFeedbackRecord(f){
   activeDrawerFeedbackId=f.id;
   const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const support=isSupportConversation(f);const emailSupport=isEmailSupportConversation(f);const personLabel=emailSupport?'Customer':'Tester';
@@ -1900,11 +1956,13 @@ function openFeedbackRecord(f){
   const details=`<div class="admin-detail-grid"><div><span>${personLabel}</span><strong>${esc(f.name||'Customer')}</strong><small>${esc(f.email)}</small></div><div><span>Submitted</span><strong>${esc(formatDate(f.submittedAt))}</strong></div>${support?`<div><span>Workflow</span><strong>${emailSupport?'General Support':'Account / Access Support'}</strong></div><div><span>Source</span><strong>${emailSupport?'Direct email':'Beta Portal'}</strong></div>${emailSupport?'':`<div><span>Testing Platform</span><strong>${esc(f.platform||'Not provided')}</strong></div>`}`:`<div><span>Build</span><strong>${esc(f.appVersion||'Not provided')}</strong></div><div><span>Device / OS</span><strong>${esc(f.deviceDetails||[f.deviceModel,f.osVersion].filter(Boolean).join(' · ')||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(f.screenSize||'Not provided')}</strong></div><div><span>Page / Feature</span><strong>${esc(f.pageFeature||'Not provided')}</strong></div>`}</div>`;
   const supportEmailAction=support&&!emailSupport?`<div class="admin-support-identity-action"><button class="admin-secondary-button" data-feedback-change-email="${esc(f.id)}" type="button">Change Beta Email</button><span>${f.supportAccountEmail?'The corrected email from this ticket will be prefilled for verification.':'Use this when the tester supplied a corrected Apple Account or Google Play email.'}</span></div>`:'';
   const gmailAction=emailSupport?`<div class="admin-support-identity-action"><a class="admin-secondary-button" href="${esc(f.gmailMessageUrl||'https://mail.google.com/mail/u/0/#inbox')}" target="_blank" rel="noopener">Open Original Email in Gmail</a><span>${f.hasAttachments?'Attachments stay in Gmail and are intentionally not copied into the portal.':'Gmail remains the original email archive for this conversation.'}</span></div>`:'';
+  const productionAccountAction=emailSupport?supportProductionMatchHtml(f):'';
   const closed=adminConversationIsClosed(f);
   const replyArea=closed?`<div class="admin-conversation-closed"><div><strong>This conversation is closed.</strong><span>${emailSupport?'Email replies will reopen the ticket automatically if the customer responds.':'The tester can review the history, but messaging is disabled until you reopen it.'}</span></div><button class="admin-primary-button" data-reopen-feedback="${esc(f.id)}" type="button">Reopen Conversation</button></div>`:`<div class="admin-conversation-reply">${support?supportReplyPresetHtml(emailSupport):''}<label class="admin-detail-label" for="drawerConversationReply">Reply to ${emailSupport?'customer':'tester'}</label><textarea id="drawerConversationReply" class="admin-detail-textarea" maxlength="5000" placeholder="Write a reply…"${support?' data-support-initial-greeting="1"':''}></textarea><button class="admin-primary-button" data-send-conversation-reply="${esc(f.id)}" type="button">Send Reply</button></div>`;
   const contextChip=emailSupport?'<span class="admin-subtle-chip">Email correspondence</span>':`<span class="admin-subtle-chip">Tester sees: ${esc(publicStatus)}</span>`;
-  openDrawer(support?'Support Conversation':'Tester Feedback',f.subject,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-feedback-type-chip">${esc(f.type)}</span><span class="admin-platform-pill">${esc(emailSupport?'Email':f.platform)}</span>${contextChip}</div>${details}${supportEmailAction}${gmailAction}${originalBlock}${retestBlock}<section class="admin-conversation-section"><div class="admin-feedback-section-head"><div><span>Conversation</span><strong>Replies <span class="admin-live-conversation"><i aria-hidden="true"></i> Live</span></strong></div></div><div class="admin-conversation-thread" id="drawerConversationThread"><div class="admin-empty-inline">Loading replies…</div></div>${replyArea}</section><div class="beta-field"><label for="drawerFeedbackStatus">Status</label><select id="drawerFeedbackStatus" class="admin-detail-select">${feedbackWorkflowOptions(f)}</select></div><div><label class="admin-detail-label" for="drawerFeedbackNotes">Private admin notes</label><textarea id="drawerFeedbackNotes" class="admin-detail-textarea" placeholder="${f.adminNotesLoaded===true?'Internal notes only administrators can see…':'Loading private notes…'}"${f.adminNotesLoaded===true?'':' disabled'}>${esc(f.adminNotes||'')}</textarea></div><button class="admin-primary-button" data-save-feedback="${esc(f.id)}" type="button">Save Status &amp; Notes</button><div class="admin-feedback-delete-zone"><div><strong>Delete conversation</strong><span>Permanently removes this Help &amp; Feedback item and its portal reply history. ${emailSupport?'The original Gmail thread and attachments remain in Gmail.':'The tester account and beta application are not deleted.'}</span></div><button class="admin-action-button danger-soft" data-delete-feedback="${esc(f.id)}" type="button">Delete Conversation</button></div></div>`);
+  openDrawer(support?'Support Conversation':'Tester Feedback',f.subject,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-feedback-type-chip">${esc(f.type)}</span><span class="admin-platform-pill">${esc(emailSupport?'Email':f.platform)}</span>${contextChip}</div>${details}${supportEmailAction}${gmailAction}${productionAccountAction}${originalBlock}${retestBlock}<section class="admin-conversation-section"><div class="admin-feedback-section-head"><div><span>Conversation</span><strong>Replies <span class="admin-live-conversation"><i aria-hidden="true"></i> Live</span></strong></div></div><div class="admin-conversation-thread" id="drawerConversationThread"><div class="admin-empty-inline">Loading replies…</div></div>${replyArea}</section><div class="beta-field"><label for="drawerFeedbackStatus">Status</label><select id="drawerFeedbackStatus" class="admin-detail-select">${feedbackWorkflowOptions(f)}</select></div><div><label class="admin-detail-label" for="drawerFeedbackNotes">Private admin notes</label><textarea id="drawerFeedbackNotes" class="admin-detail-textarea" placeholder="${f.adminNotesLoaded===true?'Internal notes only administrators can see…':'Loading private notes…'}"${f.adminNotesLoaded===true?'':' disabled'}>${esc(f.adminNotes||'')}</textarea></div><button class="admin-primary-button" data-save-feedback="${esc(f.id)}" type="button">Save Status &amp; Notes</button><div class="admin-feedback-delete-zone"><div><strong>Delete conversation</strong><span>Permanently removes this Help &amp; Feedback item and its portal reply history. ${emailSupport?'The original Gmail thread and attachments remain in Gmail.':'The tester account and beta application are not deleted.'}</span></div><button class="admin-action-button danger-soft" data-delete-feedback="${esc(f.id)}" type="button">Delete Conversation</button></div></div>`);
   subscribeAdminConversationMessages(f.id);
+  if(emailSupport)ensureEmailSupportProductionLink(f);
   if(f.adminNotesLoaded!==true){
     ensureFeedbackNotesLoaded(f).then(()=>{
       if(activeDrawerFeedbackId!==f.id)return;
@@ -2491,6 +2549,7 @@ document.addEventListener('click',async e=>{
   const reopenFeedbackBtn=e.target.closest('[data-reopen-feedback]');if(reopenFeedbackBtn){const f=await ensureFeedbackLoaded(reopenFeedbackBtn.dataset.reopenFeedback);if(!f)return;const support=isSupportConversation(f);const status=support?'Waiting for RebataTrack':'Reviewing';reopenFeedbackBtn.disabled=true;const original=reopenFeedbackBtn.textContent;reopenFeedbackBtn.textContent='Reopening…';try{await updateDoc(doc(db,'betaFeedback',f.id),{status,updatedAt:serverTimestamp()});f.status=status;f.updatedAt=new Date();state.loaded.feedback=false;await loadFeedback(true);renderFeedback();const fresh=state.feedback.find(x=>x.id===f.id)||f;openFeedbackRecord(fresh);showToast('Conversation reopened. Messaging is available again.');}catch(err){showToast(friendlyFirebaseError(err),'error');reopenFeedbackBtn.disabled=false;reopenFeedbackBtn.textContent=original;}return;}
   const deleteFeedbackBtn=e.target.closest('[data-delete-feedback]');if(deleteFeedbackBtn){const f=await ensureFeedbackLoaded(deleteFeedbackBtn.dataset.deleteFeedback);if(!f)return;const label=isSupportConversation(f)?'support conversation':'feedback conversation';const deleteNote=isEmailSupportConversation(f)?'The original Gmail thread and attachments will remain in Gmail.':'The tester account and beta application will remain.';if(!(await confirmAction(`Permanently delete this ${label}? All portal replies and private admin notes will also be deleted. ${deleteNote} This cannot be undone.`,'danger')))return;deleteFeedbackBtn.disabled=true;const original=deleteFeedbackBtn.textContent;deleteFeedbackBtn.textContent='Deleting…';try{await deleteFeedbackConversation(f);closeDrawer();showToast('Conversation deleted.');}catch(err){showToast(friendlyFirebaseError(err),'error');deleteFeedbackBtn.disabled=false;deleteFeedbackBtn.textContent=original;}return;}
   const supportPreset=e.target.closest('[data-support-reply-preset]');if(supportPreset){setSupportReplyPreset(supportPreset.dataset.supportReplyPreset);return;}
+  const productionUserButton=e.target.closest('[data-open-production-user]');if(productionUserButton){const uid=String(productionUserButton.dataset.openProductionUser||'').trim();if(!uid)return;const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.openUser!=='function'){showToast('Connect the Production Admin service first.','error');return;}try{await bridge.openUser(uid);}catch(err){showToast(err.message||'Production user could not be opened.','error');}return;}
   const convoReply=e.target.closest('[data-send-conversation-reply]');if(convoReply){const f=await ensureFeedbackLoaded(convoReply.dataset.sendConversationReply);if(!f)return;if(adminConversationIsClosed(f)){showToast('Reopen this conversation before replying.','error');openFeedbackRecord(f);return;}const input=document.getElementById('drawerConversationReply');const body=String(input?.value||'').trim();if(!body){showToast('Write a reply before sending.','error');return;}convoReply.disabled=true;const original=convoReply.textContent;convoReply.textContent='Sending…';try{const ref=await addDoc(collection(db,'betaFeedback',f.id,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',body,createdAt:serverTimestamp()});const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Admin',updatedAt:serverTimestamp()};if(isSupportConversation(f))update.status='Waiting for Tester';await updateDoc(doc(db,'betaFeedback',f.id),update);f.lastMessageAt=new Date();f.lastMessageBy='Admin';f.updatedAt=new Date();if(isSupportConversation(f))f.status='Waiting for Tester';let emailFailed=false;try{await callWorkerAdminAction('conversation-reply-added',{feedbackId:f.id,messageId:ref.id});}catch(emailErr){emailFailed=true;console.warn('Conversation reply email failed:',emailErr);}if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}renderFeedback();syncOpenAdminFeedbackState(f);showToast(emailFailed?`Reply saved, but the ${isEmailSupportConversation(f)?'customer':'tester'} email could not be sent.`:`Reply sent to ${isEmailSupportConversation(f)?'customer':'tester'}.`,emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{convoReply.disabled=false;convoReply.textContent=original;}return;}
   const fbSave=e.target.closest('[data-save-feedback]');if(fbSave){
     const f=await ensureFeedbackLoaded(fbSave.dataset.saveFeedback);if(!f)return;const status=String(document.getElementById('drawerFeedbackStatus').value||'').trim();const notesBox=document.getElementById('drawerFeedbackNotes');const notesEditable=!!notesBox&&!notesBox.disabled;const notes=notesBox?notesBox.value:'';const support=isSupportConversation(f);const oldStatus=canonicalFeedbackStatus(f.status);const oldPublic=testerFacingFeedbackStatus(f);

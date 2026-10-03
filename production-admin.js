@@ -1,4 +1,4 @@
-// RebataTrack Website Build 143 dependency sync.
+// RebataTrack Website Build 196 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {auth,isAdminUser}=Core;
 const {onAuthStateChanged}=Compat;
-// RebataTrack Production Admin Console — Website Build 143
+// RebataTrack Production Admin Console — Website Build 196
 // Uses the signed-in Admin Portal Firebase session only as the administrator identity.
 // All privileged production reads/writes go through the Production Admin Worker.
 // No production service-account secret is ever present in browser code.
@@ -747,7 +747,13 @@ onAuthStateChanged(auth,user=>{
 window.RebataTrackProductionAdminBridge={
   call:(action,payload={})=>callProduction(action,payload),
   isConnected:()=>!!state.connected,
-  endpoint:()=>endpoint()
+  endpoint:()=>endpoint(),
+  openUser:async(uid)=>{
+    if(!uid)return;
+    setScope('production');
+    switchProductionView('users');
+    await openUser(uid);
+  }
 };
 window.dispatchEvent(new CustomEvent('rebatatrack-production-bridge-ready'));
 })().catch(function(error){
