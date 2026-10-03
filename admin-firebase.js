@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 197
+// RebataTrack Admin Portal — Website Build 198
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1405,7 +1405,7 @@ function feedbackNeedsAdminResponse(f){
   const status=canonicalFeedbackStatus(f.status);
   // Closed conversations are resolved and must never be surfaced as awaiting an Admin reply,
   // even when the last stored message was authored by the tester before the ticket was closed.
-  if(status==='Closed')return false;
+  if(adminConversationIsClosed(f))return false;
   const lastBy=String(f.lastMessageBy||'').trim();
   if(lastBy==='Tester')return true;
   if(lastBy==='Admin')return false;
