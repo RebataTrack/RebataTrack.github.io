@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 198
+// RebataTrack Admin Portal — Website Build 199
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -100,6 +100,8 @@ let emailChangeApplicationId = null;
 let applicationRealtimeUnsubscribe = null;
 let applicationsRealtimeReady = false;
 let feedbackRealtimeReady = false;
+let supportInboxSyncTimer = null;
+let supportInboxSyncInFlight = null;
 
 const SUPPORT_REPLY_GREETING='Hello, and thank you for contacting RebataTrack Support!';
 const SUPPORT_REPLY_PRESETS=Object.freeze({
@@ -1794,8 +1796,14 @@ async function switchView(view){
     if(view==='testers'){await Promise.all([loadTesters(),loadTasks(),loadFeedback()]);await reconcilePendingTasksForInactiveTesters();renderTesters();}
     if(view==='tasks'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);await reconcilePendingTasksForInactiveTesters();}
     if(view==='announcements'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);renderAnnouncements();}
-    if(view==='feedback')await loadFeedback();
+    if(view==='feedback'){
+      // Build 199: sync Gmail before rendering Support so direct emails and reopened
+      // conversations do not depend solely on the Cloudflare cron cadence.
+      await syncSupportInboxNow({silent:true});
+      await loadFeedback();
+    }
   }catch(e){showToast('Could not load '+view+'. '+friendlyFirebaseError(e),'error');}
+  updateSupportInboxAutoSync();
 }
 function openDrawer(kicker,title,html){document.getElementById('drawerKicker').textContent=kicker;document.getElementById('drawerTitle').textContent=title;document.getElementById('adminDrawerContent').innerHTML=html;document.getElementById('adminDrawerBackdrop').hidden=false;document.getElementById('adminDrawer').classList.add('is-open');document.getElementById('adminDrawer').setAttribute('aria-hidden','false');}
 function closeDrawer(){if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}adminConversationMessageCount=0;activeDrawerFeedbackId=null;document.getElementById('adminDrawerBackdrop').hidden=true;document.getElementById('adminDrawer').classList.remove('is-open');document.getElementById('adminDrawer').setAttribute('aria-hidden','true');}
@@ -2291,6 +2299,36 @@ async function callWorkerAdminAction(type,payload={}){
     return result;
   }finally{clearTimeout(timer);}
 }
+
+async function syncSupportInboxNow(options={}){
+  if(!emailWorkerEndpoint||!auth.currentUser)return null;
+  if(supportInboxSyncInFlight)return supportInboxSyncInFlight;
+  supportInboxSyncInFlight=(async()=>{
+    const result=await callWorkerAdminAction('admin-process-support-inbox');
+    // Only force the 100-ticket workspace query when Gmail actually imported something.
+    // Idle syncs therefore do not create a Firestore ticket-list read in the browser.
+    if(Number(result?.imported||0)>0){
+      state.loaded.feedback=false;
+      await loadFeedback(true);
+    }
+    return result;
+  })().catch(error=>{
+    if(!options.silent)showToast('Could not sync support email. '+friendlyFirebaseError(error),'error');
+    else console.warn('Support inbox sync failed:',error);
+    return null;
+  }).finally(()=>{supportInboxSyncInFlight=null;});
+  return supportInboxSyncInFlight;
+}
+function updateSupportInboxAutoSync(){
+  if(supportInboxSyncTimer){clearInterval(supportInboxSyncTimer);supportInboxSyncTimer=null;}
+  if(activeView!=='feedback'||!emailWorkerEndpoint)return;
+  // Sync only while the Support workspace is open. The Worker cron remains the background
+  // path; this one-minute foreground sync makes the queue feel live without permanent polling.
+  supportInboxSyncTimer=setInterval(()=>{
+    if(activeView==='feedback'&&!document.hidden)syncSupportInboxNow({silent:true});
+  },60000);
+}
+
 async function refreshApplicationAdminData(options={}){
   // Build 180: only the 'delete' action cascades into task assignments on the server. Every other action changes just the
   // application and tester records, so the cached assignments (up to 500 reads) stay valid.
