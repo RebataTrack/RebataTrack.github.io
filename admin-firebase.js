@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 193
+// RebataTrack Admin Portal — Website Build 194
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1016,11 +1016,22 @@ function testerReadinessHtml(t){
   }
   return `<div class="admin-readiness-cell readiness-${esc(r.key)}"><strong>${esc(r.label)}</strong><small>${esc(r.detail)}</small></div>`;
 }
+function testerBetaAccessIsActive(t){
+  return !!t&&t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status);
+}
+function testerTimelineDisplayHtml(t){
+  const stage=normalizeTimelineStage(t.timelineStage);
+  if(!testerBetaAccessIsActive(t)){
+    const last=timelineStageLabel(stage,t.platform);
+    return `<span class="admin-status-pill status-inactive">Beta Testing Inactive</span><small>Last stage: ${esc(last)}</small>`;
+  }
+  return `<span class="admin-timeline-chip timeline-${esc(stage)}">${esc(timelineStageLabel(stage,t.platform))}</span>`;
+}
 function timelineChipHtml(t){
   const stage=normalizeTimelineStage(t.timelineStage);
   const androidSent=t.platform==='Android'&&timestampToDate(t.androidTestingInviteSentAt);
   const androidStatus=androidSent?`<span class="admin-android-link-status sent">Google Play Link Sent</span><small>Sent ${esc(relativeDate(t.androidTestingInviteSentAt))}</small>`:(t.platform==='Android'?'<span class="admin-android-link-status pending">Google Play Link Not Sent</span>':'');
-  return `<div class="admin-timeline-cell"><span class="admin-timeline-chip timeline-${esc(stage)}">${esc(timelineStageLabel(stage,t.platform))}</span>${t.timelineUpdatedAt?`<small>Updated ${esc(relativeDate(t.timelineUpdatedAt))}</small>`:''}${androidStatus}</div>`;
+  return `<div class="admin-timeline-cell">${testerTimelineDisplayHtml(t)}${t.timelineUpdatedAt?`<small>Updated ${esc(relativeDate(t.timelineUpdatedAt))}</small>`:''}${testerBetaAccessIsActive(t)?androidStatus:''}</div>`;
 }
 function betaMappingHtml(t){
   const key=String(t.email||'').trim().toLowerCase();
@@ -1209,6 +1220,11 @@ function testerProgressHtml(t){
   const stage=normalizeTimelineStage(t.timelineStage);
   const key=String(t.email||'').trim().toLowerCase();
   const mapping=betaProductionMapping.get(key);
+  if(!testerBetaAccessIsActive(t)){
+    const lastStage=timelineStageLabel(stage,t.platform);
+    const productionNote=mapping?.matched===true?'Production account remains linked':'Production account not matched';
+    return `<div class="admin-tester-progress-cell"><span class="admin-status-pill status-inactive">Beta Testing Inactive</span><small>Last stage: ${esc(lastStage)}</small><span class="admin-progress-state pending">Beta access inactive</span><small>${esc(productionNote)}</small></div>`;
+  }
   let mappingHtml='';
   if(!mapping||mapping.matched!==true)mappingHtml='<span class="admin-progress-state pending">App account not matched</span>';
   else if(mapping.betaTrialActive)mappingHtml=`<span class="admin-progress-state complete">Beta access active</span>${mapping.expiresAt?`<small>Through ${esc(formatDate(mapping.expiresAt))}</small>`:''}`;
@@ -1829,7 +1845,7 @@ function openTesterRecord(t){
   const nextIndex=Math.min(TIMELINE_STAGES.length-1,timelineStageRank(timelineStage)+1);const canAdvance=timelineStage!=='activeTesting'&&t.accessStatus==='Enabled';
   const lastActive=activity.anchor?formatDate(activity.anchor):'Never';
   const lastFeedbackText=lastFeedback?`${formatDate(lastFeedback.submittedAt)} · ${lastFeedback.subject||'Feedback'}`:'No beta feedback submitted yet';
-  openDrawer('Tester Activity',t.name,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus)}</span><span class="admin-platform-pill">${esc(t.platform)}</span><span class="admin-timeline-chip timeline-${esc(timelineStage)}">${esc(timelineStageLabel(timelineStage,t.platform))}</span></div><div class="admin-scorecard-drawer"><div><span>Tasks Completed</span><strong>${score.tasksCompleted}</strong><small>${score.tasksPending} pending</small></div><div><span>Feedback Submitted</span><strong>${score.feedbackCount}</strong><small>${esc(lastFeedbackText)}</small></div><div><span>Retests Completed</span><strong>${score.retests}</strong><small>Feedback fixes retested</small></div><div><span>Days Inactive</span><strong>${activity.days===999?'—':activity.days}</strong><small>${esc(activity.reason)}</small></div></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(t.email)}</strong></div><div><span>Last Portal Activity</span><strong>${esc(lastActive)}</strong></div><div><span>Last Login</span><strong>${esc(t.lastLogin?formatDate(t.lastLogin):'Never')}</strong></div><div><span>Last Feedback</span><strong>${esc(lastFeedback?formatDate(lastFeedback.submittedAt):'Never')}</strong></div><div><span>Last Reported Build</span><strong>${esc(build||'Not provided')}</strong></div><div><span>Device Model</span><strong>${esc(t.deviceModel||device||'Not provided')}</strong></div><div><span>OS Version</span><strong>${esc(t.osVersion||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(t.screenSize||'Not provided')}</strong></div><div><span>Created</span><strong>${esc(formatDate(t.createdAt))}</strong></div><div><span>Authentication</span><strong>Email verification code</strong></div></div>${testerProductionResolutionHtml(t)}<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Program timeline stage</span><p>Choose the milestone this tester has reached. Their portal will mark earlier steps complete and highlight what they should do next.</p></div><div class="beta-field"><label for="drawerTimelineStage">Current milestone</label><select id="drawerTimelineStage">${timelineStageOptions(t.platform,timelineStage)}</select></div><div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-save-timeline="${esc(t.uid)}" type="button">Set Exact Stage</button><button class="admin-primary-button" data-advance-timeline="${esc(t.uid)}" data-next-stage="${esc(TIMELINE_STAGES[nextIndex])}" type="button"${canAdvance?'':' disabled'}>${canAdvance?'Advance to Next Stage':'Active Testing'}</button></div></div><div><label class="admin-detail-label">Outstanding required tasks</label><div class="admin-task-response-list">${pendingHtml}</div></div><div class="admin-drawer-actions">${actions}</div></div>`);
+  openDrawer('Tester Activity',t.name,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus)}</span><span class="admin-platform-pill">${esc(t.platform)}</span>${testerTimelineDisplayHtml(t)}</div><div class="admin-scorecard-drawer"><div><span>Tasks Completed</span><strong>${score.tasksCompleted}</strong><small>${score.tasksPending} pending</small></div><div><span>Feedback Submitted</span><strong>${score.feedbackCount}</strong><small>${esc(lastFeedbackText)}</small></div><div><span>Retests Completed</span><strong>${score.retests}</strong><small>Feedback fixes retested</small></div><div><span>Days Inactive</span><strong>${activity.days===999?'—':activity.days}</strong><small>${esc(activity.reason)}</small></div></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(t.email)}</strong></div><div><span>Last Portal Activity</span><strong>${esc(lastActive)}</strong></div><div><span>Last Login</span><strong>${esc(t.lastLogin?formatDate(t.lastLogin):'Never')}</strong></div><div><span>Last Feedback</span><strong>${esc(lastFeedback?formatDate(lastFeedback.submittedAt):'Never')}</strong></div><div><span>Last Reported Build</span><strong>${esc(build||'Not provided')}</strong></div><div><span>Device Model</span><strong>${esc(t.deviceModel||device||'Not provided')}</strong></div><div><span>OS Version</span><strong>${esc(t.osVersion||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(t.screenSize||'Not provided')}</strong></div><div><span>Created</span><strong>${esc(formatDate(t.createdAt))}</strong></div><div><span>Authentication</span><strong>Email verification code</strong></div></div>${testerProductionResolutionHtml(t)}<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Program timeline stage</span><p>Choose the milestone this tester has reached. Their portal will mark earlier steps complete and highlight what they should do next.</p></div><div class="beta-field"><label for="drawerTimelineStage">Current milestone</label><select id="drawerTimelineStage">${timelineStageOptions(t.platform,timelineStage)}</select></div><div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-save-timeline="${esc(t.uid)}" type="button">Set Exact Stage</button><button class="admin-primary-button" data-advance-timeline="${esc(t.uid)}" data-next-stage="${esc(TIMELINE_STAGES[nextIndex])}" type="button"${canAdvance?'':' disabled'}>${canAdvance?'Advance to Next Stage':'Active Testing'}</button></div></div><div><label class="admin-detail-label">Outstanding required tasks</label><div class="admin-task-response-list">${pendingHtml}</div></div><div class="admin-drawer-actions">${actions}</div></div>`);
 }
 function feedbackWorkflowOptions(f){
   const workflow=isSupportConversation(f)?SUPPORT_WORKFLOW:FEEDBACK_WORKFLOW;const status=canonicalFeedbackStatus(f.status);
