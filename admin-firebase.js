@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 192
+// RebataTrack Admin Portal — Website Build 193
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1072,7 +1072,7 @@ function clearTesterFilters(){
 async function sendTesterNextStepReminder(t){
   const n=testerNextStep(t);
   if(!n.reminderType)throw new Error('This tester does not currently have a tester-owned setup step to remind them about.');
-  await callWorkerAdminAction('tester-next-step-reminder',{email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',reminderType:n.reminderType});
+  await callWorkerAdminAction('tester-next-step-reminder',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',reminderType:n.reminderType});
   const sentAt=new Date();
   await updateDoc(doc(db,'betaUsers',t.uid),{lastSetupReminderAt:serverTimestamp(),lastSetupReminderType:n.reminderType,updatedAt:serverTimestamp()});
   t.lastSetupReminderAt=sentAt;t.lastSetupReminderType=n.reminderType;t.updatedAt=sentAt;
@@ -1249,7 +1249,7 @@ function testingAccessSentEmailCopy(t){
 }
 async function sendTestingAccessSentNotification(t){
   const copy=testingAccessSentEmailCopy(t);
-  return callWorkerAdminAction('portal-announcement',{email:String(t.email||'').toLowerCase(),name:t.name||'Tester',platform:t.platform||'',announcementTitle:copy.title,announcementMessage:copy.message,important:true,requiresAcknowledgement:false});
+  return callWorkerAdminAction('portal-announcement',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').toLowerCase(),name:t.name||'Tester',platform:t.platform||'',announcementTitle:copy.title,announcementMessage:copy.message,important:true,requiresAcknowledgement:false});
 }
 function androidInviteEligible(t){
   return !!t&&t.platform==='Android'&&testerInviteReadiness(t).key==='ready';
@@ -1288,6 +1288,7 @@ async function sendAndroidTestingInvite(t,url){
       name:t.name||'Tester',
       platform:'Android',
       testerUid:t.uid,
+      applicationId:t.applicationId||'',
       approvedGoogleAccount:copy.approvedGoogleAccount,
       testingUrl:copy.testingUrl,
       emailTemplateVersion:'android-beta-access-v3'
@@ -1447,14 +1448,29 @@ function applyTaskTemplate(key){
   const already=taskTemplateHistoryTesterIds(key).size;
   if(meta)meta.textContent=`Recommended recipients: ${tpl.platform==='All'?'all active testers':tpl.platform+' testers'} · Suggested deadline: ${tpl.suggestedHours} hours.${already?` ${already} tester${already===1?' has':'s have'} already received this task and cannot be selected again.`:''}${tpl.adminNote?' '+tpl.adminNote:''}`;
 }
+function approvedBetaApplicationForTester(t){
+  if(!t)return null;
+  const email=String(t.email||'').trim().toLowerCase();
+  const applicationId=String(t.applicationId||'').trim();
+  if(!state.loaded.applications)return applicationId?{id:applicationId,status:t.status||'Approved',portalAccess:t.accessStatus==='Enabled'?'Enabled':'Disabled',testerUid:t.uid||'',email}:null;
+  return (state.applications||[]).find(a=>{
+    if(!a)return false;
+    const linkedById=applicationId&&String(a.id||'')===applicationId;
+    const linkedByUid=String(a.testerUid||'')===String(t.uid||'');
+    const linkedByEmail=email&&String(a.email||'').trim().toLowerCase()===email;
+    return (linkedById||linkedByUid||linkedByEmail)&&['Approved','Active'].includes(String(a.status||''))&&String(a.portalAccess||'')!=='Disabled';
+  })||null;
+}
 function taskRecipientEligibility(t){
   if(!t||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))return {eligible:false,reason:'Beta access is not active'};
+  const application=approvedBetaApplicationForTester(t);
+  if(!application)return {eligible:false,reason:'An active approved Beta application is required'};
   if(!testerSetupCompleteForInvite(t))return {eligible:false,reason:'Testing Setup is not complete'};
   const email=String(t.email||'').trim().toLowerCase();
   if(!email)return {eligible:false,reason:'Tester email is missing'};
   const mapping=betaProductionMapping.get(email);
   if(!mapping||mapping.matched!==true)return {eligible:false,reason:'Production account is not matched'};
-  return {eligible:true,reason:'Active access, setup complete, and Production account matched'};
+  return {eligible:true,reason:'Approved Beta application, active Beta access, setup complete, and Production account matched'};
 }
 function activeTaskTesters(){
   const byEmail=new Map();
@@ -1560,7 +1576,7 @@ async function createAnnouncement(){
   let emailSent=0,emailFailed=0;const emailErrors=[];
   if(emailTesters){
     for(const t of testers){
-      try{await callWorkerAdminAction('portal-announcement',{email:String(t.email||'').toLowerCase(),name:t.name||'Tester',platform:t.platform||'',announcementTitle:title,announcementMessage:message,important,requiresAcknowledgement});emailSent++;}
+      try{await callWorkerAdminAction('portal-announcement',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').toLowerCase(),name:t.name||'Tester',platform:t.platform||'',announcementTitle:title,announcementMessage:message,important,requiresAcknowledgement});emailSent++;}
       catch(err){emailFailed++;emailErrors.push(String(err&&err.message||'Email delivery failed.'));}
     }
   }
@@ -1636,7 +1652,7 @@ async function assignExistingTaskToTesters(t,testers){
     const ref=doc(db,'betaTaskAssignments',t.id+'_'+x.uid);
     try{
       await updateDoc(ref,{dueLabel,updatedAt:serverTimestamp()});
-      await callWorkerAdminAction('task-assigned',{email:String(x.email||'').toLowerCase(),name:x.name||'',platform:x.platform||'',taskTitle:t.title||'Required Beta Program Task',taskObjective:t.objective||'',taskInstructions:t.instructions||'',dueLabel});
+      await callWorkerAdminAction('task-assigned',{testerUid:x.uid||'',applicationId:x.applicationId||'',email:String(x.email||'').toLowerCase(),name:x.name||'',platform:x.platform||'',taskTitle:t.title||'Required Beta Program Task',taskObjective:t.objective||'',taskInstructions:t.instructions||'',dueLabel});
       await updateDoc(ref,{emailStatus:'Sent',emailError:deleteField(),emailSentAt:serverTimestamp(),updatedAt:serverTimestamp()});sent++;
     }catch(err){const message=String(err&&err.message||'Email delivery failed.').slice(0,500);errors.push(message);await updateDoc(ref,{emailStatus:'Error',emailError:message,updatedAt:serverTimestamp()}).catch(()=>{});failed++;}
   }
@@ -1679,7 +1695,7 @@ async function createRequiredTask(){
     const ref=doc(db,'betaTaskAssignments',taskRef.id+'_'+t.uid);
     try{
       await updateDoc(ref,{dueLabel,updatedAt:serverTimestamp()});
-      await callWorkerAdminAction('task-assigned',{email:String(t.email||'').toLowerCase(),name:t.name||'',platform:t.platform||'',taskTitle:title,taskObjective:objective,taskInstructions:instructions,dueLabel});
+      await callWorkerAdminAction('task-assigned',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').toLowerCase(),name:t.name||'',platform:t.platform||'',taskTitle:title,taskObjective:objective,taskInstructions:instructions,dueLabel});
       await updateDoc(ref,{emailStatus:'Sent',emailError:deleteField(),emailSentAt:serverTimestamp(),updatedAt:serverTimestamp()}); sent++;
     }catch(err){const message=String(err&&err.message||'Email delivery failed.').slice(0,500);errors.push(message);await updateDoc(ref,{emailStatus:'Error',emailError:message,updatedAt:serverTimestamp()}).catch(()=>{});failed++;}
   }
@@ -1694,7 +1710,7 @@ async function sendAssignmentReminder(a){
   if(!a||a.status!=='Pending')return false;
   const dueLabel=a.dueLabel||formatDate(a.dueAt);
   const emailType=a.emailStatus==='Error'?'task-assigned':'task-reminder';
-  await callWorkerAdminAction(emailType,{email:String(a.email||'').toLowerCase(),name:a.name||'Tester',platform:a.platform||'',taskTitle:a.taskTitle||'Required Beta Program Task',taskObjective:a.taskObjective||'',taskInstructions:a.taskInstructions||'',dueLabel,reminderKind:'Reminder'});
+  await callWorkerAdminAction(emailType,{testerUid:a.testerUid||'',applicationId:a.applicationId||'',email:String(a.email||'').toLowerCase(),name:a.name||'Tester',platform:a.platform||'',taskTitle:a.taskTitle||'Required Beta Program Task',taskObjective:a.taskObjective||'',taskInstructions:a.taskInstructions||'',dueLabel,reminderKind:'Reminder'});
   await updateDoc(doc(db,'betaTaskAssignments',a.id),{emailStatus:'Sent',emailError:deleteField(),emailSentAt:serverTimestamp(),lastReminderSentAt:serverTimestamp(),manualReminderSentAt:serverTimestamp(),updatedAt:serverTimestamp()});
   a.lastReminderSentAt=new Date();a.manualReminderSentAt=new Date();
   renderTasks();
@@ -1759,8 +1775,8 @@ async function switchView(view){
   try{
     if(view==='applications')await loadApplications();
     if(view==='testers'){await Promise.all([loadTesters(),loadTasks(),loadFeedback()]);await reconcilePendingTasksForInactiveTesters();renderTesters();}
-    if(view==='tasks'){await loadTesters();await loadTasks();await reconcilePendingTasksForInactiveTesters();}
-    if(view==='announcements'){await loadTesters();await loadTasks();renderAnnouncements();}
+    if(view==='tasks'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);await reconcilePendingTasksForInactiveTesters();}
+    if(view==='announcements'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);renderAnnouncements();}
     if(view==='feedback')await loadFeedback();
   }catch(e){showToast('Could not load '+view+'. '+friendlyFirebaseError(e),'error');}
 }
@@ -1946,16 +1962,25 @@ function betaProgramEndIso(dateText){
   const d=normalizedBetaProgramDate(dateText);if(!d)return '';
   const local=new Date(d+'T23:59:59.999');return Number.isNaN(local.getTime())?'':local.toISOString();
 }
+function betaProgramDateExpired(dateText=betaProgramEndDate){
+  const endIso=betaProgramEndIso(dateText);return !!endIso&&Date.parse(endIso)<=Date.now();
+}
 async function loadBetaProgramSettings(){
   try{const snap=await getDoc(doc(db,'betaSystem','programSettings'));const data=snap.exists()?snap.data():{};betaProgramEndDate=normalizedBetaProgramDate(data.betaProgramEndDate);}
   catch(_){betaProgramEndDate='';}
   const input=document.getElementById('betaProgramEndDate');if(input)input.value=betaProgramEndDate;
   const message=document.getElementById('betaProgramSyncMessage');
+  const status=document.getElementById('betaProgramSyncStatus');
+  if(betaProgramEndDate&&betaProgramDateExpired(betaProgramEndDate)){
+    if(status){status.textContent='Program ended';status.className='admin-subtle-chip admin-service-disconnected';}
+    if(message){message.textContent='The saved Beta Program end date has passed. Beta portal access, Beta status, Beta-only tasks, and Beta trial access end automatically. Production accounts remain unchanged. Set a future end date before manually reactivating a tester.';message.className='admin-connection-message';}
+    return;
+  }
   if(message&&betaProgramEndDate){message.textContent='Saved configuration · Production access syncs automatically when tester eligibility or Production matching changes.';message.className='admin-connection-message success';}
   if(state.loaded.testers&&betaProgramEndDate&&window.RebataTrackProductionAdminBridge){ensureSavedBetaProgramReconciled().catch(error=>console.warn('Could not automatically reconcile Beta Program settings after load:',error));}
 }
 function eligibleBetaTesterPayload(){
-  return state.testers.filter(t=>t&&t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status)&&String(t.email||'').trim()).map(t=>({betaUid:t.uid,email:String(t.email||'').trim().toLowerCase(),name:t.name||'',platform:t.platform||''}));
+  return state.testers.filter(t=>t&&t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status)&&approvedBetaApplicationForTester(t)&&String(t.email||'').trim()).map(t=>({betaUid:t.uid,email:String(t.email||'').trim().toLowerCase(),name:t.name||'',platform:t.platform||''}));
 }
 async function reconcileMatchedTesterTimelines(){
   // Build 181: testing access being sent is NOT enough to begin active testing.
@@ -2031,6 +2056,7 @@ async function ensureSavedBetaProgramReconciled(options={}){
   const dateText=normalizedBetaProgramDate(betaProgramEndDate);
   const endIso=betaProgramEndIso(dateText);
   if(!state.loaded.testers||!bridge||typeof bridge.call!=='function'||!dateText||!endIso)return {skipped:true};
+  if(Date.parse(endIso)<=Date.now())return {skipped:true,expired:true};
   const status=document.getElementById('betaProgramSyncStatus');
   const message=document.getElementById('betaProgramSyncMessage');
   if(status){status.textContent='Auto-syncing…';status.className='admin-subtle-chip';}
@@ -2077,6 +2103,7 @@ async function syncBetaProgramAfterTesterMutation(){
   const dateText=normalizedBetaProgramDate(betaProgramEndDate);
   const endIso=betaProgramEndIso(dateText);
   if(!bridge||typeof bridge.call!=='function'||!dateText||!endIso)return {skipped:true};
+  if(Date.parse(endIso)<=Date.now())return {skipped:true,expired:true};
   const testers=eligibleBetaTesterPayload();
   try{
     const result=await bridge.call('beta-program-configure',{endDate:dateText,endsAt:endIso,testers});
@@ -2096,7 +2123,7 @@ async function saveAndSyncBetaProgram(){
   const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.call!=='function'){if(message){message.textContent='Connect the Production Admin Worker first, then try again.';message.className='admin-connection-message error';}return;}
   if(button)button.disabled=true;if(status){status.textContent='Syncing…';status.className='admin-subtle-chip';}
   try{
-    await setDoc(doc(db,'betaSystem','programSettings'),{betaProgramEndDate:dateText,betaProgramEndsAt:endIso,updatedAt:serverTimestamp()},{merge:true});betaProgramEndDate=dateText;
+    await setDoc(doc(db,'betaSystem','programSettings'),{betaProgramEndDate:dateText,betaProgramEndsAt:endIso,betaProgramActive:true,betaProgramEndedAt:deleteField(),betaProgramEndProcessedAt:deleteField(),updatedAt:serverTimestamp()},{merge:true});betaProgramEndDate=dateText;
     const testers=eligibleBetaTesterPayload();const result=await bridge.call('beta-program-configure',{endDate:dateText,endsAt:endIso,testers});
     applyBetaProductionResult(result);betaMappingLoadedAt=Date.now();await reconcileMatchedTesterTimelines();renderTesters();betaProgramSessionReconciled=true;
     if(status){status.textContent='Auto sync on';status.className='admin-subtle-chip admin-service-connected';}
@@ -2311,8 +2338,8 @@ async function refreshActiveView(){
     await loadOverview(true);
     if(activeView==='applications')await loadApplications(true);
     if(activeView==='testers'){await Promise.all([loadTesters(true),loadTasks(true),loadFeedback(true)]);renderTesters();}
-    if(activeView==='tasks'){await loadTesters(true);await loadTasks(true);}
-    if(activeView==='announcements'){await loadTesters(true);await loadTasks(true);renderAnnouncements();}
+    if(activeView==='tasks'){await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);}
+    if(activeView==='announcements'){await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);renderAnnouncements();}
     if(activeView==='feedback')await loadFeedback(true);
   }catch(e){showToast('Could not refresh beta data. '+friendlyFirebaseError(e),'error');}
   finally{document.getElementById('adminRefresh').classList.remove('is-spinning');}
