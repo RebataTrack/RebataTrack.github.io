@@ -2632,16 +2632,3 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-task-recipient.already-received{opacity:.68;background:#f7f9fc;border-color:#e4eaf2;cursor:not-allowed}.admin-task-recipient.already-received input{cursor:not-allowed}.admin-task-received-chip{display:inline-flex;align-items:center;white-space:nowrap;padding:5px 8px;border-radius:999px;background:#edf8f0;color:#2f7e3b;font-size:.61rem;font-weight:900;border:1px solid #d6eadb}
 
 .status-review-required{background:#fff6df;color:#946400}.status-deadline-passed{background:#fff6df;color:#946400}
-
-/* Website Build 201: announcement test-email workflow */
-.admin-announcement-send-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:4px}
-.admin-announcement-send-actions .admin-announcement-publish{margin:0}
-.admin-announcement-test-panel{margin-top:14px;padding:18px;border:1px solid #dbe6f5;border-radius:18px;background:#f8fbff}
-.admin-announcement-test-panel[hidden]{display:none!important}
-.admin-announcement-test-panel .beta-field{margin:0}
-.admin-announcement-test-panel .beta-field small{display:block;margin-top:7px;color:#75869d;font-size:12px;line-height:1.45}
-.admin-announcement-test-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px;flex-wrap:wrap}
-.admin-announcement-test-message{min-height:20px;margin-top:10px;font-size:13px;font-weight:700;color:#5f6f86}
-.admin-announcement-test-message.is-success{color:#2f8742}
-.admin-announcement-test-message.is-error{color:#b33a32}
-@media(max-width:640px){.admin-announcement-send-actions>*{width:100%}.admin-announcement-test-actions>*{flex:1 1 140px}}

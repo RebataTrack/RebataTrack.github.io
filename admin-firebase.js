@@ -1572,38 +1572,6 @@ function renderAnnouncements(){
   const campaigns=announcementCampaigns();
   list.innerHTML=campaigns.length?campaigns.map(t=>{const stats=announcementStats(t);const status=t.status||'Published';const ack=t.requiresAcknowledgement?`${stats.acknowledged}/${stats.total} acknowledged`:'No acknowledgement required';return `<button class="admin-announcement-row" type="button" data-open-announcement="${esc(t.id)}"><span class="admin-announcement-row-icon${t.important?' is-important':''}">!</span><span class="admin-announcement-row-copy"><span><strong>${esc(t.title||'Beta update')}</strong><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><small>${esc(t.audience||'All')} · ${esc(formatDate(t.publishedAt||t.createdAt))} · ${esc(ack)}</small><p>${esc(t.message||'')}</p></span><span class="admin-feedback-chevron">›</span></button>`;}).join(''):'<div class="admin-empty-inline">No announcements have been published yet.</div>';
 }
-function announcementDraft(){
-  return {
-    title:String(document.getElementById('announcementTitle')?.value||'').trim(),
-    message:String(document.getElementById('announcementMessage')?.value||'').trim(),
-    audience:String(document.getElementById('announcementAudience')?.value||'All'),
-    important:!!document.getElementById('announcementImportant')?.checked,
-    requiresAcknowledgement:true
-  };
-}
-function validAnnouncementTestEmail(value){
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value||'').trim());
-}
-function setAnnouncementTestMessage(message='',kind=''){
-  const el=document.getElementById('announcementTestMessage');if(!el)return;
-  el.textContent=message;el.classList.toggle('is-error',kind==='error');el.classList.toggle('is-success',kind==='success');
-}
-async function sendAnnouncementTestEmail(){
-  const draft=announcementDraft();
-  const email=String(document.getElementById('announcementTestEmail')?.value||'').trim();
-  if(draft.title.length<2)throw new Error('Enter an announcement headline before sending a test.');
-  if(draft.message.length<2)throw new Error('Enter the announcement message before sending a test.');
-  if(!validAnnouncementTestEmail(email))throw new Error('Enter a valid test email address.');
-  return callWorkerAdminAction('portal-announcement-test',{
-    email,
-    name:'Test Recipient',
-    announcementTitle:draft.title,
-    announcementMessage:draft.message,
-    important:draft.important,
-    requiresAcknowledgement:draft.requiresAcknowledgement
-  });
-}
-
 async function createAnnouncement(){
   const title=String(document.getElementById('announcementTitle')?.value||'').trim();
   const message=String(document.getElementById('announcementMessage')?.value||'').trim();
@@ -2026,7 +1994,7 @@ function openFeedbackRecord(f){
   const gmailAction=emailSupport?`<div class="admin-support-identity-action"><a class="admin-secondary-button" href="${esc(f.gmailMessageUrl||'https://mail.google.com/mail/u/0/#inbox')}" target="_blank" rel="noopener">Open Original Email in Gmail</a><span>${f.hasAttachments?'Attachments stay in Gmail and are intentionally not copied into the portal.':'Gmail remains the original email archive for this conversation.'}</span></div>`:'';
   const productionAccountAction=support?supportProductionMatchHtml(f):'';
   const closed=adminConversationIsClosed(f);
-  const replyArea=closed?`<div class="admin-conversation-closed"><div><strong>This conversation is closed.</strong><span>${emailSupport?'Email replies will reopen the ticket automatically if the customer responds.':'The tester can review the history, but messaging is disabled until you reopen it.'}</span></div><button class="admin-primary-button" data-reopen-feedback="${esc(f.id)}" type="button">Reopen Conversation</button></div>`:`<div class="admin-conversation-reply">${support?supportReplyPresetHtml(emailSupport):''}<label class="admin-detail-label" for="drawerConversationReply">Reply to ${emailSupport?'customer':'tester'}</label><textarea id="drawerConversationReply" class="admin-detail-textarea" maxlength="5000" placeholder="Write a reply…"${support?' data-support-initial-greeting="1"':''}></textarea><button class="admin-primary-button" data-send-conversation-reply="${esc(f.id)}" type="button">Send Reply</button></div>`;
+  const replyArea=closed?`<div class="admin-conversation-closed"><div><strong>This conversation is closed.</strong><span>${emailSupport?'Email replies will reopen the ticket automatically if the customer responds.':'The tester can review the history, but messaging is disabled until you reopen it.'}</span></div><button class="admin-primary-button" data-reopen-feedback="${esc(f.id)}" type="button">Reopen Conversation</button></div>`:`<div class="admin-conversation-reply">${supportReplyPresetHtml(emailSupport)}<label class="admin-detail-label" for="drawerConversationReply">Reply to ${emailSupport?'customer':'tester'}</label><textarea id="drawerConversationReply" class="admin-detail-textarea" maxlength="5000" placeholder="Write a reply…"${support?' data-support-initial-greeting="1"':''}></textarea><button class="admin-primary-button" data-send-conversation-reply="${esc(f.id)}" type="button">Send Reply</button></div>`;
   const contextChip=emailSupport?'<span class="admin-subtle-chip">Email correspondence</span>':`<span class="admin-subtle-chip">Tester sees: ${esc(publicStatus)}</span>`;
   openDrawer(support?'Support Conversation':'Tester Feedback',f.subject,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-feedback-type-chip">${esc(f.type)}</span><span class="admin-platform-pill">${esc(emailSupport?'Email':f.platform)}</span>${contextChip}</div>${details}${supportEmailAction}${gmailAction}${productionAccountAction}${retestBlock}<section class="admin-conversation-section"><div class="admin-feedback-section-head"><div><span>Conversation</span><strong>Messages <span class="admin-live-conversation"><i aria-hidden="true"></i> Live</span></strong></div></div><div class="admin-conversation-thread" id="drawerConversationThread"><div class="admin-empty-inline">Loading conversation…</div></div>${replyArea}</section><div class="beta-field"><label for="drawerFeedbackStatus">Status</label><select id="drawerFeedbackStatus" class="admin-detail-select">${feedbackWorkflowOptions(f)}</select></div><div><label class="admin-detail-label" for="drawerFeedbackNotes">Private admin notes</label><textarea id="drawerFeedbackNotes" class="admin-detail-textarea" placeholder="${f.adminNotesLoaded===true?'Internal notes only administrators can see…':'Loading private notes…'}"${f.adminNotesLoaded===true?'':' disabled'}>${esc(f.adminNotes||'')}</textarea></div><button class="admin-primary-button" data-save-feedback="${esc(f.id)}" type="button">Save Status &amp; Notes</button><div class="admin-feedback-delete-zone"><div><strong>Delete conversation</strong><span>Permanently removes this Help &amp; Feedback item and its portal reply history. ${emailSupport?'The original Gmail thread and attachments remain in Gmail.':'The tester account and beta application are not deleted.'}</span></div><button class="admin-action-button danger-soft" data-delete-feedback="${esc(f.id)}" type="button">Delete Conversation</button></div></div>`);
   subscribeAdminConversationMessages(f);
@@ -2859,16 +2827,6 @@ document.getElementById('taskSelectAndroid').addEventListener('click',()=>select
 document.getElementById('taskClearAll').addEventListener('click',()=>{document.querySelectorAll('[data-task-recipient]').forEach(el=>el.checked=false);updateTaskRecipientSummary();});
 document.getElementById('taskRecipientList').addEventListener('change',e=>{if(e.target.matches('[data-task-recipient]'))updateTaskRecipientSummary();});
 document.getElementById('taskSendButton').addEventListener('click',async()=>{const btn=document.getElementById('taskSendButton');const original=btn.innerHTML;if(!(await confirmAction('Send this required task to the selected testers? They will receive an email and should complete it by the deadline. Missed deadlines are sent to Admin review; access is not changed automatically.','')))return;btn.disabled=true;btn.innerHTML='Sending Task…';try{const result=await createRequiredTask();const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} testers. ${result.failed} email${result.failed===1?'':'s'} could not be sent.${firstError}`:`Required task sent to ${result.total} tester${result.total===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.innerHTML=original;}});
-const announcementTestButton=document.getElementById('announcementTestButton');
-const announcementTestPanel=document.getElementById('announcementTestPanel');
-const announcementTestEmail=document.getElementById('announcementTestEmail');
-const announcementTestSend=document.getElementById('announcementTestSend');
-const announcementTestCancel=document.getElementById('announcementTestCancel');
-function updateAnnouncementTestSendState(){if(announcementTestSend)announcementTestSend.disabled=!validAnnouncementTestEmail(announcementTestEmail?.value||'');}
-if(announcementTestButton)announcementTestButton.addEventListener('click',()=>{if(!announcementTestPanel)return;announcementTestPanel.hidden=false;setAnnouncementTestMessage('');updateAnnouncementTestSendState();setTimeout(()=>announcementTestEmail?.focus(),0);});
-if(announcementTestCancel)announcementTestCancel.addEventListener('click',()=>{if(announcementTestPanel)announcementTestPanel.hidden=true;setAnnouncementTestMessage('');});
-if(announcementTestEmail)announcementTestEmail.addEventListener('input',()=>{updateAnnouncementTestSendState();setAnnouncementTestMessage('');});
-if(announcementTestSend)announcementTestSend.addEventListener('click',async()=>{const recipient=String(announcementTestEmail?.value||'').trim();const original=announcementTestSend.textContent;announcementTestSend.disabled=true;announcementTestSend.textContent='Sending…';setAnnouncementTestMessage('');try{await sendAnnouncementTestEmail();setAnnouncementTestMessage(`Test announcement sent successfully to ${recipient}`,'success');showToast(`Test announcement sent successfully to ${recipient}`,'success');}catch(err){setAnnouncementTestMessage(friendlyFirebaseError(err),'error');showToast(friendlyFirebaseError(err),'error');}finally{announcementTestSend.textContent=original;updateAnnouncementTestSendState();}});
 const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
 document.addEventListener('click',async event=>{
