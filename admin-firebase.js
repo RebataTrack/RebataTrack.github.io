@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 201
+// RebataTrack Admin Portal — Website Build 199
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -49,7 +49,6 @@ const portalContent = document.getElementById('adminPortalContent');
 const passwordGate = document.getElementById('adminPasswordGate');
 let activeView = 'overview';
 let initialized = false;
-let feedbackResolvedExpanded = false;
 const loadingStatus = document.getElementById('adminLoadingStatus');
 function setLoadingStatus(message){ if(loadingStatus) loadingStatus.textContent = message; }
 function withTimeout(promise, ms, label){
@@ -1430,20 +1429,9 @@ function markFeedbackViewed(f){
     console.warn('Could not save feedback read state:',error);
   });
 }
-function feedbackCardHtml(f){
-  const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const support=isSupportConversation(f);const emailSupport=isEmailSupportConversation(f);const workflow=support?(emailSupport?'Support · Email':'Support · Portal'):'Beta Feedback';const needsResponse=feedbackNeedsAdminResponse(f);const platform=emailSupport?'Email':(f.platform||'Not provided');const statusContext=emailSupport?'Managed by email':'Tester sees: '+publicStatus;
-  return `<button class="admin-feedback-card${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}<strong>${esc(f.subject)}</strong>${needsResponse?'<b class="admin-feedback-update-label">Needs response</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · ${esc(f.name||f.email||'Customer')} · ${esc(platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · ${esc(statusContext)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;
-}
 function renderFeedback(){
   const data=feedbackFiltered();const list=document.getElementById('feedbackList');
-  const openItems=data.filter(f=>!adminConversationIsClosed(f));
-  const resolvedItems=data.filter(f=>adminConversationIsClosed(f));
-  const statusFilter=String(document.getElementById('feedbackStatusFilter')?.value||'');
-  const forceResolvedOpen=['Resolved','Closed'].includes(statusFilter);
-  const resolvedOpen=forceResolvedOpen||feedbackResolvedExpanded;
-  const activeHtml=openItems.map(feedbackCardHtml).join('');
-  const resolvedHtml=resolvedItems.length?`<section class="admin-feedback-resolved-group${resolvedOpen?' is-open':''}"><button class="admin-feedback-resolved-toggle" type="button" data-toggle-resolved-feedback aria-expanded="${resolvedOpen?'true':'false'}"><span><strong>Resolved</strong><small>${resolvedItems.length} conversation${resolvedItems.length===1?'':'s'}</small></span><span class="admin-feedback-resolved-chevron" aria-hidden="true">⌄</span></button><div class="admin-feedback-resolved-list"${resolvedOpen?'':' hidden'}>${resolvedItems.map(feedbackCardHtml).join('')}</div></section>`:'';
-  list.innerHTML=activeHtml+resolvedHtml;
+  list.innerHTML=data.map(f=>{const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const support=isSupportConversation(f);const emailSupport=isEmailSupportConversation(f);const workflow=support?(emailSupport?'Support · Email':'Support · Portal'):'Beta Feedback';const needsResponse=feedbackNeedsAdminResponse(f);const platform=emailSupport?'Email':(f.platform||'Not provided');const statusContext=emailSupport?'Managed by email':'Tester sees: '+publicStatus;return `<button class="admin-feedback-card${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}<strong>${esc(f.subject)}</strong>${needsResponse?'<b class="admin-feedback-update-label">Needs response</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · ${esc(f.name||f.email||'Customer')} · ${esc(platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · ${esc(statusContext)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;}).join('');
   document.getElementById('feedbackEmpty').hidden=data.length>0;
 }
 
@@ -1584,6 +1572,38 @@ function renderAnnouncements(){
   const campaigns=announcementCampaigns();
   list.innerHTML=campaigns.length?campaigns.map(t=>{const stats=announcementStats(t);const status=t.status||'Published';const ack=t.requiresAcknowledgement?`${stats.acknowledged}/${stats.total} acknowledged`:'No acknowledgement required';return `<button class="admin-announcement-row" type="button" data-open-announcement="${esc(t.id)}"><span class="admin-announcement-row-icon${t.important?' is-important':''}">!</span><span class="admin-announcement-row-copy"><span><strong>${esc(t.title||'Beta update')}</strong><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><small>${esc(t.audience||'All')} · ${esc(formatDate(t.publishedAt||t.createdAt))} · ${esc(ack)}</small><p>${esc(t.message||'')}</p></span><span class="admin-feedback-chevron">›</span></button>`;}).join(''):'<div class="admin-empty-inline">No announcements have been published yet.</div>';
 }
+function announcementDraft(){
+  return {
+    title:String(document.getElementById('announcementTitle')?.value||'').trim(),
+    message:String(document.getElementById('announcementMessage')?.value||'').trim(),
+    audience:String(document.getElementById('announcementAudience')?.value||'All'),
+    important:!!document.getElementById('announcementImportant')?.checked,
+    requiresAcknowledgement:true
+  };
+}
+function validAnnouncementTestEmail(value){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value||'').trim());
+}
+function setAnnouncementTestMessage(message='',kind=''){
+  const el=document.getElementById('announcementTestMessage');if(!el)return;
+  el.textContent=message;el.classList.toggle('is-error',kind==='error');el.classList.toggle('is-success',kind==='success');
+}
+async function sendAnnouncementTestEmail(){
+  const draft=announcementDraft();
+  const email=String(document.getElementById('announcementTestEmail')?.value||'').trim();
+  if(draft.title.length<2)throw new Error('Enter an announcement headline before sending a test.');
+  if(draft.message.length<2)throw new Error('Enter the announcement message before sending a test.');
+  if(!validAnnouncementTestEmail(email))throw new Error('Enter a valid test email address.');
+  return callWorkerAdminAction('portal-announcement-test',{
+    email,
+    name:'Test Recipient',
+    announcementTitle:draft.title,
+    announcementMessage:draft.message,
+    important:draft.important,
+    requiresAcknowledgement:draft.requiresAcknowledgement
+  });
+}
+
 async function createAnnouncement(){
   const title=String(document.getElementById('announcementTitle')?.value||'').trim();
   const message=String(document.getElementById('announcementMessage')?.value||'').trim();
@@ -2628,7 +2648,7 @@ document.addEventListener('click',async e=>{
   const deleteFeedbackBtn=e.target.closest('[data-delete-feedback]');if(deleteFeedbackBtn){const f=await ensureFeedbackLoaded(deleteFeedbackBtn.dataset.deleteFeedback);if(!f)return;const label=isSupportConversation(f)?'support conversation':'feedback conversation';const deleteNote=isEmailSupportConversation(f)?'The original Gmail thread and attachments will remain in Gmail.':'The tester account and beta application will remain.';if(!(await confirmAction(`Permanently delete this ${label}? All portal replies and private admin notes will also be deleted. ${deleteNote} This cannot be undone.`,'danger')))return;deleteFeedbackBtn.disabled=true;const original=deleteFeedbackBtn.textContent;deleteFeedbackBtn.textContent='Deleting…';try{await deleteFeedbackConversation(f);closeDrawer();showToast('Conversation deleted.');}catch(err){showToast(friendlyFirebaseError(err),'error');deleteFeedbackBtn.disabled=false;deleteFeedbackBtn.textContent=original;}return;}
   const supportPreset=e.target.closest('[data-support-reply-preset]');if(supportPreset){setSupportReplyPreset(supportPreset.dataset.supportReplyPreset);return;}
   const productionUserButton=e.target.closest('[data-open-production-user]');if(productionUserButton){const uid=String(productionUserButton.dataset.openProductionUser||'').trim();if(!uid)return;const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.openUser!=='function'){showToast('Connect the Production Admin service first.','error');return;}try{await bridge.openUser(uid);}catch(err){showToast(err.message||'Production user could not be opened.','error');}return;}
-  const convoReply=e.target.closest('[data-send-conversation-reply]');if(convoReply){const f=await ensureFeedbackLoaded(convoReply.dataset.sendConversationReply);if(!f)return;if(adminConversationIsClosed(f)){showToast('Reopen this conversation before replying.','error');openFeedbackRecord(f);return;}const input=document.getElementById('drawerConversationReply');const body=String(input?.value||'').trim();if(!body){showToast('Write a reply before sending.','error');return;}convoReply.disabled=true;const original=convoReply.textContent;convoReply.textContent='Sending…';try{const ref=await addDoc(collection(db,'betaFeedback',f.id,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',body,createdAt:serverTimestamp()});const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Admin',updatedAt:serverTimestamp()};const supportConversation=isSupportConversation(f);const currentStatus=canonicalFeedbackStatus(f.status);if(supportConversation)update.status='Waiting for Tester';else if(currentStatus==='New')update.status='Reviewing';await updateDoc(doc(db,'betaFeedback',f.id),update);f.lastMessageAt=new Date();f.lastMessageBy='Admin';f.updatedAt=new Date();if(supportConversation)f.status='Waiting for Tester';else if(currentStatus==='New')f.status='Reviewing';let emailFailed=false;try{await callWorkerAdminAction('conversation-reply-added',{feedbackId:f.id,messageId:ref.id});}catch(emailErr){emailFailed=true;console.warn('Conversation reply email failed:',emailErr);}if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}renderFeedback();syncOpenAdminFeedbackState(f);showToast(emailFailed?`Reply saved, but the ${isEmailSupportConversation(f)?'customer':'tester'} email could not be sent.`:`Reply sent to ${isEmailSupportConversation(f)?'customer':'tester'}.`,emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{convoReply.disabled=false;convoReply.textContent=original;}return;}
+  const convoReply=e.target.closest('[data-send-conversation-reply]');if(convoReply){const f=await ensureFeedbackLoaded(convoReply.dataset.sendConversationReply);if(!f)return;if(adminConversationIsClosed(f)){showToast('Reopen this conversation before replying.','error');openFeedbackRecord(f);return;}const input=document.getElementById('drawerConversationReply');const body=String(input?.value||'').trim();if(!body){showToast('Write a reply before sending.','error');return;}convoReply.disabled=true;const original=convoReply.textContent;convoReply.textContent='Sending…';try{const ref=await addDoc(collection(db,'betaFeedback',f.id,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',body,createdAt:serverTimestamp()});const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Admin',updatedAt:serverTimestamp()};if(isSupportConversation(f))update.status='Waiting for Tester';await updateDoc(doc(db,'betaFeedback',f.id),update);f.lastMessageAt=new Date();f.lastMessageBy='Admin';f.updatedAt=new Date();if(isSupportConversation(f))f.status='Waiting for Tester';let emailFailed=false;try{await callWorkerAdminAction('conversation-reply-added',{feedbackId:f.id,messageId:ref.id});}catch(emailErr){emailFailed=true;console.warn('Conversation reply email failed:',emailErr);}if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}renderFeedback();syncOpenAdminFeedbackState(f);showToast(emailFailed?`Reply saved, but the ${isEmailSupportConversation(f)?'customer':'tester'} email could not be sent.`:`Reply sent to ${isEmailSupportConversation(f)?'customer':'tester'}.`,emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{convoReply.disabled=false;convoReply.textContent=original;}return;}
   const fbSave=e.target.closest('[data-save-feedback]');if(fbSave){
     const f=await ensureFeedbackLoaded(fbSave.dataset.saveFeedback);if(!f)return;const status=String(document.getElementById('drawerFeedbackStatus').value||'').trim();const notesBox=document.getElementById('drawerFeedbackNotes');const notesEditable=!!notesBox&&!notesBox.disabled;const notes=notesBox?notesBox.value:'';const support=isSupportConversation(f);const oldStatus=canonicalFeedbackStatus(f.status);const oldPublic=testerFacingFeedbackStatus(f);
     try{
@@ -2839,6 +2859,16 @@ document.getElementById('taskSelectAndroid').addEventListener('click',()=>select
 document.getElementById('taskClearAll').addEventListener('click',()=>{document.querySelectorAll('[data-task-recipient]').forEach(el=>el.checked=false);updateTaskRecipientSummary();});
 document.getElementById('taskRecipientList').addEventListener('change',e=>{if(e.target.matches('[data-task-recipient]'))updateTaskRecipientSummary();});
 document.getElementById('taskSendButton').addEventListener('click',async()=>{const btn=document.getElementById('taskSendButton');const original=btn.innerHTML;if(!(await confirmAction('Send this required task to the selected testers? They will receive an email and should complete it by the deadline. Missed deadlines are sent to Admin review; access is not changed automatically.','')))return;btn.disabled=true;btn.innerHTML='Sending Task…';try{const result=await createRequiredTask();const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} testers. ${result.failed} email${result.failed===1?'':'s'} could not be sent.${firstError}`:`Required task sent to ${result.total} tester${result.total===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.innerHTML=original;}});
+const announcementTestButton=document.getElementById('announcementTestButton');
+const announcementTestPanel=document.getElementById('announcementTestPanel');
+const announcementTestEmail=document.getElementById('announcementTestEmail');
+const announcementTestSend=document.getElementById('announcementTestSend');
+const announcementTestCancel=document.getElementById('announcementTestCancel');
+function updateAnnouncementTestSendState(){if(announcementTestSend)announcementTestSend.disabled=!validAnnouncementTestEmail(announcementTestEmail?.value||'');}
+if(announcementTestButton)announcementTestButton.addEventListener('click',()=>{if(!announcementTestPanel)return;announcementTestPanel.hidden=false;setAnnouncementTestMessage('');updateAnnouncementTestSendState();setTimeout(()=>announcementTestEmail?.focus(),0);});
+if(announcementTestCancel)announcementTestCancel.addEventListener('click',()=>{if(announcementTestPanel)announcementTestPanel.hidden=true;setAnnouncementTestMessage('');});
+if(announcementTestEmail)announcementTestEmail.addEventListener('input',()=>{updateAnnouncementTestSendState();setAnnouncementTestMessage('');});
+if(announcementTestSend)announcementTestSend.addEventListener('click',async()=>{const recipient=String(announcementTestEmail?.value||'').trim();const original=announcementTestSend.textContent;announcementTestSend.disabled=true;announcementTestSend.textContent='Sending…';setAnnouncementTestMessage('');try{await sendAnnouncementTestEmail();setAnnouncementTestMessage(`Test announcement sent successfully to ${recipient}`,'success');showToast(`Test announcement sent successfully to ${recipient}`,'success');}catch(err){setAnnouncementTestMessage(friendlyFirebaseError(err),'error');showToast(friendlyFirebaseError(err),'error');}finally{announcementTestSend.textContent=original;updateAnnouncementTestSendState();}});
 const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
 document.addEventListener('click',async event=>{
@@ -2863,7 +2893,6 @@ document.querySelectorAll('[data-send-reminder-group]').forEach(btn=>btn.addEven
   document.getElementById('testerNextStepShowAll')?.addEventListener('click',clearTesterFilters);
   document.getElementById('testerSendPendingReminders')?.addEventListener('click',async()=>{const btn=document.getElementById('testerSendPendingReminders');const original=btn.textContent;btn.disabled=true;btn.textContent='Sending Reminders…';try{const result=await sendAllPendingTesterReminders();if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Personalized reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.textContent=original;renderTesterNextStepSummary();}});
 ['feedbackSearch','feedbackStatusFilter','feedbackTypeFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderFeedback));
-document.getElementById('feedbackList')?.addEventListener('click',event=>{const toggle=event.target.closest('[data-toggle-resolved-feedback]');if(!toggle)return;feedbackResolvedExpanded=!feedbackResolvedExpanded;renderFeedback();});
 
 
 document.getElementById('betaProgramSaveSync')?.addEventListener('click',saveAndSyncBetaProgram);

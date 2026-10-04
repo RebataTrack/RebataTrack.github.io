@@ -2633,14 +2633,15 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 
 .status-review-required{background:#fff6df;color:#946400}.status-deadline-passed{background:#fff6df;color:#946400}
 
-
-/* Website Build 201 — Help & Feedback resolved conversation collapse */
-.admin-feedback-resolved-group{display:grid;gap:10px;margin-top:4px}
-.admin-feedback-resolved-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px;border:1px solid var(--admin-line);border-radius:16px;background:#f7f9fc;color:var(--admin-deep);cursor:pointer;text-align:left}
-.admin-feedback-resolved-toggle>span:first-child{display:flex;align-items:baseline;gap:8px}
-.admin-feedback-resolved-toggle strong{font-size:.82rem}
-.admin-feedback-resolved-toggle small{font-size:.68rem;color:#7f8ea0;font-weight:750}
-.admin-feedback-resolved-chevron{font-size:1rem;color:#8492a2;transition:transform .18s ease}
-.admin-feedback-resolved-group.is-open .admin-feedback-resolved-chevron{transform:rotate(180deg)}
-.admin-feedback-resolved-list{display:grid;gap:10px}
-.admin-feedback-resolved-list[hidden]{display:none!important}
+/* Website Build 201: announcement test-email workflow */
+.admin-announcement-send-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:4px}
+.admin-announcement-send-actions .admin-announcement-publish{margin:0}
+.admin-announcement-test-panel{margin-top:14px;padding:18px;border:1px solid #dbe6f5;border-radius:18px;background:#f8fbff}
+.admin-announcement-test-panel[hidden]{display:none!important}
+.admin-announcement-test-panel .beta-field{margin:0}
+.admin-announcement-test-panel .beta-field small{display:block;margin-top:7px;color:#75869d;font-size:12px;line-height:1.45}
+.admin-announcement-test-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px;flex-wrap:wrap}
+.admin-announcement-test-message{min-height:20px;margin-top:10px;font-size:13px;font-weight:700;color:#5f6f86}
+.admin-announcement-test-message.is-success{color:#2f8742}
+.admin-announcement-test-message.is-error{color:#b33a32}
+@media(max-width:640px){.admin-announcement-send-actions>*{width:100%}.admin-announcement-test-actions>*{flex:1 1 140px}}
