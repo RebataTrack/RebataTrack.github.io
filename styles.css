@@ -1820,7 +1820,10 @@ body.portal-conversation-active{overflow:hidden!important}
 .admin-chat-message.from-tester{border-bottom-left-radius:5px!important}
 .admin-conversation-reply{position:relative;background:#fff;padding:11px 13px!important;border-top:1px solid #e4ebf4!important}
 .admin-conversation-reply .admin-detail-label{display:block;margin-bottom:5px}
-.admin-conversation-reply .admin-detail-textarea{min-height:54px!important;max-height:110px;margin:0 0 8px!important;resize:vertical}
+.admin-conversation-reply .admin-detail-textarea{height:150px;min-height:132px!important;max-height:280px;margin:0 0 10px!important;resize:vertical;line-height:1.55}
+.admin-chat-message.is-initial{border-color:#c9dcfb;background:#f3f7ff;box-shadow:0 4px 16px rgba(20,92,242,.06)}
+.admin-chat-message small{display:block;margin-top:7px;color:#6f8196;font-size:.64rem;line-height:1.45;overflow-wrap:anywhere}
+.admin-chat-message small strong{font-size:inherit;color:#526b85}
 .admin-conversation-reply .admin-primary-button{min-height:44px!important;margin:0 0 0 auto!important;width:auto!important}
 
 @media(max-width:700px){
@@ -1846,6 +1849,7 @@ body.portal-conversation-active{overflow:hidden!important}
   .portal-conversation-send svg{width:20px!important;height:20px!important}
   .admin-conversation-section{grid-template-rows:auto minmax(180px,44dvh) auto}
   .admin-conversation-thread{max-height:44dvh!important}
+  .admin-conversation-reply .admin-detail-textarea{height:120px;min-height:108px!important;max-height:220px}
 }
 
 
