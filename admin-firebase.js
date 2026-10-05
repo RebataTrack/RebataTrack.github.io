@@ -1429,9 +1429,19 @@ function markFeedbackViewed(f){
     console.warn('Could not save feedback read state:',error);
   });
 }
+function feedbackCardHtml(f){
+  const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const support=isSupportConversation(f);const emailSupport=isEmailSupportConversation(f);const workflow=support?(emailSupport?'Support · Email':'Support · Portal'):'Beta Feedback';const needsResponse=feedbackNeedsAdminResponse(f);const platform=emailSupport?'Email':(f.platform||'Not provided');const statusContext=emailSupport?'Managed by email':'Tester sees: '+publicStatus;
+  return `<button class="admin-feedback-card${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}<strong>${esc(f.subject)}</strong>${needsResponse?'<b class="admin-feedback-update-label">Needs response</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · ${esc(f.name||f.email||'Customer')} · ${esc(platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · ${esc(statusContext)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;
+}
 function renderFeedback(){
   const data=feedbackFiltered();const list=document.getElementById('feedbackList');
-  list.innerHTML=data.map(f=>{const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const support=isSupportConversation(f);const emailSupport=isEmailSupportConversation(f);const workflow=support?(emailSupport?'Support · Email':'Support · Portal'):'Beta Feedback';const needsResponse=feedbackNeedsAdminResponse(f);const platform=emailSupport?'Email':(f.platform||'Not provided');const statusContext=emailSupport?'Managed by email':'Tester sees: '+publicStatus;return `<button class="admin-feedback-card${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}<strong>${esc(f.subject)}</strong>${needsResponse?'<b class="admin-feedback-update-label">Needs response</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · ${esc(f.name||f.email||'Customer')} · ${esc(platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · ${esc(statusContext)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;}).join('');
+  const openRows=data.filter(f=>!adminConversationIsClosed(f));
+  const closedRows=data.filter(adminConversationIsClosed);
+  const selectedStatus=String(document.getElementById('feedbackStatusFilter')?.value||'');
+  const forceOpen=selectedStatus==='Resolved'||selectedStatus==='Closed';
+  const openHtml=openRows.map(feedbackCardHtml).join('');
+  const closedHtml=closedRows.length?`<details class="admin-feedback-resolved-group"${forceOpen?' open':''}><summary><span><strong>Resolved</strong><small>Closed Help &amp; Feedback conversations</small></span><span class="admin-feedback-resolved-count">${closedRows.length}</span></summary><div class="admin-feedback-resolved-list">${closedRows.map(feedbackCardHtml).join('')}</div></details>`:'';
+  list.innerHTML=openHtml+closedHtml;
   document.getElementById('feedbackEmpty').hidden=data.length>0;
 }
 
@@ -1572,6 +1582,38 @@ function renderAnnouncements(){
   const campaigns=announcementCampaigns();
   list.innerHTML=campaigns.length?campaigns.map(t=>{const stats=announcementStats(t);const status=t.status||'Published';const ack=t.requiresAcknowledgement?`${stats.acknowledged}/${stats.total} acknowledged`:'No acknowledgement required';return `<button class="admin-announcement-row" type="button" data-open-announcement="${esc(t.id)}"><span class="admin-announcement-row-icon${t.important?' is-important':''}">!</span><span class="admin-announcement-row-copy"><span><strong>${esc(t.title||'Beta update')}</strong><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><small>${esc(t.audience||'All')} · ${esc(formatDate(t.publishedAt||t.createdAt))} · ${esc(ack)}</small><p>${esc(t.message||'')}</p></span><span class="admin-feedback-chevron">›</span></button>`;}).join(''):'<div class="admin-empty-inline">No announcements have been published yet.</div>';
 }
+function announcementDraft(){
+  return {
+    title:String(document.getElementById('announcementTitle')?.value||'').trim(),
+    message:String(document.getElementById('announcementMessage')?.value||'').trim(),
+    audience:String(document.getElementById('announcementAudience')?.value||'All'),
+    important:!!document.getElementById('announcementImportant')?.checked,
+    requiresAcknowledgement:true
+  };
+}
+function validAnnouncementTestEmail(value){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value||'').trim());
+}
+function setAnnouncementTestMessage(message='',kind=''){
+  const el=document.getElementById('announcementTestMessage');if(!el)return;
+  el.textContent=message;el.classList.toggle('is-error',kind==='error');el.classList.toggle('is-success',kind==='success');
+}
+async function sendAnnouncementTestEmail(){
+  const draft=announcementDraft();
+  const email=String(document.getElementById('announcementTestEmail')?.value||'').trim();
+  if(draft.title.length<2)throw new Error('Enter an announcement headline before sending a test.');
+  if(draft.message.length<2)throw new Error('Enter the announcement message before sending a test.');
+  if(!validAnnouncementTestEmail(email))throw new Error('Enter a valid test email address.');
+  return callWorkerAdminAction('portal-announcement-test',{
+    email,
+    name:'Test Recipient',
+    announcementTitle:draft.title,
+    announcementMessage:draft.message,
+    important:draft.important,
+    requiresAcknowledgement:draft.requiresAcknowledgement
+  });
+}
+
 async function createAnnouncement(){
   const title=String(document.getElementById('announcementTitle')?.value||'').trim();
   const message=String(document.getElementById('announcementMessage')?.value||'').trim();
@@ -2827,6 +2869,16 @@ document.getElementById('taskSelectAndroid').addEventListener('click',()=>select
 document.getElementById('taskClearAll').addEventListener('click',()=>{document.querySelectorAll('[data-task-recipient]').forEach(el=>el.checked=false);updateTaskRecipientSummary();});
 document.getElementById('taskRecipientList').addEventListener('change',e=>{if(e.target.matches('[data-task-recipient]'))updateTaskRecipientSummary();});
 document.getElementById('taskSendButton').addEventListener('click',async()=>{const btn=document.getElementById('taskSendButton');const original=btn.innerHTML;if(!(await confirmAction('Send this required task to the selected testers? They will receive an email and should complete it by the deadline. Missed deadlines are sent to Admin review; access is not changed automatically.','')))return;btn.disabled=true;btn.innerHTML='Sending Task…';try{const result=await createRequiredTask();const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} testers. ${result.failed} email${result.failed===1?'':'s'} could not be sent.${firstError}`:`Required task sent to ${result.total} tester${result.total===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.innerHTML=original;}});
+const announcementTestButton=document.getElementById('announcementTestButton');
+const announcementTestPanel=document.getElementById('announcementTestPanel');
+const announcementTestEmail=document.getElementById('announcementTestEmail');
+const announcementTestSend=document.getElementById('announcementTestSend');
+const announcementTestCancel=document.getElementById('announcementTestCancel');
+function updateAnnouncementTestSendState(){if(announcementTestSend)announcementTestSend.disabled=!validAnnouncementTestEmail(announcementTestEmail?.value||'');}
+if(announcementTestButton)announcementTestButton.addEventListener('click',()=>{if(!announcementTestPanel)return;announcementTestPanel.hidden=false;setAnnouncementTestMessage('');updateAnnouncementTestSendState();setTimeout(()=>announcementTestEmail?.focus(),0);});
+if(announcementTestCancel)announcementTestCancel.addEventListener('click',()=>{if(announcementTestPanel)announcementTestPanel.hidden=true;setAnnouncementTestMessage('');});
+if(announcementTestEmail)announcementTestEmail.addEventListener('input',()=>{updateAnnouncementTestSendState();setAnnouncementTestMessage('');});
+if(announcementTestSend)announcementTestSend.addEventListener('click',async()=>{const recipient=String(announcementTestEmail?.value||'').trim();const original=announcementTestSend.textContent;announcementTestSend.disabled=true;announcementTestSend.textContent='Sending…';setAnnouncementTestMessage('');try{await sendAnnouncementTestEmail();setAnnouncementTestMessage(`Test announcement sent successfully to ${recipient}`,'success');showToast(`Test announcement sent successfully to ${recipient}`,'success');}catch(err){setAnnouncementTestMessage(friendlyFirebaseError(err),'error');showToast(friendlyFirebaseError(err),'error');}finally{announcementTestSend.textContent=original;updateAnnouncementTestSendState();}});
 const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
 document.addEventListener('click',async event=>{
