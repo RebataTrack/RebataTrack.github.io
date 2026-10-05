@@ -10,7 +10,7 @@ const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,addDoc,collection,serverT
 // Build 171 live-update safety lock: the signed-in tester profile and Help & Feedback
 // conversation streams remain realtime. This preserves access revocation, task/support
 // messaging, and live Admin/tester replies while other non-critical reads are throttled.
-// RebataTrack Beta Tester Portal - Website Build 213
+// RebataTrack Beta Tester Portal - Website Build 214
 const loading = document.getElementById('portalLoading');
 const app = document.getElementById('portalApp');
 const content = document.getElementById('portalContent');

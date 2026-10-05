@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 213
+// RebataTrack Admin Portal — Website Build 214
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -79,11 +79,11 @@ const REVIEW_APP_ACTIVITY_CACHE_TTL_MS = 5 * 60 * 1000;
 // recent-contact guard so Admin cannot accidentally send overlapping emails from
 // different parts of the Testers workspace. Firestore timestamps remain authoritative.
 const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-// Build 212: Help & Feedback conversations automatically close after 72 hours only
+// Build 214: Help & Feedback conversations automatically close after 72 hours only
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-const REBATATRACK_WEBSITE_BUILD = 212;
+const REBATATRACK_WEBSITE_BUILD = 214;
 let feedbackAutoCloseTimer = null;
 function enforceWebsiteBuildStamp(){
   document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
@@ -3235,3 +3235,5 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   console.error('RebataTrack page runtime failed:',error);
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
+
+// Website Build 214 cache/deployment stamp.
