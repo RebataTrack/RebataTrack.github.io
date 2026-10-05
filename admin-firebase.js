@@ -67,6 +67,14 @@ let androidTestingInviteUrl = '';
 let betaProgramEndDate = '';
 let betaProductionMapping = new Map();
 let suppressBetaProductionAutoRefresh = false;
+// Review Testers app-activity cache. The Production bridge exposes one devices-list call,
+// which is substantially cheaper than opening a full Production user detail record for every tester.
+// Cache the newest Production-device lastSeenAt per UID so the review queue can distinguish
+// actual RebataTrack app use from Beta Portal activity.
+let reviewAppActivityByProductionUid = new Map();
+let reviewAppActivityLoadedAt = 0;
+let reviewAppActivityInFlight = null;
+const REVIEW_APP_ACTIVITY_CACHE_TTL_MS = 5 * 60 * 1000;
 // Build 183: the Beta/Production status check reads every Production user, so it is cached for a short time, never run twice at once,
 // and the reason a trial was not granted is remembered so the tester card can show it.
 let betaGrantReasons = new Map();
@@ -1283,6 +1291,55 @@ function testerReviewSignals(t){
 function testerReviewRows(){
   return state.testers.map(t=>({tester:t,signals:testerReviewSignals(t)})).filter(x=>x.signals.length).sort((a,b)=>(b.signals[0]?.priority||0)-(a.signals[0]?.priority||0)||String(a.tester.name||'').localeCompare(String(b.tester.name||'')));
 }
+function testerSetupReviewInfo(t){
+  const stage=normalizeTimelineStage(t?.timelineStage);
+  if(stage==='setupComplete'||stage==='inviteSent'||stage==='activeTesting')return {label:'Complete',className:'complete'};
+  const hasPortalSignIn=!!timestampToDate(t?.lastLogin)||!!timestampToDate(t?.lastPortalActivity);
+  if(!hasPortalSignIn)return {label:'Never started',className:'never'};
+  const next=testerNextStep(t);
+  return {label:`Incomplete — ${next?.label||'Testing Setup Required'}`,className:'incomplete'};
+}
+function testerReviewAppActivity(t){
+  const email=String(t?.email||'').trim().toLowerCase();
+  const mapping=betaProductionMapping.get(email);
+  if(!mapping||mapping.matched!==true)return {label:'App account not set up',exact:'No matching RebataTrack app account',className:'never'};
+  const productionUid=String(mapping.productionUid||'').trim();
+  const lastSeen=productionUid?reviewAppActivityByProductionUid.get(productionUid):null;
+  if(!lastSeen)return {label:'No app activity recorded',exact:'No RebataTrack device activity has been recorded yet',className:'never'};
+  return {label:relativeDate(lastSeen),exact:formatDate(lastSeen),className:'active'};
+}
+async function refreshTesterReviewAppActivity(rows,{force=false}={}){
+  const bridge=window.RebataTrackProductionAdminBridge;
+  if(!bridge||typeof bridge.call!=='function'||!rows?.length)return;
+  const needed=new Set(rows.map(({tester:t})=>{
+    const mapping=betaProductionMapping.get(String(t?.email||'').trim().toLowerCase());
+    return mapping?.matched===true?String(mapping.productionUid||'').trim():'';
+  }).filter(Boolean));
+  if(!needed.size)return;
+  const fresh=reviewAppActivityLoadedAt&&Date.now()-reviewAppActivityLoadedAt<REVIEW_APP_ACTIVITY_CACHE_TTL_MS;
+  if(!force&&fresh)return;
+  if(reviewAppActivityInFlight)return reviewAppActivityInFlight;
+  reviewAppActivityInFlight=(async()=>{
+    try{
+      const result=await bridge.call('devices-list',{limit:1000});
+      const newest=new Map();
+      for(const d of (result?.devices||[])){
+        const uid=String(d?.uid||'').trim();if(!uid||!needed.has(uid))continue;
+        const candidate=d?.lastSeenAt||d?.firstSeenAt||null;
+        const date=timestampToDate(candidate);if(!date)continue;
+        const previous=timestampToDate(newest.get(uid));
+        if(!previous||date>previous)newest.set(uid,candidate);
+      }
+      needed.forEach(uid=>reviewAppActivityByProductionUid.set(uid,newest.get(uid)||null));
+      reviewAppActivityLoadedAt=Date.now();
+      renderTesterReviewQueue();
+    }catch(error){
+      console.warn('Could not load Review Testers app activity:',error);
+    }finally{reviewAppActivityInFlight=null;}
+  })();
+  return reviewAppActivityInFlight;
+}
+
 function betaWarningDefaultReason(t,signals){
   const top=signals?.[0];
   if(!top)return 'Beta Program participation requires action.';
@@ -1331,11 +1388,15 @@ function renderTesterReviewQueue(){
     const signalHtml=signals.map(s=>`<div class="admin-review-reason review-${esc(s.key)}"><strong>${esc(s.label)}</strong><span>${esc(s.detail)}</span>${s.assignments?.length?s.assignments.map(a=>`<button class="admin-review-keep" data-review-task-keep="${esc(a.id)}" type="button">Keep Active for ${esc(a.taskTitle||'missed task')}</button>`).join(''):''}</div>`).join('');
     const chips=signals.slice(0,3).map(s=>`<span class="admin-review-chip">${esc(s.label)}</span>`).join('')+(signals.length>3?`<span class="admin-review-chip">+${signals.length-3}</span>`:'');
     const warningCount=Number(t.betaAccessWarningCount||0);const lastWarning=t.betaAccessWarningSentAt?relativeDate(t.betaAccessWarningSentAt):'Never';const lastType=t.betaAccessWarningLevel||'—';
+    const appActivity=testerReviewAppActivity(t);
+    const portalLogin=t.lastLogin?{label:relativeDate(t.lastLogin),exact:formatDate(t.lastLogin),className:'active'}:{label:'Never signed in',exact:'No Beta Portal login recorded',className:'never'};
+    const setup=testerSetupReviewInfo(t);
     const disable=app?`<button class="admin-review-disable" data-disable-beta="${esc(app.id)}" data-disable-beta-reason="${esc(top.reason||'Beta Program requirements not met')}" type="button">Disable Access</button>`:'';
-    return `<article class="admin-review-tester-card" data-review-card="${esc(t.uid)}"><div class="admin-review-summary"><div class="admin-review-person-line"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div></div><div class="admin-review-summary-mid">${chips}<div class="admin-review-summary-meta"><span>${esc(activity.anchor?`Active ${relativeDate(activity.anchor)}`:'No portal activity')}</span><span>${warningCount} warning${warningCount===1?'':'s'}</span></div></div><div class="admin-review-summary-actions"><button class="admin-secondary-button admin-review-view" data-open-tester="${esc(t.uid)}" type="button">View</button><button class="admin-review-warning" data-review-warning="${esc(t.uid)}" type="button">Send Warning</button>${disable}<button class="admin-review-icon-button" data-review-toggle="${esc(t.uid)}" type="button" aria-label="Expand tester review"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button></div></div><div class="admin-review-details"><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-warning-history"><span><strong>Warnings sent:</strong> ${warningCount}</span><span><strong>Last warning:</strong> ${esc(lastWarning)}</span><span><strong>Last warning type:</strong> ${esc(lastType)}</span></div></div></article>`;
+    return `<article class="admin-review-tester-card" data-review-card="${esc(t.uid)}"><div class="admin-review-summary"><div class="admin-review-person-line"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div></div><div class="admin-review-summary-mid">${chips}<div class="admin-review-activity-strip"><span class="admin-review-activity-item ${esc(appActivity.className)}" title="${esc(appActivity.exact)}"><b>App</b><em>${esc(appActivity.label)}</em></span><span class="admin-review-activity-item ${esc(portalLogin.className)}" title="${esc(portalLogin.exact)}"><b>Portal login</b><em>${esc(portalLogin.label)}</em></span><span class="admin-review-activity-item ${esc(setup.className)}"><b>Setup</b><em>${esc(setup.label)}</em></span></div><div class="admin-review-summary-meta"><span>${warningCount} warning${warningCount===1?'':'s'}</span></div></div><div class="admin-review-summary-actions"><button class="admin-secondary-button admin-review-view" data-open-tester="${esc(t.uid)}" type="button">View</button><button class="admin-review-warning" data-review-warning="${esc(t.uid)}" type="button">Send Warning</button>${disable}<button class="admin-review-icon-button" data-review-toggle="${esc(t.uid)}" type="button" aria-label="Expand tester review"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button></div></div><div class="admin-review-details"><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-warning-history"><span><strong>App activity:</strong> ${esc(appActivity.exact)}</span><span><strong>Portal login:</strong> ${esc(portalLogin.exact)}</span><span><strong>Setup:</strong> ${esc(setup.label)}</span><span><strong>Warnings sent:</strong> ${warningCount}</span><span><strong>Last warning:</strong> ${esc(lastWarning)}</span><span><strong>Last warning type:</strong> ${esc(lastType)}</span></div></div></article>`;
   }).join(''):'<div class="admin-empty-inline">No testers currently need Admin review.</div>';
   const badge=document.getElementById('navTesterActionCount');if(badge){badge.textContent=String(rows.length);badge.hidden=rows.length===0;}
   const allExpanded=rows.length>0&&[...list.querySelectorAll('.admin-review-tester-card')].every(x=>x.classList.contains('is-expanded'));const toggle=document.getElementById('testerReviewToggleAll');if(toggle)toggle.textContent=allExpanded?'Collapse All':'Expand All';
+  refreshTesterReviewAppActivity(rows).catch(()=>{});
 }
 function renderTesters(){
   renderTestingAccessReadinessSummary();
