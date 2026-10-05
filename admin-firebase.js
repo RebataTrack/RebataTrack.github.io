@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 206
+// RebataTrack Admin Portal — Website Build 213
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -79,6 +79,19 @@ const REVIEW_APP_ACTIVITY_CACHE_TTL_MS = 5 * 60 * 1000;
 // recent-contact guard so Admin cannot accidentally send overlapping emails from
 // different parts of the Testers workspace. Firestore timestamps remain authoritative.
 const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+// Build 212: Help & Feedback conversations automatically close after 72 hours only
+// when RebataTrack sent the last message and the tester/customer has not replied.
+// Needs Retest is intentionally excluded because it remains a required action until submitted.
+const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
+const REBATATRACK_WEBSITE_BUILD = 212;
+let feedbackAutoCloseTimer = null;
+function enforceWebsiteBuildStamp(){
+  document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
+    el.setAttribute('data-rebatatrack-website-build',String(REBATATRACK_WEBSITE_BUILD));
+    el.textContent=`Website Build ${REBATATRACK_WEBSITE_BUILD}`;
+  });
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',enforceWebsiteBuildStamp);else enforceWebsiteBuildStamp();
 // Build 183: the Beta/Production status check reads every Production user, so it is cached for a short time, never run twice at once,
 // and the reason a trial was not granted is remembered so the tester card can show it.
 let betaGrantReasons = new Map();
@@ -519,6 +532,43 @@ function testerFacingFeedbackStatus(f){
   if(status==='Needs Retest')return f&&f.retestedAt?'Retest submitted':'Needs retest';
   return conversationResponsibility(f,'tester')||'Waiting on RebataTrack';
 }
+function feedbackEligibleForAutoClose(f,nowMs=Date.now()){
+  if(!f||adminConversationIsClosed(f))return false;
+  const lifecycleStatus=canonicalFeedbackStatus(f.status);
+  // Reviewing means RebataTrack is still actively working the issue (for example,
+  // waiting for a fix or a new release). It must never be closed by the 72-hour
+  // no-reply rule. Needs Retest is likewise a required-action workflow and remains open.
+  if(lifecycleStatus==='Reviewing'||lifecycleStatus==='Needs Retest')return false;
+  if(String(f.lastMessageBy||'').trim()!=='Admin')return false;
+  const last=timestampToDate(f.lastMessageAt||f.updatedAt||f.submittedAt);
+  return !!last&&!Number.isNaN(last.getTime())&&(nowMs-last.getTime()>=FEEDBACK_AUTO_CLOSE_MS);
+}
+async function autoCloseExpiredFeedbackConversations(){
+  if(!state.loaded.feedback||!state.feedback.length)return 0;
+  const nowMs=Date.now();
+  const expired=state.feedback.filter(f=>feedbackEligibleForAutoClose(f,nowMs));
+  if(!expired.length)return 0;
+  const batch=writeBatch(db);
+  expired.forEach(f=>batch.update(doc(db,'betaFeedback',f.id),{
+    status:'Closed',
+    autoClosedAt:serverTimestamp(),
+    autoCloseReason:'No tester/customer reply within 72 hours of the last RebataTrack response',
+    updatedAt:serverTimestamp()
+  }));
+  await batch.commit();
+  const closedAt=new Date();
+  const ids=new Set(expired.map(f=>f.id));
+  state.feedback.forEach(f=>{if(ids.has(f.id)){f.status='Closed';f.autoClosedAt=closedAt;f.autoCloseReason='No tester/customer reply within 72 hours of the last RebataTrack response';f.updatedAt=closedAt;}});
+  state.recentFeedback.forEach(f=>{if(ids.has(f.id)){f.status='Closed';f.autoClosedAt=closedAt;f.autoCloseReason='No tester/customer reply within 72 hours of the last RebataTrack response';f.updatedAt=closedAt;}});
+  renderFeedback();
+  if(activeView==='overview')renderOverview();
+  if(activeDrawerFeedbackId&&ids.has(activeDrawerFeedbackId)){const active=state.feedback.find(f=>f.id===activeDrawerFeedbackId);if(active)syncOpenAdminFeedbackState(active);}
+  return expired.length;
+}
+function startFeedbackAutoCloseMaintenance(){
+  if(feedbackAutoCloseTimer)return;
+  feedbackAutoCloseTimer=setInterval(()=>{autoCloseExpiredFeedbackConversations().catch(error=>console.warn('Help & Feedback 72-hour auto-close failed:',error));},5*60*1000);
+}
 
 function isAnnouncementTask(t){return !!t&&t.recordType==='Announcement';}
 function isAnnouncementAssignment(a){return !!a&&a.recordType==='Announcement';}
@@ -809,8 +859,11 @@ async function loadFeedback(force=false){
     const known=privateNotes.has(f.id);const prev=previous.get(f.id);const prevLoaded=!!(prev&&prev.adminNotesLoaded===true);
     return {...f,adminNotes:known?privateNotes.get(f.id):(prevLoaded?String(prev.adminNotes||''):''),adminNotesLoaded:known||prevLoaded};
   });
-  state.loaded.feedback=true;renderFeedback();
+  state.loaded.feedback=true;
+  await autoCloseExpiredFeedbackConversations().catch(error=>console.warn('Help & Feedback 72-hour auto-close failed:',error));
+  renderFeedback();
   startFeedbackRealtimeAdmin();
+  startFeedbackAutoCloseMaintenance();
 }
 
 // Fetches one ticket's private admin note (1 read) the first time it is needed. Never overwrites a note that is already known.

@@ -10,7 +10,7 @@ const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,addDoc,collection,serverT
 // Build 171 live-update safety lock: the signed-in tester profile and Help & Feedback
 // conversation streams remain realtime. This preserves access revocation, task/support
 // messaging, and live Admin/tester replies while other non-critical reads are throttled.
-// RebataTrack Beta Tester Portal - Website Build 131
+// RebataTrack Beta Tester Portal - Website Build 213
 const loading = document.getElementById('portalLoading');
 const app = document.getElementById('portalApp');
 const content = document.getElementById('portalContent');
@@ -373,9 +373,11 @@ function syncOpenConversationHeader(){
 function syncConversationComposerState(f=activeConversation){
   const composer=document.getElementById('portalConversationReplyComposer');const notice=document.getElementById('portalConversationClosedNotice');const text=document.getElementById('portalConversationClosedText');
   const closed=conversationIsClosed(f);
-  if(composer)composer.hidden=closed;
+  // Build 212: a closed/auto-closed conversation remains replyable. A tester/customer
+  // reply reopens it to Reviewing so a 72-hour auto-close never strands the conversation.
+  if(composer)composer.hidden=false;
   if(notice)notice.hidden=!closed;
-  if(text&&closed)text.textContent=isSupportConversation(f)?'This support conversation has been resolved and is now closed. RebataTrack can reopen it if more follow-up is needed.':'This feedback conversation has been resolved and is now closed. RebataTrack can reopen it if more follow-up is needed.';
+  if(text&&closed)text.textContent='This conversation is closed. Send a reply below if you still need help; your reply will automatically reopen it.';
 }
 
 async function loadFeedbackHistory(uid){
@@ -482,14 +484,16 @@ function closeConversation(){
   conversationMessageCount=0;activeConversation=null;const back=document.getElementById('portalConversationBackdrop');if(back)back.hidden=true;document.body.classList.remove('portal-conversation-active');
 }
 async function sendConversationReply(){
-  if(!activeConversation||!auth.currentUser)return;if(conversationIsClosed(activeConversation)){syncConversationComposerState(activeConversation);return;}const input=document.getElementById('portalConversationReply');const body=String(input.value||'').trim();const message=document.getElementById('portalConversationMessage');
+  if(!activeConversation||!auth.currentUser)return;const wasClosed=conversationIsClosed(activeConversation);const input=document.getElementById('portalConversationReply');const body=String(input.value||'').trim();const message=document.getElementById('portalConversationMessage');
   if(!body){message.textContent='Write a reply before sending.';message.className='portal-task-message error';input?.focus();return;}
   const btn=document.getElementById('portalConversationSend');const original=btn.innerHTML;btn.disabled=true;btn.innerHTML='Sending…';message.textContent='';
   try{
     const feedbackId=activeConversation.id;
     const ref=await addDoc(collection(db,'betaFeedback',feedbackId,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Tester',authorName:currentProfile?.name||'Tester',body,createdAt:serverTimestamp()});
     const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',updatedAt:serverTimestamp()};
+    if(wasClosed)update.status='Reviewing';
     await updateDoc(doc(db,'betaFeedback',feedbackId),update);
+    if(wasClosed){activeConversation.status='Reviewing';activeConversation.autoClosedAt=null;}
     input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));resizeConversationComposer();message.textContent='';message.className='portal-task-message';scrollConversationToLatest('smooth');
     workerPostAuthorized('conversation-reply-added',{feedbackId,messageId:ref.id}).catch(err=>console.warn('Conversation reply email failed:',err));
   }catch(error){message.textContent='We could not send your reply. '+friendlyFirebaseError(error);message.className='portal-task-message error';}
