@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 215
+// RebataTrack Admin Portal — Website Build 216
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -83,7 +83,7 @@ const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-const REBATATRACK_WEBSITE_BUILD = 215;
+const REBATATRACK_WEBSITE_BUILD = 216;
 let feedbackAutoCloseTimer = null;
 function enforceWebsiteBuildStamp(){
   document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
@@ -505,16 +505,15 @@ function normalizeDoc(snap){return { id:snap.id, row:snap.id, ...snap.data() };}
 function isEnabledStatus(status){return ['Approved','Active'].includes(status);}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const FEEDBACK_WORKFLOW = ['New','Reviewing','Confirmed','Fixed','Needs Retest','Closed'];
+const FEEDBACK_WORKFLOW = ['New','In Progress','Confirmed','Fixed','Needs Retest','Feature Request Hold','Closed'];
 function isSupportConversation(f){return String(f&&f.workflowType||'Feedback')==='Support'||['Account / Access Problem','General Support'].includes(String(f&&f.type||''));}
 function isEmailSupportConversation(f){return isSupportConversation(f)&&(String(f&&f.supportSource||'')==='Email'||f&&f.emailOrigin===true);}
 function canonicalFeedbackStatus(value){
   const raw=String(value||'New');
   if(raw==='Planned')return 'Confirmed';
   if(raw==='Declined'||raw==='Resolved')return 'Closed';
-  // Legacy support-only queue states are no longer selectable statuses. Preserve them
-  // as sensible lifecycle states while queue responsibility comes from lastMessageBy.
-  if(raw==='Waiting for Tester')return 'Reviewing';
+  // Legacy statuses remain readable, but all current Admin workflow uses the new lifecycle.
+  if(raw==='Reviewing'||raw==='Waiting for Tester')return 'In Progress';
   if(raw==='Waiting for RebataTrack'||raw==='Waiting on RebataTrack')return 'New';
   return FEEDBACK_WORKFLOW.includes(raw)?raw:'New';
 }
@@ -533,12 +532,12 @@ function testerFacingFeedbackStatus(f){
   return conversationResponsibility(f,'tester')||'Waiting on RebataTrack';
 }
 function feedbackEligibleForAutoClose(f,nowMs=Date.now()){
-  if(!f||adminConversationIsClosed(f))return false;
+  if(!f||adminConversationIsClosed(f)||!isSupportConversation(f))return false;
   const lifecycleStatus=canonicalFeedbackStatus(f.status);
-  // Reviewing means RebataTrack is still actively working the issue (for example,
-  // waiting for a fix or a new release). It must never be closed by the 72-hour
-  // no-reply rule. Needs Retest is likewise a required-action workflow and remains open.
-  if(lifecycleStatus==='Reviewing'||lifecycleStatus==='Needs Retest')return false;
+  // Needs Retest and Feature Request Hold are intentionally protected from the
+  // 72-hour no-reply rule. In Progress remains eligible when RebataTrack was the
+  // last responder and the tester/customer has not replied within 72 hours.
+  if(lifecycleStatus==='Needs Retest'||lifecycleStatus==='Feature Request Hold')return false;
   if(String(f.lastMessageBy||'').trim()!=='Admin')return false;
   const last=timestampToDate(f.lastMessageAt||f.updatedAt||f.submittedAt);
   return !!last&&!Number.isNaN(last.getTime())&&(nowMs-last.getTime()>=FEEDBACK_AUTO_CLOSE_MS);
@@ -2985,11 +2984,11 @@ document.addEventListener('click',async e=>{
   }
 
   const noteBtn=e.target.closest('[data-save-app-notes]');if(noteBtn){const a=await ensureApplicationLoaded(noteBtn.dataset.saveAppNotes);if(!a)return;const notes=document.getElementById('drawerApplicantNotes').value;try{await updateDoc(doc(db,'betaApplications',a.id),{notes,lastUpdated:serverTimestamp()});a.notes=notes;a.lastUpdated=new Date();showToast('Private notes saved.');}catch(err){showToast(friendlyFirebaseError(err),'error');}return;}
-  const reopenFeedbackBtn=e.target.closest('[data-reopen-feedback]');if(reopenFeedbackBtn){const f=await ensureFeedbackLoaded(reopenFeedbackBtn.dataset.reopenFeedback);if(!f)return;const status='Reviewing';reopenFeedbackBtn.disabled=true;const original=reopenFeedbackBtn.textContent;reopenFeedbackBtn.textContent='Reopening…';try{await updateDoc(doc(db,'betaFeedback',f.id),{status,updatedAt:serverTimestamp()});f.status=status;f.updatedAt=new Date();state.loaded.feedback=false;await loadFeedback(true);renderFeedback();const fresh=state.feedback.find(x=>x.id===f.id)||f;openFeedbackRecord(fresh);showToast('Conversation reopened. Messaging is available again.');}catch(err){showToast(friendlyFirebaseError(err),'error');reopenFeedbackBtn.disabled=false;reopenFeedbackBtn.textContent=original;}return;}
+  const reopenFeedbackBtn=e.target.closest('[data-reopen-feedback]');if(reopenFeedbackBtn){const f=await ensureFeedbackLoaded(reopenFeedbackBtn.dataset.reopenFeedback);if(!f)return;const status='In Progress';reopenFeedbackBtn.disabled=true;const original=reopenFeedbackBtn.textContent;reopenFeedbackBtn.textContent='Reopening…';try{await updateDoc(doc(db,'betaFeedback',f.id),{status,autoClosedAt:null,autoClosedReason:'',autoCloseReason:'',updatedAt:serverTimestamp()});f.status=status;f.autoClosedAt=null;f.autoClosedReason='';f.autoCloseReason='';f.updatedAt=new Date();state.loaded.feedback=false;await loadFeedback(true);renderFeedback();const fresh=state.feedback.find(x=>x.id===f.id)||f;openFeedbackRecord(fresh);showToast('Conversation reopened. Messaging is available again.');}catch(err){showToast(friendlyFirebaseError(err),'error');reopenFeedbackBtn.disabled=false;reopenFeedbackBtn.textContent=original;}return;}
   const deleteFeedbackBtn=e.target.closest('[data-delete-feedback]');if(deleteFeedbackBtn){const f=await ensureFeedbackLoaded(deleteFeedbackBtn.dataset.deleteFeedback);if(!f)return;const label=isSupportConversation(f)?'support conversation':'feedback conversation';const deleteNote=isEmailSupportConversation(f)?'The original Gmail thread and attachments will remain in Gmail.':'The tester account and beta application will remain.';if(!(await confirmAction(`Permanently delete this ${label}? All portal replies and private admin notes will also be deleted. ${deleteNote} This cannot be undone.`,'danger')))return;deleteFeedbackBtn.disabled=true;const original=deleteFeedbackBtn.textContent;deleteFeedbackBtn.textContent='Deleting…';try{await deleteFeedbackConversation(f);closeDrawer();showToast('Conversation deleted.');}catch(err){showToast(friendlyFirebaseError(err),'error');deleteFeedbackBtn.disabled=false;deleteFeedbackBtn.textContent=original;}return;}
   const supportPreset=e.target.closest('[data-support-reply-preset]');if(supportPreset){setSupportReplyPreset(supportPreset.dataset.supportReplyPreset);return;}
   const productionUserButton=e.target.closest('[data-open-production-user]');if(productionUserButton){const uid=String(productionUserButton.dataset.openProductionUser||'').trim();if(!uid)return;const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.openUser!=='function'){showToast('Connect the Production Admin service first.','error');return;}try{await bridge.openUser(uid);}catch(err){showToast(err.message||'Production user could not be opened.','error');}return;}
-  const convoReply=e.target.closest('[data-send-conversation-reply]');if(convoReply){const f=await ensureFeedbackLoaded(convoReply.dataset.sendConversationReply);if(!f)return;if(adminConversationIsClosed(f)){showToast('Reopen this conversation before replying.','error');openFeedbackRecord(f);return;}const input=document.getElementById('drawerConversationReply');const rawBody=String(input?.value||'').trim();if(!rawBody){showToast('Write a reply before sending.','error');return;}convoReply.disabled=true;const original=convoReply.textContent;convoReply.textContent='Sending…';try{const ref=await addDoc(collection(db,'betaFeedback',f.id,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',body:helpDeskReplyWithSignature(rawBody),createdAt:serverTimestamp()});const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Admin',updatedAt:serverTimestamp()};if(canonicalFeedbackStatus(f.status)==='New')update.status='Reviewing';await updateDoc(doc(db,'betaFeedback',f.id),update);f.lastMessageAt=new Date();f.lastMessageBy='Admin';f.updatedAt=new Date();if(update.status)f.status=update.status;let emailFailed=false;try{await callWorkerAdminAction('conversation-reply-added',{feedbackId:f.id,messageId:ref.id});}catch(emailErr){emailFailed=true;console.warn('Conversation reply email failed:',emailErr);}if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}renderFeedback();syncOpenAdminFeedbackState(f);showToast(emailFailed?`Reply saved, but the ${isEmailSupportConversation(f)?'customer':'tester'} email could not be sent.`:`Reply sent to ${isEmailSupportConversation(f)?'customer':'tester'}.`,emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{convoReply.disabled=false;convoReply.textContent=original;}return;}
+  const convoReply=e.target.closest('[data-send-conversation-reply]');if(convoReply){const f=await ensureFeedbackLoaded(convoReply.dataset.sendConversationReply);if(!f)return;if(adminConversationIsClosed(f)){showToast('Reopen this conversation before replying.','error');openFeedbackRecord(f);return;}const input=document.getElementById('drawerConversationReply');const rawBody=String(input?.value||'').trim();if(!rawBody){showToast('Write a reply before sending.','error');return;}convoReply.disabled=true;const original=convoReply.textContent;convoReply.textContent='Sending…';try{const ref=await addDoc(collection(db,'betaFeedback',f.id,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',body:helpDeskReplyWithSignature(rawBody),createdAt:serverTimestamp()});const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Admin',updatedAt:serverTimestamp()};if(canonicalFeedbackStatus(f.status)==='New')update.status='In Progress';await updateDoc(doc(db,'betaFeedback',f.id),update);f.lastMessageAt=new Date();f.lastMessageBy='Admin';f.updatedAt=new Date();if(update.status)f.status=update.status;let emailFailed=false;try{await callWorkerAdminAction('conversation-reply-added',{feedbackId:f.id,messageId:ref.id});}catch(emailErr){emailFailed=true;console.warn('Conversation reply email failed:',emailErr);}if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}renderFeedback();syncOpenAdminFeedbackState(f);showToast(emailFailed?`Reply saved, but the ${isEmailSupportConversation(f)?'customer':'tester'} email could not be sent.`:`Reply sent to ${isEmailSupportConversation(f)?'customer':'tester'}.`,emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{convoReply.disabled=false;convoReply.textContent=original;}return;}
   const fbSave=e.target.closest('[data-save-feedback]');if(fbSave){
     if(fbSave.disabled)return;
     const original=fbSave.textContent;fbSave.disabled=true;fbSave.setAttribute('aria-busy','true');fbSave.textContent='Saving…';
@@ -3261,4 +3260,4 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
 
-// Website Build 215 cache/deployment stamp.
+// Website Build 216 cache/deployment stamp.

@@ -10,7 +10,7 @@ const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,addDoc,collection,serverT
 // Build 171 live-update safety lock: the signed-in tester profile and Help & Feedback
 // conversation streams remain realtime. This preserves access revocation, task/support
 // messaging, and live Admin/tester replies while other non-critical reads are throttled.
-// RebataTrack Beta Tester Portal - Website Build 215
+// RebataTrack Beta Tester Portal - Website Build 216
 const loading = document.getElementById('portalLoading');
 const app = document.getElementById('portalApp');
 const content = document.getElementById('portalContent');
@@ -125,9 +125,9 @@ function canonicalConversationStatus(value){
   const raw=String(value||'New');
   if(raw==='Planned')return 'Confirmed';
   if(raw==='Declined'||raw==='Resolved')return 'Closed';
-  if(raw==='Waiting for Tester')return 'Reviewing';
+  if(raw==='Reviewing'||raw==='Waiting for Tester')return 'In Progress';
   if(raw==='Waiting for RebataTrack'||raw==='Waiting on RebataTrack')return 'New';
-  return ['New','Reviewing','Confirmed','Fixed','Needs Retest','Closed'].includes(raw)?raw:'New';
+  return ['New','In Progress','Confirmed','Fixed','Needs Retest','Feature Request Hold','Closed'].includes(raw)?raw:'New';
 }
 function conversationIsClosed(f){return !!f&&canonicalConversationStatus(f.status)==='Closed';}
 function testerConversationResponsibility(f){
@@ -143,7 +143,7 @@ function saveConversationReadMap(map){try{localStorage.setItem(PORTAL_CONVERSATI
 function conversationHasTesterUpdate(f){
   if(!f)return false;
   const status=String(f.status||'');
-  return String(f.lastMessageBy||'')==='Admin'||['Waiting for Tester','Needs Retest','Fixed','Reviewing','Confirmed','Resolved','Closed'].includes(status);
+  return String(f.lastMessageBy||'')==='Admin'||['Waiting for Tester','Needs Retest','Fixed','Reviewing','In Progress','Confirmed','Feature Request Hold','Resolved','Closed'].includes(status);
 }
 function conversationIsUnread(f){const map=conversationReadMap();return conversationHasTesterUpdate(f)&&conversationActivityMs(f)>Number(map[f.id]||0);}
 function markConversationRead(f){if(!f)return;const map=conversationReadMap();map[f.id]=Math.max(Date.now(),conversationActivityMs(f));saveConversationReadMap(map);renderSupportLauncher();renderFeedbackHistory();}
@@ -374,7 +374,7 @@ function syncConversationComposerState(f=activeConversation){
   const composer=document.getElementById('portalConversationReplyComposer');const notice=document.getElementById('portalConversationClosedNotice');const text=document.getElementById('portalConversationClosedText');
   const closed=conversationIsClosed(f);
   // Build 212: a closed/auto-closed conversation remains replyable. A tester/customer
-  // reply reopens it to Reviewing so a 72-hour auto-close never strands the conversation.
+  // reply reopens it to In Progress so a 72-hour auto-close never strands the conversation.
   if(composer)composer.hidden=false;
   if(notice)notice.hidden=!closed;
   if(text&&closed)text.textContent='This conversation is closed. Send a reply below if you still need help; your reply will automatically reopen it.';
@@ -491,9 +491,9 @@ async function sendConversationReply(){
     const feedbackId=activeConversation.id;
     const ref=await addDoc(collection(db,'betaFeedback',feedbackId,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Tester',authorName:currentProfile?.name||'Tester',body,createdAt:serverTimestamp()});
     const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',updatedAt:serverTimestamp()};
-    if(wasClosed)update.status='Reviewing';
+    if(wasClosed){update.status='In Progress';update.autoClosedAt=null;update.autoClosedReason='';update.autoCloseReason='';}
     await updateDoc(doc(db,'betaFeedback',feedbackId),update);
-    if(wasClosed){activeConversation.status='Reviewing';activeConversation.autoClosedAt=null;}
+    if(wasClosed){activeConversation.status='In Progress';activeConversation.autoClosedAt=null;}
     input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));resizeConversationComposer();message.textContent='';message.className='portal-task-message';scrollConversationToLatest('smooth');
     workerPostAuthorized('conversation-reply-added',{feedbackId,messageId:ref.id}).catch(err=>console.warn('Conversation reply email failed:',err));
   }catch(error){message.textContent='We could not send your reply. '+friendlyFirebaseError(error);message.className='portal-task-message error';}
