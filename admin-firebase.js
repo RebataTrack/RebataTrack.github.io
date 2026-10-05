@@ -75,7 +75,7 @@ let reviewAppActivityByProductionUid = new Map();
 let reviewAppActivityLoadedAt = 0;
 let reviewAppActivityInFlight = null;
 const REVIEW_APP_ACTIVITY_CACHE_TTL_MS = 5 * 60 * 1000;
-// Build 210: all tester-level setup reminders and Review Testers warnings share one
+// Build 211: all tester-level setup reminders and Review Testers warnings share one
 // recent-contact guard so Admin cannot accidentally send overlapping emails from
 // different parts of the Testers workspace. Firestore timestamps remain authoritative.
 const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -1093,12 +1093,34 @@ function testerNextStep(t){
 function currentSetupReminderCount(t){const n=testerNextStep(t);return n.reminderType&&String(t.lastSetupReminderType||'')===String(n.reminderType)?Number(t.setupReminderCount||0):0;}
 function testerContactHistory(t){
   const rows=[
+    {at:timestampToDate(t?.lastTesterContactAt),source:String(t?.lastTesterContactSource||'Tester email').trim()||'Tester email'},
     {at:timestampToDate(t?.lastSetupReminderAt),source:'Setup reminder'},
     {at:timestampToDate(t?.betaAccessWarningSentAt),source:'Review Tester warning'},
     {at:timestampToDate(t?.inactivityWarningSentAt),source:'Activity reminder'}
   ].filter(x=>x.at instanceof Date&&!Number.isNaN(x.at.getTime())).sort((a,b)=>b.at.getTime()-a.at.getTime());
-  const latest=rows[0]||null;
-  return {latest,rows,recent:!!latest&&(Date.now()-latest.at.getTime()<TESTER_CONTACT_COOLDOWN_MS)};
+  const deduped=[];
+  const seen=new Set();
+  for(const row of rows){const key=`${row.at.getTime()}|${row.source}`;if(seen.has(key))continue;seen.add(key);deduped.push(row);}
+  const latest=deduped[0]||null;
+  return {latest,rows:deduped,recent:!!latest&&(Date.now()-latest.at.getTime()<TESTER_CONTACT_COOLDOWN_MS)};
+}
+async function persistTesterContact(t,{source,type,extra={}}={}){
+  if(!t?.uid)throw new Error('Tester record is unavailable. Refresh the Testers page and try again.');
+  const now=new Date();
+  const fields={
+    lastTesterContactAt:serverTimestamp(),
+    lastTesterContactSource:String(source||'Tester email'),
+    lastTesterContactType:String(type||''),
+    updatedAt:serverTimestamp(),
+    ...extra
+  };
+  await updateDoc(doc(db,'betaUsers',t.uid),fields);
+  t.lastTesterContactAt=now;
+  t.lastTesterContactSource=fields.lastTesterContactSource;
+  t.lastTesterContactType=fields.lastTesterContactType;
+  t.updatedAt=now;
+  Object.entries(extra).forEach(([k,v])=>{t[k]=v;});
+  return now;
 }
 function testerContactText(t){
   const h=testerContactHistory(t);if(!h.latest)return '';
@@ -1142,8 +1164,9 @@ async function sendTesterNextStepReminder(t){
   const contact=testerContactHistory(t);
   if(contact.recent)throw new Error(`A ${contact.latest.source.toLowerCase()} was already sent ${relativeDate(contact.latest.at)}. Wait 24 hours before sending another tester-level reminder.`);
   const result=await callWorkerAdminAction('tester-next-step-reminder',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',reminderType:n.reminderType});
-  const sentAt=new Date();
-  t.lastSetupReminderAt=sentAt;t.lastSetupReminderType=n.reminderType;t.setupReminderCount=Number(result.reminderCount||((t.setupReminderCount||0)+1));t.updatedAt=sentAt;
+  const nextCount=Number(result.reminderCount||((t.setupReminderCount||0)+1));
+  const sentAt=await persistTesterContact(t,{source:'Setup reminder',type:n.reminderType,extra:{lastSetupReminderAt:serverTimestamp(),lastSetupReminderType:n.reminderType,setupReminderCount:nextCount}});
+  t.lastSetupReminderAt=sentAt;t.lastSetupReminderType=n.reminderType;t.setupReminderCount=nextCount;
   renderTesters();
   return n;
 }
@@ -1406,8 +1429,9 @@ async function submitBetaWarning(){
   const message=String(document.getElementById('adminBetaWarningMessage')?.value||'').trim();
   if(!reason)throw new Error('Enter the action currently needed.');if(!subject)throw new Error('Enter an email subject.');if(!message)throw new Error('Enter the warning email message.');
   const result=await callWorkerAdminAction('admin-beta-warning',{testerUid:t.uid||'',applicationId:app?.id||t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',warningLevel:level,reason,subject,message});
-  t.betaAccessWarningCount=Number(result.warningCount||Number(t.betaAccessWarningCount||0)+1);
-  t.betaAccessWarningSentAt=new Date();t.betaAccessWarningLevel=level;t.betaAccessWarningReason=reason;t.betaAccessWarningSubject=subject;
+  const warningCount=Number(result.warningCount||Number(t.betaAccessWarningCount||0)+1);
+  const sentAt=await persistTesterContact(t,{source:'Review Tester warning',type:level,extra:{betaAccessWarningCount:warningCount,betaAccessWarningSentAt:serverTimestamp(),betaAccessWarningLevel:level,betaAccessWarningReason:reason,betaAccessWarningSubject:subject}});
+  t.betaAccessWarningCount=warningCount;t.betaAccessWarningSentAt=sentAt;t.betaAccessWarningLevel=level;t.betaAccessWarningReason=reason;t.betaAccessWarningSubject=subject;
   closeBetaWarningModal();renderTesters();
 }
 function renderTesterReviewQueue(){
@@ -2114,7 +2138,8 @@ function openTesterRecord(t){
   const accessAction=a?(t.accessStatus==='Enabled'?`<button class="admin-action-button danger-soft" data-disable-beta="${esc(a.id)}" type="button">Disable Access</button>`:`<button class="admin-action-button approve" data-app-action="active" data-row="${esc(a.id)}" type="button">Enable Access</button>`):'';
   const deleteAction=a?`<button class="admin-action-button danger-soft" data-app-action="delete" data-row="${esc(a.id)}" type="button">Delete Application & Tester</button>`:`<button class="admin-action-button danger-soft" data-tester-action="delete" data-tester-uid="${esc(t.uid)}" type="button">Delete Tester</button>`;
   const nextStep=testerNextStep(t);
-  const reminderAction=nextStep.reminderType?`<button class="admin-action-button reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">Send ${esc(nextStep.label)} Reminder</button>`:'';
+  const drawerContactState=testerContactButtonState(t);
+  const reminderAction=nextStep.reminderType?`<button class="admin-action-button reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${drawerContactState.disabled?'disabled':''} ${drawerContactState.title?`title="${esc(drawerContactState.title)}"`:''}>${esc(drawerContactState.disabled?drawerContactState.label:`Send ${nextStep.label} Reminder`)}</button>`:'';
   const actions=[reminderAction,emailAction,accessAction,deleteAction].filter(Boolean).join('');
   const nextIndex=Math.min(TIMELINE_STAGES.length-1,timelineStageRank(timelineStage)+1);const canAdvance=timelineStage!=='activeTesting'&&t.accessStatus==='Enabled';
   const lastActive=activity.anchor?formatDate(activity.anchor):'Never';
