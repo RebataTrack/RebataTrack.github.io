@@ -5,7 +5,7 @@ var Core=window.RebataTrackFirebaseCore;
 var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,auth,db,timestampToDate,friendlyFirebaseError}=Core;
-const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,addDoc,collection,serverTimestamp,query,where,getDocs,orderBy,onSnapshot}=Compat;
+const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,addDoc,collection,serverTimestamp,query,where,getDocs,orderBy,onSnapshot,writeBatch}=Compat;
 
 // Build 171 live-update safety lock: the signed-in tester profile and Help & Feedback
 // conversation streams remain realtime. This preserves access revocation, task/support
