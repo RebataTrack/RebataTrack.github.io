@@ -1283,15 +1283,59 @@ function testerReviewSignals(t){
 function testerReviewRows(){
   return state.testers.map(t=>({tester:t,signals:testerReviewSignals(t)})).filter(x=>x.signals.length).sort((a,b)=>(b.signals[0]?.priority||0)-(a.signals[0]?.priority||0)||String(a.tester.name||'').localeCompare(String(b.tester.name||'')));
 }
+function betaWarningDefaultReason(t,signals){
+  const top=signals?.[0];
+  if(!top)return 'Beta Program participation requires action.';
+  if(top.assignments?.length){
+    const titles=top.assignments.map(a=>a.taskTitle||'Required Beta Program Task').filter(Boolean);
+    if(titles.length)return `${top.label}: ${titles.join(', ')}`;
+  }
+  return `${top.label}: ${top.detail}`;
+}
+function betaWarningDefaultMessage(t,reason){
+  const first=String(t?.name||'Tester').trim().split(/\s+/)[0]||'Tester';
+  return `Hi ${first},\n\nWe’re reaching out because there are still actions needed for your RebataTrack Beta participation, and we haven’t seen the required progress or activity yet.\nBeta testing spots are limited, and we currently have other users waiting for an opportunity to participate. If no action is taken, your Beta access will be disabled and your spot will be reassigned to someone on the waitlist.\n\nAction currently needed:\n${reason}\n\nPlease sign in to the RebataTrack Beta Portal and complete the required action as soon as possible if you would like to continue participating.\n\nIf you are still interested in testing but are having trouble completing the required steps, please reply or contact us through Help & Feedback.\n\nThank you!\n-RebataTrack Team`;
+}
+let betaWarningTargetUid='';
+function openBetaWarningModal(t,signals){
+  if(!t)return;betaWarningTargetUid=t.uid||'';
+  const reason=betaWarningDefaultReason(t,signals);
+  const count=Number(t.betaAccessWarningCount||0);
+  const level=document.getElementById('adminBetaWarningLevel');
+  if(level)level.value=count>=1?'Final Reminder':'Standard Reminder';
+  const reasonEl=document.getElementById('adminBetaWarningReason');if(reasonEl)reasonEl.value=reason;
+  const subject=document.getElementById('adminBetaWarningSubject');if(subject)subject.value='URGENT: Action Required to Keep Your RebataTrack Beta Access';
+  const message=document.getElementById('adminBetaWarningMessage');if(message)message.value=betaWarningDefaultMessage(t,reason);
+  const status=document.getElementById('adminBetaWarningMessageStatus');if(status)status.textContent='';
+  const backdrop=document.getElementById('adminBetaWarningBackdrop');if(backdrop)backdrop.hidden=false;
+}
+function closeBetaWarningModal(){const backdrop=document.getElementById('adminBetaWarningBackdrop');if(backdrop)backdrop.hidden=true;betaWarningTargetUid='';}
+async function submitBetaWarning(){
+  const t=findTester(betaWarningTargetUid);if(!t)throw new Error('Tester record is unavailable.');
+  const app=applicationForTester(t);
+  const level=String(document.getElementById('adminBetaWarningLevel')?.value||'Final Reminder').trim();
+  const reason=String(document.getElementById('adminBetaWarningReason')?.value||'').trim();
+  const subject=String(document.getElementById('adminBetaWarningSubject')?.value||'').trim();
+  const message=String(document.getElementById('adminBetaWarningMessage')?.value||'').trim();
+  if(!reason)throw new Error('Enter the action currently needed.');if(!subject)throw new Error('Enter an email subject.');if(!message)throw new Error('Enter the warning email message.');
+  const result=await callWorkerAdminAction('admin-beta-warning',{testerUid:t.uid||'',applicationId:app?.id||t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',warningLevel:level,reason,subject,message});
+  t.betaAccessWarningCount=Number(result.warningCount||Number(t.betaAccessWarningCount||0)+1);
+  t.betaAccessWarningSentAt=new Date();t.betaAccessWarningLevel=level;t.betaAccessWarningReason=reason;t.betaAccessWarningSubject=subject;
+  closeBetaWarningModal();renderTesters();
+}
 function renderTesterReviewQueue(){
   const list=document.getElementById('testerReviewList');const count=document.getElementById('testerReviewCount');if(!list||!count)return;
   const rows=testerReviewRows();count.textContent=String(rows.length);count.classList.toggle('has-review',rows.length>0);
   list.innerHTML=rows.length?rows.map(({tester:t,signals})=>{
-    const app=applicationForTester(t);const top=signals[0];const activity=testerActivityInfo(t);const signalHtml=signals.map(s=>`<div class="admin-review-reason review-${esc(s.key)}"><strong>${esc(s.label)}</strong><span>${esc(s.detail)}</span>${s.assignments?.length?s.assignments.map(a=>`<button class="admin-review-keep" data-review-task-keep="${esc(a.id)}" type="button">Keep Active for ${esc(a.taskTitle||'missed task')}</button>`).join(''):''}</div>`).join('');
-    const disable=app?`<button class="admin-primary-button admin-review-disable" data-disable-beta="${esc(app.id)}" data-disable-beta-reason="${esc(top.reason||'Beta Program requirements not met')}" type="button">Disable Access &amp; Email</button>`:'';
-    return `<article class="admin-review-tester-card"><div class="admin-review-tester-top"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div><div class="admin-review-status"><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span><small>${esc(activity.anchor?`Last active ${relativeDate(activity.anchor)}`:'No portal activity')}</small></div></div><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-actions"><button class="admin-secondary-button" data-open-tester="${esc(t.uid)}" type="button">Check Tester Status</button>${disable}</div></article>`;
+    const app=applicationForTester(t);const top=signals[0];const activity=testerActivityInfo(t);
+    const signalHtml=signals.map(s=>`<div class="admin-review-reason review-${esc(s.key)}"><strong>${esc(s.label)}</strong><span>${esc(s.detail)}</span>${s.assignments?.length?s.assignments.map(a=>`<button class="admin-review-keep" data-review-task-keep="${esc(a.id)}" type="button">Keep Active for ${esc(a.taskTitle||'missed task')}</button>`).join(''):''}</div>`).join('');
+    const chips=signals.slice(0,3).map(s=>`<span class="admin-review-chip">${esc(s.label)}</span>`).join('')+(signals.length>3?`<span class="admin-review-chip">+${signals.length-3}</span>`:'');
+    const warningCount=Number(t.betaAccessWarningCount||0);const lastWarning=t.betaAccessWarningSentAt?relativeDate(t.betaAccessWarningSentAt):'Never';const lastType=t.betaAccessWarningLevel||'—';
+    const disable=app?`<button class="admin-review-disable" data-disable-beta="${esc(app.id)}" data-disable-beta-reason="${esc(top.reason||'Beta Program requirements not met')}" type="button">Disable Access</button>`:'';
+    return `<article class="admin-review-tester-card" data-review-card="${esc(t.uid)}"><div class="admin-review-summary"><div class="admin-review-person-line"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div></div><div class="admin-review-summary-mid">${chips}<div class="admin-review-summary-meta"><span>${esc(activity.anchor?`Active ${relativeDate(activity.anchor)}`:'No portal activity')}</span><span>${warningCount} warning${warningCount===1?'':'s'}</span></div></div><div class="admin-review-summary-actions"><button class="admin-secondary-button admin-review-view" data-open-tester="${esc(t.uid)}" type="button">View</button><button class="admin-review-warning" data-review-warning="${esc(t.uid)}" type="button">Send Warning</button>${disable}<button class="admin-review-icon-button" data-review-toggle="${esc(t.uid)}" type="button" aria-label="Expand tester review"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button></div></div><div class="admin-review-details"><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-warning-history"><span><strong>Warnings sent:</strong> ${warningCount}</span><span><strong>Last warning:</strong> ${esc(lastWarning)}</span><span><strong>Last warning type:</strong> ${esc(lastType)}</span></div></div></article>`;
   }).join(''):'<div class="admin-empty-inline">No testers currently need Admin review.</div>';
   const badge=document.getElementById('navTesterActionCount');if(badge){badge.textContent=String(rows.length);badge.hidden=rows.length===0;}
+  const allExpanded=rows.length>0&&[...list.querySelectorAll('.admin-review-tester-card')].every(x=>x.classList.contains('is-expanded'));const toggle=document.getElementById('testerReviewToggleAll');if(toggle)toggle.textContent=allExpanded?'Collapse All':'Expand All';
 }
 function renderTesters(){
   renderTestingAccessReadinessSummary();
@@ -2792,6 +2836,8 @@ document.addEventListener('click',async e=>{
     finally{removeTaskAssignmentBtn.disabled=false;}
     return;
   }
+  const reviewToggleBtn=e.target.closest('[data-review-toggle]');if(reviewToggleBtn){const card=reviewToggleBtn.closest('.admin-review-tester-card');if(card){card.classList.toggle('is-expanded');reviewToggleBtn.setAttribute('aria-label',card.classList.contains('is-expanded')?'Collapse tester review':'Expand tester review');}return;}
+  const reviewWarningBtn=e.target.closest('[data-review-warning]');if(reviewWarningBtn){const t=findTester(reviewWarningBtn.dataset.reviewWarning);if(t)openBetaWarningModal(t,testerReviewSignals(t));return;}
   const keepAfterMissedBtn=e.target.closest('[data-review-task-keep]');if(keepAfterMissedBtn){
     const a=state.taskAssignments.find(x=>x.id===keepAfterMissedBtn.dataset.reviewTaskKeep);if(!a)return;
     if(!(await confirmAction(`Keep ${a.name||a.email||'this tester'} active despite missing this task deadline? Their Beta access will stay unchanged and this missed task will be marked reviewed.`,'')))return;
@@ -2996,6 +3042,12 @@ document.querySelectorAll('[data-send-reminder-group]').forEach(btn=>btn.addEven
   document.getElementById('testerNextStepShowAll')?.addEventListener('click',clearTesterFilters);
   document.getElementById('testerSendPendingReminders')?.addEventListener('click',async()=>{const btn=document.getElementById('testerSendPendingReminders');const original=btn.textContent;btn.disabled=true;btn.textContent='Sending Reminders…';try{const result=await sendAllPendingTesterReminders();if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Personalized reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.textContent=original;renderTesterNextStepSummary();}});
 document.getElementById('quickReplySave')?.addEventListener('click',async()=>{const btn=document.getElementById('quickReplySave');btn.disabled=true;try{await saveQuickReplyFromEditor();showToast('Quick Reply saved.');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;}});
+document.getElementById('testerReviewToggleAll')?.addEventListener('click',()=>{const list=document.getElementById('testerReviewList');if(!list)return;const cards=[...list.querySelectorAll('.admin-review-tester-card')];const shouldExpand=cards.some(c=>!c.classList.contains('is-expanded'));cards.forEach(c=>c.classList.toggle('is-expanded',shouldExpand));const btn=document.getElementById('testerReviewToggleAll');if(btn)btn.textContent=shouldExpand?'Collapse All':'Expand All';});
+document.getElementById('adminBetaWarningClose')?.addEventListener('click',closeBetaWarningModal);
+document.getElementById('adminBetaWarningCancel')?.addEventListener('click',closeBetaWarningModal);
+document.getElementById('adminBetaWarningBackdrop')?.addEventListener('click',e=>{if(e.target===e.currentTarget)closeBetaWarningModal();});
+document.getElementById('adminBetaWarningReason')?.addEventListener('input',()=>{const t=findTester(betaWarningTargetUid);const reason=String(document.getElementById('adminBetaWarningReason')?.value||'').trim();const msg=document.getElementById('adminBetaWarningMessage');if(t&&msg)msg.value=betaWarningDefaultMessage(t,reason);});
+document.getElementById('adminBetaWarningSend')?.addEventListener('click',async()=>{const btn=document.getElementById('adminBetaWarningSend');const status=document.getElementById('adminBetaWarningMessageStatus');btn.disabled=true;btn.textContent='Sending…';if(status)status.textContent='';try{await submitBetaWarning();showToast('Beta access warning emailed to tester.','success');}catch(err){const m=friendlyFirebaseError(err);if(status)status.textContent=m;showToast(m,'error');}finally{btn.disabled=false;btn.textContent='Send Email';}});
 document.getElementById('adminBetaDisableClose')?.addEventListener('click',closeBetaDisableModal);
 document.getElementById('adminBetaDisableCancel')?.addEventListener('click',closeBetaDisableModal);
 document.getElementById('adminBetaDisableBackdrop')?.addEventListener('click',e=>{if(e.target===e.currentTarget)closeBetaDisableModal();});
