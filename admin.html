@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal</title>
 <link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=112" rel="apple-touch-icon"/><link href="favicon-32.png?v=112" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=112" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=203" rel="stylesheet"/>
+<link href="styles.css?v=205" rel="stylesheet"/>
 </head>
 <body class="admin-body">
 <div class="admin-loading-screen" id="adminLoading">
@@ -126,6 +126,12 @@
 
 
 
+<article class="admin-panel admin-tester-review-panel" id="testerReviewPanel">
+<div class="admin-panel-heading"><div><span class="admin-section-kicker">Review Testers</span><h3>Tester access review</h3><p>Testers appear here when a program event needs an Admin decision — inactivity, stalled setup, repeated reminders, or missed required tasks. Nothing here disables access automatically.</p></div><span class="admin-review-count" id="testerReviewCount">0</span></div>
+<div class="admin-review-guidance"><strong>Review first, then decide.</strong><span>Open the tester to check their setup, activity, tasks, feedback, and access history. If access should end, use Disable Access &amp; Email so the tester receives the reason.</span></div>
+<div class="admin-tester-review-list" id="testerReviewList"><div class="admin-empty-inline">No testers currently need Admin review.</div></div>
+</article>
+
 <article class="admin-panel admin-tester-action-center">
 <div class="admin-panel-heading"><div><span class="admin-section-kicker">Action Center</span><h3>What needs to happen next?</h3><p>Red cards are tester-owned steps. Click one to send that reminder to everyone currently waiting on that step.</p></div><button class="admin-text-button" id="testerNextStepShowAll" type="button">Show all testers</button></div>
 <div class="admin-tester-action-grid">
@@ -192,17 +198,13 @@
 <div class="admin-table-card admin-testers-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Current status</th><th>Next action</th><th>Progress</th><th>Participation</th><th>Access</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
 </section>
 <section class="admin-view" data-admin-panel="tasks">
-<div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Missed required deadlines are placed into an Admin review list. Beta access is never disabled automatically.</p></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
+<div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Missed required deadlines are surfaced in Review Testers on the Testers page. Beta access is never disabled automatically.</p></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
 <div class="admin-task-metrics">
 <article><span>Open Tasks</span><strong id="taskMetricOpen">0</strong><small>Task campaigns still active</small></article>
 <article><span>Pending Responses</span><strong id="taskMetricPending">0</strong><small>Tester assignments not completed</small></article>
 <article><span>Due Within 24 Hours</span><strong id="taskMetricDueSoon">0</strong><small>Need attention soon</small></article>
 <article><span>Reminded</span><strong id="taskMetricReminded">0</strong><small>Pending assignments reminded</small></article>
 </div>
-<article class="admin-panel admin-task-attention-panel">
-<div class="admin-panel-heading"><div><span class="admin-section-kicker">Needs Attention</span><h3>Testers still needing to complete tasks</h3><p>Automatic reminders are sent about 24 hours and 4 hours before the deadline when enabled. Missed deadlines appear here for your review before any access decision is made.</p></div></div>
-<div class="admin-task-attention-list" id="taskNeedsAttention"><div class="admin-empty-inline">No outstanding required tasks.</div></div>
-</article>
 <div class="admin-task-layout">
 <article class="admin-panel admin-task-composer">
 <div class="admin-panel-heading"><div><span class="admin-section-kicker">Create Task</span><h3>Send a required testing objective</h3></div><span class="admin-required-chip">Required</span></div>
@@ -241,7 +243,7 @@
 </div>
 <div class="admin-task-recipient-header"><div><strong>Recipients</strong><span id="taskRecipientSummary">0 selected</span><small class="admin-task-recipient-eligibility">Only testers with active Beta access, completed Testing Setup, and a matched Production account are included.</small></div><div><button class="admin-text-button" id="taskSelectAll" type="button">Select all</button><button class="admin-text-button" id="taskSelectIOS" type="button">Select iOS</button><button class="admin-text-button" id="taskSelectAndroid" type="button">Select Android</button><button class="admin-text-button" id="taskClearAll" type="button">Clear</button></div></div>
 <div class="admin-task-recipient-list" id="taskRecipientList"><div class="admin-empty-inline">Loading task-eligible testers…</div></div>
-<div class="admin-task-warning"><strong>Required participation task</strong><span>If a tester does not complete this task by the deadline, the assignment moves to Review Required. You decide whether to keep the tester active or disable Beta access.</span></div>
+<div class="admin-task-warning"><strong>Required participation task</strong><span>If a tester does not complete this task by the deadline, the assignment moves to Review Required and appears in Review Testers on the Testers page. Access is never disabled automatically.</span></div>
 <button class="admin-primary-button admin-task-send" id="taskSendButton" type="button">Send Required Task <span>→</span></button>
 </article>
 <article class="admin-panel admin-task-list-panel">
@@ -272,7 +274,7 @@
 <div class="admin-announcement-test-panel" hidden id="announcementTestPanel">
   <div class="beta-field">
     <label for="announcementTestEmail">Test Email Recipient</label>
-    <input id="announcementTestEmail" type="email" inputmode="email" autocomplete="email" placeholder="drewtaylor0118@gmail.com"/>
+    <input id="announcementTestEmail" type="email" inputmode="email" autocomplete="email" placeholder="example@gmail.com"/>
     <small>Send this announcement to an email address of your choice to verify its final appearance before sending it to users.</small>
   </div>
   <div class="admin-announcement-test-actions">
@@ -296,6 +298,15 @@
 <select class="admin-filter" id="feedbackStatusFilter"><option value="">All statuses</option><optgroup label="Support"><option>Waiting for RebataTrack</option><option>Waiting for Tester</option><option>Resolved</option></optgroup><optgroup label="Beta Feedback"><option>New</option><option>Reviewing</option><option>Confirmed</option><option>Fixed</option><option>Needs Retest</option><option>Closed</option></optgroup></select>
 <select class="admin-filter" id="feedbackTypeFilter"><option value="">All types</option><option>General Support</option><option>Account / Access Problem</option><option>Bug / Issue</option><option>Crash / Performance</option><option>Feature Request</option><option>Confusing Experience</option><option>General Feedback</option></select>
 </div>
+<article class="admin-panel admin-quick-reply-manager">
+<div class="admin-panel-heading"><div><span class="admin-section-kicker">Saved Responses</span><h3>Quick Replies</h3><p>Create reusable Help Desk responses. The title becomes the button label; the response text is inserted into the reply box.</p></div></div>
+<div class="admin-quick-reply-editor">
+<div class="beta-field"><label for="quickReplyTitle">Button title</label><input id="quickReplyTitle" maxlength="60" placeholder="Example: Refund clarification" type="text"></div>
+<div class="beta-field"><label for="quickReplyBody">Reply text</label><textarea id="quickReplyBody" maxlength="4500" placeholder="Write the reusable response text..."></textarea></div>
+<div class="admin-announcement-send-actions"><button class="admin-primary-button" id="quickReplySave" type="button">Save Quick Reply</button></div>
+</div>
+<div class="admin-support-quick-reply-actions" id="quickReplyManagerList"></div>
+</article>
 <div class="admin-feedback-list" id="feedbackList"></div><div class="admin-empty admin-empty-card" hidden id="feedbackEmpty">No conversations match these filters.</div>
 </section>
 </div>
@@ -330,6 +341,16 @@
 </div>
 </div>
 
+<div class="admin-email-change-backdrop" hidden id="adminBetaDisableBackdrop">
+  <div class="admin-email-change-card" role="dialog" aria-modal="true" aria-labelledby="adminBetaDisableTitle">
+    <div class="admin-email-change-header"><div><span class="admin-section-kicker">Beta Program Access</span><h3 id="adminBetaDisableTitle">Disable Beta Access</h3></div><button class="admin-icon-button" id="adminBetaDisableClose" type="button" aria-label="Close"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6.5 6.5 11 11m0-11-11 11" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path></svg></button></div>
+    <p class="admin-email-change-lead">This disables Beta Portal/testing access and emails the tester the reason. Production app data and purchases are not deleted.</p>
+    <div class="beta-field"><label for="adminBetaDisableReason">Reason</label><select id="adminBetaDisableReason"><option value="Inactivity">Inactivity</option><option value="Setup not completed">Setup not completed</option><option value="Required tasks not completed">Required tasks not completed</option><option value="No response after multiple reminders">No response after multiple reminders</option><option value="Beta Program requirements not met">Beta Program requirements not met</option><option value="Other">Other</option></select></div>
+    <div class="beta-field"><label for="adminBetaDisableDetails">Additional details</label><textarea id="adminBetaDisableDetails" maxlength="1200" placeholder="Optional details to include in the email"></textarea></div>
+    <div class="admin-email-change-message" id="adminBetaDisableMessage" aria-live="polite"></div>
+    <div class="admin-email-change-actions"><button class="admin-secondary-button" id="adminBetaDisableCancel" type="button">Cancel</button><button class="admin-primary-button admin-confirm-danger" id="adminBetaDisableSubmit" type="button">Disable &amp; Email Tester</button></div>
+  </div>
+</div>
 <div class="admin-email-change-backdrop" hidden id="adminEmailChangeBackdrop">
   <div class="admin-email-change-card" role="dialog" aria-modal="true" aria-labelledby="adminEmailChangeTitle">
     <div class="admin-email-change-header">
@@ -362,7 +383,7 @@ setTimeout(function(){
   }
 }, 12000);
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=204"></script><script src="production-admin.js?v=199"></script>
-<footer data-rebatatrack-website-build="204" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 204</footer>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=205"></script><script src="production-admin.js?v=199"></script>
+<footer data-rebatatrack-website-build="205" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#7b8ca4;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 205</footer>
 </body>
 </html>

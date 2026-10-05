@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 199
+// RebataTrack Admin Portal — Website Build 205
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -89,7 +89,8 @@ let state = {
   feedback: [],
   tasks: [],
   taskAssignments: [],
-  loaded: { applications:false, testers:false, feedback:false, tasks:false }
+  quickReplies: [],
+  loaded: { applications:false, testers:false, feedback:false, tasks:false, quickReplies:false }
 };
 
 let feedbackRealtimeUnsubscribe = null;
@@ -106,9 +107,15 @@ let supportInboxSyncInFlight = null;
 const SUPPORT_REPLY_GREETING='Hello, and thank you for contacting RebataTrack Support!';
 const SUPPORT_REPLY_PRESETS=Object.freeze({
   greeting:SUPPORT_REPLY_GREETING,
-  featureRequest:'Hello, and thank you for contacting RebataTrack Support! We have noted down your feedback request, and will review this functionality feature request. Thank you! - RebataTrack',
-  betaEmailUpdated:'Hello, and thank you for reaching out in our support ticket. We have swapped your approved beta access account to the new email you provided. Feel free to reach out should you have any more issues! Thank you! - RebataTrack'
+  featureRequest:'Hello, and thank you for contacting RebataTrack Support! We have noted your feature request and will review it as we continue improving RebataTrack.',
+  betaEmailUpdated:'Hello, and thank you for reaching out. We have updated the approved beta access email to the new address you provided. Please let us know if you have any additional issues.'
 });
+const HELP_DESK_SIGNATURE='Thank you! -RebataTrack Team';
+function helpDeskReplyWithSignature(value){
+  let text=String(value||'').trim();
+  text=text.replace(/(?:\n\s*)*(?:Thank you!\s*)?-?\s*RebataTrack Team\s*$/i,'').trim();
+  return text?`${text}\n\n${HELP_DESK_SIGNATURE}`:HELP_DESK_SIGNATURE;
+}
 
 const MAX_ADMIN_NOTIFICATIONS = 20;
 // Build 173 live-update safety lock: new Beta applications, Help & Feedback tickets,
@@ -124,6 +131,19 @@ function setBetaConnectionUI(connected){
   chip.classList.toggle('admin-live-offline',!connected);
 }
 
+
+let betaDisableApplicationId=null;
+function openBetaDisableModal(applicationId,preferredReason=''){betaDisableApplicationId=applicationId||null;const back=document.getElementById('adminBetaDisableBackdrop');if(back)back.hidden=false;const msg=document.getElementById('adminBetaDisableMessage');if(msg)msg.textContent='';const details=document.getElementById('adminBetaDisableDetails');if(details)details.value='';const reason=document.getElementById('adminBetaDisableReason');if(reason&&preferredReason&&[...reason.options].some(o=>o.value===preferredReason))reason.value=preferredReason;}
+function closeBetaDisableModal(){betaDisableApplicationId=null;const back=document.getElementById('adminBetaDisableBackdrop');if(back)back.hidden=true;}
+async function submitBetaDisable(){
+  if(!betaDisableApplicationId)throw new Error('No tester is selected.');
+  const a=state.applications.find(x=>x.id===betaDisableApplicationId);if(!a)throw new Error('Beta application not found.');
+  const reason=String(document.getElementById('adminBetaDisableReason')?.value||'').trim();const details=String(document.getElementById('adminBetaDisableDetails')?.value||'').trim();
+  const result=await callWorkerAdminAction('admin-disable-beta',{applicationId:a.id,testerUid:a.testerUid||'',email:a.email||'',name:a.fullName||a.name||'Tester',platform:a.platform||'',reason,details});
+  await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);
+  await syncBetaProgramAfterTesterMutation().catch(()=>null);
+  closeBetaDisableModal();renderTesters();return result;
+}
 
 function openEmailChangeModal(applicationId,currentEmail,prefillEmail=''){
   emailChangeApplicationId=applicationId||null;
@@ -1057,10 +1077,11 @@ function testerNextStep(t){
   if(!accessSent)return {key:'adminSend',label:'Ready for you',detail:t.platform==='Android'?'Send the Google Play testing link':'Send the TestFlight invitation',reminderType:''};
   return {key:'complete',label:'Setup complete',detail:'Portal setup, testing access, and RebataTrack account are in place',reminderType:''};
 }
+function currentSetupReminderCount(t){const n=testerNextStep(t);return n.reminderType&&String(t.lastSetupReminderType||'')===String(n.reminderType)?Number(t.setupReminderCount||0):0;}
 function testerNextStepHtml(t){
   const n=testerNextStep(t);
   const last=timestampToDate(t.lastSetupReminderAt);
-  const lastText=last?`Last reminder ${relativeDate(last)}`:'';
+  const count=currentSetupReminderCount(t);const lastText=count&&last?`Last reminder ${relativeDate(last)} · ${count} sent`:(count?`${count} reminder${count===1?'':'s'} sent`:'');
   const button=n.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">Send Reminder</button>`:'';
   return `<div class="admin-next-step-cell next-step-${esc(n.key)}"><strong>${esc(n.label)}</strong><small>${esc(n.detail)}</small>${lastText?`<small class="admin-next-step-last">${esc(lastText)}</small>`:''}${button}</div>`;
 }
@@ -1086,10 +1107,9 @@ function clearTesterFilters(){
 async function sendTesterNextStepReminder(t){
   const n=testerNextStep(t);
   if(!n.reminderType)throw new Error('This tester does not currently have a tester-owned setup step to remind them about.');
-  await callWorkerAdminAction('tester-next-step-reminder',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',reminderType:n.reminderType});
+  const result=await callWorkerAdminAction('tester-next-step-reminder',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',reminderType:n.reminderType});
   const sentAt=new Date();
-  await updateDoc(doc(db,'betaUsers',t.uid),{lastSetupReminderAt:serverTimestamp(),lastSetupReminderType:n.reminderType,updatedAt:serverTimestamp()});
-  t.lastSetupReminderAt=sentAt;t.lastSetupReminderType=n.reminderType;t.updatedAt=sentAt;
+  t.lastSetupReminderAt=sentAt;t.lastSetupReminderType=n.reminderType;t.setupReminderCount=Number(result.reminderCount||((t.setupReminderCount||0)+1));t.updatedAt=sentAt;
   renderTesters();
   return n;
 }
@@ -1212,7 +1232,7 @@ function testerActionHtml(t){
     const actionLabel=t.platform==='Android'?'Send Android Link':t.platform==='iOS'?'Send TestFlight':'Send Access';
     return `<div class="admin-tester-action-cell action-owner-admin"><span class="admin-owner-label">Your action</span><strong>${esc(next.label)}</strong><small>${esc(next.detail)}</small><button class="admin-readiness-action" type="button" data-send-ready-access="${esc(t.uid)}">${esc(actionLabel)}</button></div>`;
   }
-  const button=next.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">Send Reminder</button>`:'';
+  const reminderCount=currentSetupReminderCount(t);const reminderLabel=reminderCount>=2?'Send Final Reminder':reminderCount===1?'Send Follow-up':'Send Reminder';const button=next.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">${reminderLabel}</button>`:'';
   const owner=next.reminderType?'Tester action':next.key==='complete'?'Complete':'Status';
   const labelHtml=next.key==='complete'
     ? `<span class="admin-progress-state complete admin-action-chip">${esc(next.label)}</span>`
@@ -1234,8 +1254,48 @@ function testerProgressHtml(t){
   else{const why=betaGrantReasonText(key);mappingHtml='<span class="admin-progress-state complete">App account matched</span>'+(why?`<small>${esc(why)}</small>`:'');}
   return `<div class="admin-tester-progress-cell"><span class="admin-timeline-chip timeline-${esc(stage)}">${esc(timelineStageLabel(stage,t.platform))}</span>${mappingHtml}</div>`;
 }
+function applicationForTester(t){
+  const email=String(t?.email||'').trim().toLowerCase();
+  return state.applications.find(a=>a.testerUid===t?.uid||String(a.email||'').trim().toLowerCase()===email)||null;
+}
+function reviewAgeDays(value){const d=timestampToDate(value);return d?Math.floor(Math.max(0,Date.now()-d.getTime())/DAY_MS):null;}
+function testerReviewSignals(t){
+  if(!t||t.accessStatus!=='Enabled'||!isEnabledStatus(t.status))return [];
+  const signals=[];const tasks=testerTaskRows(t);const next=testerNextStep(t);const setupCount=currentSetupReminderCount(t);
+  const reviewTasks=tasks.filter(a=>a.status==='Review Required');
+  if(reviewTasks.length)signals.push({key:'missed-task',label:'Required task missed',detail:`${reviewTasks.length} required task${reviewTasks.length===1?'':'s'} reached Review Required.`,reason:'Required tasks not completed',priority:100,assignments:reviewTasks});
+  const overduePending=tasks.filter(a=>a.status==='Pending'&&timestampToDate(a.dueAt)&&timestampToDate(a.dueAt).getTime()<Date.now());
+  if(overduePending.length)signals.push({key:'task-overdue',label:'Required task deadline passed',detail:`${overduePending.length} required task${overduePending.length===1?' is':'s are'} past due and still incomplete.`,reason:'Required tasks not completed',priority:95});
+  const finalTaskReminders=tasks.filter(a=>a.status==='Pending'&&Number(a.reminderCount||0)>=3);
+  if(finalTaskReminders.length)signals.push({key:'task-reminders',label:'Multiple task reminders',detail:`${finalTaskReminders.length} pending task${finalTaskReminders.length===1?' has':'s have'} reached a final reminder without completion.`,reason:'No response after multiple reminders',priority:90});
+  if(next.reminderType&&setupCount>=3)signals.push({key:'setup-final',label:'Final setup reminder sent',detail:`${next.label} is still incomplete after ${setupCount} reminders.`,reason:'No response after multiple reminders',priority:88});
+  const progressAge=reviewAgeDays(t.timelineUpdatedAt||t.lastSetupReminderAt||t.createdAt);
+  if(next.reminderType&&setupCount<3&&progressAge!=null&&progressAge>=3)signals.push({key:'setup-stalled',label:'Setup stalled 3+ days',detail:`${next.label} has not progressed for about ${progressAge} day${progressAge===1?'':'s'}.`,reason:'Setup not completed',priority:75});
+  const activity=testerActivityInfo(t);
+  if(activity.anchor){
+    if(activity.days>=3)signals.push({key:'inactivity',label:'No activity for 3+ days',detail:`Last Beta Portal activity was about ${activity.days} day${activity.days===1?'':'s'} ago.`,reason:'Inactivity',priority:70});
+  }else{
+    const neverAge=reviewAgeDays(t.createdAt||t.timelineUpdatedAt);
+    if(neverAge!=null&&neverAge>=3)signals.push({key:'never-active',label:'Never activated',detail:`No Beta Portal sign-in after about ${neverAge} day${neverAge===1?'':'s'} in the program.`,reason:'Inactivity',priority:80});
+  }
+  return signals.sort((a,b)=>b.priority-a.priority);
+}
+function testerReviewRows(){
+  return state.testers.map(t=>({tester:t,signals:testerReviewSignals(t)})).filter(x=>x.signals.length).sort((a,b)=>(b.signals[0]?.priority||0)-(a.signals[0]?.priority||0)||String(a.tester.name||'').localeCompare(String(b.tester.name||'')));
+}
+function renderTesterReviewQueue(){
+  const list=document.getElementById('testerReviewList');const count=document.getElementById('testerReviewCount');if(!list||!count)return;
+  const rows=testerReviewRows();count.textContent=String(rows.length);count.classList.toggle('has-review',rows.length>0);
+  list.innerHTML=rows.length?rows.map(({tester:t,signals})=>{
+    const app=applicationForTester(t);const top=signals[0];const activity=testerActivityInfo(t);const signalHtml=signals.map(s=>`<div class="admin-review-reason review-${esc(s.key)}"><strong>${esc(s.label)}</strong><span>${esc(s.detail)}</span>${s.assignments?.length?s.assignments.map(a=>`<button class="admin-review-keep" data-review-task-keep="${esc(a.id)}" type="button">Keep Active for ${esc(a.taskTitle||'missed task')}</button>`).join(''):''}</div>`).join('');
+    const disable=app?`<button class="admin-primary-button admin-review-disable" data-disable-beta="${esc(app.id)}" data-disable-beta-reason="${esc(top.reason||'Beta Program requirements not met')}" type="button">Disable Access &amp; Email</button>`:'';
+    return `<article class="admin-review-tester-card"><div class="admin-review-tester-top"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div><div class="admin-review-status"><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span><small>${esc(activity.anchor?`Last active ${relativeDate(activity.anchor)}`:'No portal activity')}</small></div></div><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-actions"><button class="admin-secondary-button" data-open-tester="${esc(t.uid)}" type="button">Check Tester Status</button>${disable}</div></article>`;
+  }).join(''):'<div class="admin-empty-inline">No testers currently need Admin review.</div>';
+  const badge=document.getElementById('navTesterActionCount');if(badge){badge.textContent=String(rows.length);badge.hidden=rows.length===0;}
+}
 function renderTesters(){
   renderTestingAccessReadinessSummary();
+  renderTesterReviewQueue();
   renderTesterNextStepSummary();
   const data=testerFiltered();const body=document.getElementById('testersTableBody');
   body.innerHTML=data.map(t=>{
@@ -1247,7 +1307,7 @@ function renderTesters(){
     return `<tr>
       <td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td>
       <td><div class="admin-tester-identity-cell"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div><div class="admin-tester-meta-line"><span class="admin-platform-pill">${esc(t.platform)}</span><span>${esc(buildLine)}</span><span>${esc(deviceLine)}</span>${t.screenSize?`<span>${esc(t.screenSize)}</span>`:''}</div></div></td>
-      <td><div class="admin-tester-status-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small><span class="admin-last-seen">Portal ${esc(portalActivity)} · Login ${esc(loginActivity)}</span></div></td>
+      <td><div class="admin-tester-status-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small>${Number(t.inactivityWarningCount||0)?`<small class="admin-next-step-last">Activity reminders: ${Number(t.inactivityWarningCount||0)}${Number(t.inactivityWarningCount||0)>=3?' · Final reminder sent':''}</small>`:''}<span class="admin-last-seen">Portal ${esc(portalActivity)} · Login ${esc(loginActivity)}</span></div></td>
       <td>${testerActionHtml(t)}</td>
       <td>${testerProgressHtml(t)}</td>
       <td><div class="admin-tester-participation-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>All required tasks clear</small>'}</div></td>
@@ -1559,9 +1619,6 @@ function renderTaskDashboard(){
   const reminded=pending.filter(a=>a.lastReminderSentAt).length;
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
   set('taskMetricOpen',open);set('taskMetricPending',pending.length);set('taskMetricDueSoon',dueSoon);set('taskMetricReminded',reminded);
-  const list=document.getElementById('taskNeedsAttention');if(!list)return;
-  const rows=[...review,...pending];
-  list.innerHTML=rows.length?rows.map(a=>{const isReview=a.status==='Review Required';const d=timestampToDate(a.dueAt);const overdue=!!d&&d.getTime()<now;return `<div class="admin-task-attention-row${isReview||overdue?' is-overdue':''}"><div class="admin-task-attention-copy"><strong>${esc(a.name||'Tester')} · ${esc(a.taskTitle||'Required task')}</strong><span>${esc(a.email||'')} · ${esc(a.platform||'')}</span></div><div class="admin-task-attention-due">${isReview?'<strong>MISSED DEADLINE — REVIEW REQUIRED</strong><br>':'Due '}${esc(formatDate(a.dueAt))}</div>${isReview?`<button class="admin-task-remind-button" data-review-missed-tester="${esc(a.testerUid||'')}" type="button">Review Tester</button><button class="admin-task-remind-button" data-review-task-keep="${esc(a.id)}" type="button">Keep Active</button>`:`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${a.lastReminderSentAt?'Remind Again':'Send Reminder'}</button>`}</div>`;}).join(''):'<div class="admin-empty-inline">No outstanding required tasks or missed-deadline reviews.</div>';
 }
 function renderTasks(){
   const body=document.getElementById('tasksTableBody'); if(!body)return;
@@ -1660,7 +1717,7 @@ async function archiveAnnouncement(t){
 }
 
 function findTask(id){return state.tasks.find(t=>t.id===id);}
-function assignmentReminderText(a){return a.lastReminderSentAt?`Last reminder ${relativeDate(a.lastReminderSentAt)}`:'No reminder sent yet';}
+function assignmentReminderText(a){const count=Number(a.reminderCount||0);return a.lastReminderSentAt?`Last reminder ${relativeDate(a.lastReminderSentAt)} · ${count} sent`:(count?`${count} reminder${count===1?'':'s'} sent`:'No reminder sent yet');}
 function taskAssignmentTesterIds(taskId){
   return new Set(state.taskAssignments.filter(a=>a.taskId===taskId).map(a=>String(a.testerUid||'')).filter(Boolean));
 }
@@ -1680,7 +1737,7 @@ function openTaskRecord(t){
   const coverage=taskRecipientCoverage(t);
   const due=timestampToDate(t.dueAt);
   const deadlineOpen=!!due&&due.getTime()>Date.now()&&t.status!=='Cancelled';
-  const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminder=a.status==='Pending'?`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${a.emailStatus==='Error'?'Retry Task Email':'Send Reminder'}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const reviewActions=isReview?`<button class="admin-task-remind-button" data-review-missed-tester="${esc(a.testerUid||'')}" type="button">Review Tester</button><button class="admin-task-remind-button" data-review-task-keep="${esc(a.id)}" type="button">Keep Active</button>`:'';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><strong>${esc(a.name||'Tester')}</strong><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Email: ${esc(a.emailStatus||'Unknown')}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> Review the tester and decide whether to keep them active or disable Beta access.</div>':''}<div class="admin-task-assignment-actions">${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
+  const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminderCount=Number(a.reminderCount||0);const reminderLabel=a.emailStatus==='Error'?'Retry Task Email':reminderCount>=2?'Send Final Reminder':reminderCount===1?'Send Follow-up':'Send Reminder';const reminder=a.status==='Pending'?`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${reminderLabel}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const reviewActions='';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><strong>${esc(a.name||'Tester')}</strong><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Email: ${esc(a.emailStatus||'Unknown')}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> This tester is listed in Review Testers on the Testers page for the access decision.</div>':''}<div class="admin-task-assignment-actions">${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
   const newRows=coverage.notAssigned.length?coverage.notAssigned.map(x=>`<div class="admin-task-assignment admin-task-unassigned"><div class="admin-task-assignment-top"><div><strong>${esc(x.name||'Tester')}</strong><small>${esc(x.email||'')} · ${esc(x.platform||'')}</small></div><span class="admin-status-pill status-pending">Not sent</span></div><div class="admin-task-assignment-reminder">This tester is fully set up and eligible, but has never received this task.</div>${deadlineOpen?`<div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-assign-existing-task="${esc(t.id)}" data-task-tester="${esc(x.uid)}" type="button">Send Task</button></div>`:''}</div>`).join(''):'<div class="admin-empty-inline">Every currently eligible tester has already received this task.</div>';
   const addNew=coverage.notAssigned.length&&deadlineOpen?`<button class="admin-action-button approve" data-task-action="assign-new-eligible" data-task-id="${esc(t.id)}" type="button">Send to Newly Eligible (${coverage.notAssigned.length})</button>`:'';
   const deadlineNote=coverage.notAssigned.length&&!deadlineOpen?'<div class="admin-task-coverage-note is-warning"><strong>New eligible testers detected</strong><span>The original task deadline has passed or the task was cancelled, so it cannot be sent to them without creating a new task.</span></div>':'';
@@ -1771,8 +1828,10 @@ async function sendAssignmentReminder(a){
   if(!a||a.status!=='Pending')return false;
   const dueLabel=a.dueLabel||formatDate(a.dueAt);
   const emailType=a.emailStatus==='Error'?'task-assigned':'task-reminder';
-  await callWorkerAdminAction(emailType,{testerUid:a.testerUid||'',applicationId:a.applicationId||'',email:String(a.email||'').toLowerCase(),name:a.name||'Tester',platform:a.platform||'',taskTitle:a.taskTitle||'Required Beta Program Task',taskObjective:a.taskObjective||'',taskInstructions:a.taskInstructions||'',dueLabel,reminderKind:'Reminder'});
-  await updateDoc(doc(db,'betaTaskAssignments',a.id),{emailStatus:'Sent',emailError:deleteField(),emailSentAt:serverTimestamp(),lastReminderSentAt:serverTimestamp(),manualReminderSentAt:serverTimestamp(),updatedAt:serverTimestamp()});
+  const reminderCount=Number(a.reminderCount||0)+(emailType==='task-reminder'?1:0);
+  await callWorkerAdminAction(emailType,{testerUid:a.testerUid||'',applicationId:a.applicationId||'',email:String(a.email||'').toLowerCase(),name:a.name||'Tester',platform:a.platform||'',taskTitle:a.taskTitle||'Required Beta Program Task',taskObjective:a.taskObjective||'',taskInstructions:a.taskInstructions||'',dueLabel,reminderKind:reminderCount>=3?'Final Reminder':reminderCount===2?'Follow-up Reminder':'Reminder',reminderCount});
+  await updateDoc(doc(db,'betaTaskAssignments',a.id),{emailStatus:'Sent',emailError:deleteField(),emailSentAt:serverTimestamp(),lastReminderSentAt:serverTimestamp(),manualReminderSentAt:serverTimestamp(),reminderCount,updatedAt:serverTimestamp()});
+  a.reminderCount=reminderCount;
   a.lastReminderSentAt=new Date();a.manualReminderSentAt=new Date();
   renderTasks();
   return true;
@@ -1828,6 +1887,34 @@ async function deleteTaskCampaign(t){
   await loadMetrics();renderMetrics();
 }
 
+async function loadQuickReplies(force=false){
+  if(state.loaded.quickReplies&&!force)return;
+  try{
+    const snap=await getDoc(doc(db,'betaSystem','adminQuickReplies'),'admin quick replies');
+    const data=snap.exists()?snap.data():{};
+    state.quickReplies=Array.isArray(data.items)?data.items.filter(x=>x&&x.id&&x.title&&x.body):[];
+  }catch(_){state.quickReplies=[];}
+  state.loaded.quickReplies=true;renderQuickReplyManager();
+}
+function renderQuickReplyManager(){
+  const list=document.getElementById('quickReplyManagerList');if(!list)return;
+  list.innerHTML=state.quickReplies.length?state.quickReplies.map(x=>`<span class="admin-saved-reply-chip"><button class="admin-support-quick-reply" type="button" data-support-saved-reply="${esc(x.id)}">${esc(x.title)}</button><button class="admin-saved-reply-delete" type="button" data-delete-quick-reply="${esc(x.id)}" aria-label="Delete ${esc(x.title)}">×</button></span>`).join(''):'<span class="admin-empty-inline">No custom Quick Replies saved yet.</span>';
+}
+async function saveQuickReplyFromEditor(){
+  const title=String(document.getElementById('quickReplyTitle')?.value||'').trim();
+  const body=String(document.getElementById('quickReplyBody')?.value||'').trim();
+  if(!title||!body)throw new Error('Enter both a button title and reply text.');
+  const id='qr_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7);
+  state.quickReplies=[...state.quickReplies,{id,title:title.slice(0,60),body:body.slice(0,4500)}];
+  await setDoc(doc(db,'betaSystem','adminQuickReplies'),{items:state.quickReplies,updatedAt:serverTimestamp()},{merge:true});
+  document.getElementById('quickReplyTitle').value='';document.getElementById('quickReplyBody').value='';renderQuickReplyManager();
+}
+async function deleteQuickReply(id){
+  state.quickReplies=state.quickReplies.filter(x=>x.id!==id);
+  await setDoc(doc(db,'betaSystem','adminQuickReplies'),{items:state.quickReplies,updatedAt:serverTimestamp()},{merge:true});renderQuickReplyManager();
+}
+function savedQuickReply(id){return state.quickReplies.find(x=>x.id===id);}
+
 async function switchView(view){
   activeView=view;document.body.classList.remove('admin-nav-open');
   document.querySelectorAll('[data-admin-view]').forEach(b=>b.classList.toggle('is-active',b.dataset.adminView===view));
@@ -1835,10 +1922,11 @@ async function switchView(view){
   const titles={overview:'Overview',applications:'Applications',testers:'Testers',tasks:'Tasks',announcements:'Announcements',feedback:'Feedback'};document.getElementById('adminViewTitle').textContent=titles[view]||'Overview';
   try{
     if(view==='applications')await loadApplications();
-    if(view==='testers'){await Promise.all([loadTesters(),loadTasks(),loadFeedback()]);await reconcilePendingTasksForInactiveTesters();renderTesters();}
+    if(view==='testers'){await Promise.all([loadApplications(),loadTesters(),loadTasks(),loadFeedback()]);await reconcilePendingTasksForInactiveTesters();renderTesters();}
     if(view==='tasks'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);await reconcilePendingTasksForInactiveTesters();}
     if(view==='announcements'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);renderAnnouncements();}
     if(view==='feedback'){
+      await loadQuickReplies();
       // Build 199: sync Gmail before rendering Support so direct emails and reopened
       // conversations do not depend solely on the Cloudflare cron cadence.
       await syncSupportInboxNow({silent:true});
@@ -1867,9 +1955,9 @@ function applicationActionButtons(a){
     if(status!=='Declined')buttons.push(btn('danger','decline','Decline'));
   }else if(status==='Approved'){
     buttons.push(btn('approve','resend','Resend Portal Invitation'));
-    buttons.push(btn('danger-soft','inactive','Disable Access'));
+    buttons.push(`<button class="admin-action-button danger-soft" data-disable-beta="${esc(a.id)}" type="button">Disable Access</button>`);
   }else if(status==='Active'){
-    buttons.push(btn('danger-soft','inactive','Disable Access'));
+    buttons.push(`<button class="admin-action-button danger-soft" data-disable-beta="${esc(a.id)}" type="button">Disable Access</button>`);
   }else if(status==='Inactive'){
     buttons.push(btn('approve','active','Enable Access'));
   }
@@ -1886,9 +1974,9 @@ function openTesterRecord(t){
   const a=state.applications.find(x=>x.testerUid===t.uid||String(x.email||'').trim().toLowerCase()===normalizedEmail);
   const pending=pendingAssignmentsForTester(t);const activity=testerActivityInfo(t);const score=testerScore(t);const build=testerBuild(t);const device=testerDeviceSummary(t);
   const feedbackRows=testerFeedbackRows(t);const lastFeedback=score.lastFeedback;
-  const pendingHtml=pending.length?pending.map(x=>`<div class="admin-task-assignment"><div class="admin-task-assignment-top"><div><strong>${esc(x.taskTitle||'Required task')}</strong><small>Due ${esc(formatDate(x.dueAt))}</small></div><span class="admin-status-pill status-pending">Pending</span></div><div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-remind-assignment="${esc(x.id)}" type="button">${x.lastReminderSentAt?'Remind Again':'Send Reminder'}</button><button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(x.id)}" type="button">Remove Task</button></div></div>`).join(''):'<div class="admin-empty-inline">No required tasks are pending for this tester.</div>';
+  const pendingHtml=pending.length?pending.map(x=>`<div class="admin-task-assignment"><div class="admin-task-assignment-top"><div><strong>${esc(x.taskTitle||'Required task')}</strong><small>Due ${esc(formatDate(x.dueAt))}</small></div><span class="admin-status-pill status-pending">Pending</span></div><div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-remind-assignment="${esc(x.id)}" type="button">${Number(x.reminderCount||0)>=2?'Send Final Reminder':Number(x.reminderCount||0)===1?'Send Follow-up':'Send Reminder'}</button><button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(x.id)}" type="button">Remove Task</button></div></div>`).join(''):'<div class="admin-empty-inline">No required tasks are pending for this tester.</div>';
   const emailAction=a?`<button class="admin-action-button" data-app-action="change-email" data-row="${esc(a.id)}" type="button">Change Beta Email</button>`:'';
-  const accessAction=a?(t.accessStatus==='Enabled'?`<button class="admin-action-button danger-soft" data-app-action="inactive" data-row="${esc(a.id)}" type="button">Disable Access</button>`:`<button class="admin-action-button approve" data-app-action="active" data-row="${esc(a.id)}" type="button">Enable Access</button>`):'';
+  const accessAction=a?(t.accessStatus==='Enabled'?`<button class="admin-action-button danger-soft" data-disable-beta="${esc(a.id)}" type="button">Disable Access</button>`:`<button class="admin-action-button approve" data-app-action="active" data-row="${esc(a.id)}" type="button">Enable Access</button>`):'';
   const deleteAction=a?`<button class="admin-action-button danger-soft" data-app-action="delete" data-row="${esc(a.id)}" type="button">Delete Application & Tester</button>`:`<button class="admin-action-button danger-soft" data-tester-action="delete" data-tester-uid="${esc(t.uid)}" type="button">Delete Tester</button>`;
   const nextStep=testerNextStep(t);
   const reminderAction=nextStep.reminderType?`<button class="admin-action-button reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">Send ${esc(nextStep.label)} Reminder</button>`:'';
@@ -1904,7 +1992,8 @@ function feedbackWorkflowOptions(f){
 }
 
 function supportReplyPresetHtml(emailSupport=false){
-  return `<div class="admin-support-quick-replies"><div class="admin-support-quick-replies-head"><span>Quick replies</span><small>Choose a starting response, then edit it before sending if needed.</small></div><div class="admin-support-quick-reply-actions"><button class="admin-support-quick-reply" type="button" data-support-reply-preset="greeting">Greeting</button><button class="admin-support-quick-reply" type="button" data-support-reply-preset="featureRequest">Feature request noted</button>${emailSupport?'':`<button class="admin-support-quick-reply" type="button" data-support-reply-preset="betaEmailUpdated">Beta access email updated</button>`}</div></div>`;
+  const custom=state.quickReplies.map(x=>`<button class="admin-support-quick-reply" type="button" data-support-saved-reply="${esc(x.id)}">${esc(x.title)}</button>`).join('');
+  return `<div class="admin-support-quick-replies"><div class="admin-support-quick-replies-head"><span>Quick replies</span><small>Choose a starting response, then edit it before sending if needed.</small></div><div class="admin-support-quick-reply-actions"><button class="admin-support-quick-reply" type="button" data-support-reply-preset="greeting">Greeting</button><button class="admin-support-quick-reply" type="button" data-support-reply-preset="featureRequest">Feature request noted</button>${emailSupport?'':`<button class="admin-support-quick-reply" type="button" data-support-reply-preset="betaEmailUpdated">Beta access email updated</button>`}${custom}</div></div>`;
 }
 function setSupportReplyPreset(key){
   const box=document.getElementById('drawerConversationReply');
@@ -2548,6 +2637,7 @@ async function init(user){
 
   try{
     await loadEmailServiceSettings();
+    await loadQuickReplies().catch(()=>{});
   await loadBetaProgramSettings();
     await withTimeout(loadOverview(), 12000, 'Dashboard data');
     setBetaConnectionUI(true);
@@ -2601,6 +2691,9 @@ document.addEventListener('click',event=>{const wrap=document.getElementById('ad
 document.getElementById('adminNotificationList')?.addEventListener('click',async event=>{const item=event.target.closest('[data-open-notification]');if(!item)return;setAdminNotificationPanelOpen(false);if(item.dataset.notificationType==='application'){await switchView('applications');const a=await ensureApplicationLoaded(item.dataset.notificationId);if(a)openApplicationRecord(a);return;}if(item.dataset.notificationType==='feedback'){await switchView('feedback');const f=await ensureFeedbackLoaded(item.dataset.notificationId);if(f)openFeedbackRecord(f);}});
 
 document.addEventListener('click',async e=>{
+  const disableBtn=e.target.closest('[data-disable-beta]');if(disableBtn){openBetaDisableModal(disableBtn.dataset.disableBeta,disableBtn.dataset.disableBetaReason||'');return;}
+  const savedReplyBtn=e.target.closest('[data-support-saved-reply]');if(savedReplyBtn){const item=savedQuickReply(savedReplyBtn.dataset.supportSavedReply);const box=document.getElementById('drawerConversationReply');if(item&&box){box.value=item.body;box.dispatchEvent(new Event('input',{bubbles:true}));box.focus();}return;}
+  const deleteQuick=e.target.closest('[data-delete-quick-reply]');if(deleteQuick){if(await confirmAction('Delete this saved Quick Reply?','danger')){try{await deleteQuickReply(deleteQuick.dataset.deleteQuickReply);showToast('Quick Reply deleted.');}catch(err){showToast(friendlyFirebaseError(err),'error');}}return;}
   const feedbackEmailBtn=e.target.closest('[data-feedback-change-email]');if(feedbackEmailBtn){
     const f=await ensureFeedbackLoaded(feedbackEmailBtn.dataset.feedbackChangeEmail);if(!f)return;
     if(!state.loaded.applications)await loadApplications(true);
@@ -2658,7 +2751,7 @@ document.addEventListener('click',async e=>{
   const deleteFeedbackBtn=e.target.closest('[data-delete-feedback]');if(deleteFeedbackBtn){const f=await ensureFeedbackLoaded(deleteFeedbackBtn.dataset.deleteFeedback);if(!f)return;const label=isSupportConversation(f)?'support conversation':'feedback conversation';const deleteNote=isEmailSupportConversation(f)?'The original Gmail thread and attachments will remain in Gmail.':'The tester account and beta application will remain.';if(!(await confirmAction(`Permanently delete this ${label}? All portal replies and private admin notes will also be deleted. ${deleteNote} This cannot be undone.`,'danger')))return;deleteFeedbackBtn.disabled=true;const original=deleteFeedbackBtn.textContent;deleteFeedbackBtn.textContent='Deleting…';try{await deleteFeedbackConversation(f);closeDrawer();showToast('Conversation deleted.');}catch(err){showToast(friendlyFirebaseError(err),'error');deleteFeedbackBtn.disabled=false;deleteFeedbackBtn.textContent=original;}return;}
   const supportPreset=e.target.closest('[data-support-reply-preset]');if(supportPreset){setSupportReplyPreset(supportPreset.dataset.supportReplyPreset);return;}
   const productionUserButton=e.target.closest('[data-open-production-user]');if(productionUserButton){const uid=String(productionUserButton.dataset.openProductionUser||'').trim();if(!uid)return;const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.openUser!=='function'){showToast('Connect the Production Admin service first.','error');return;}try{await bridge.openUser(uid);}catch(err){showToast(err.message||'Production user could not be opened.','error');}return;}
-  const convoReply=e.target.closest('[data-send-conversation-reply]');if(convoReply){const f=await ensureFeedbackLoaded(convoReply.dataset.sendConversationReply);if(!f)return;if(adminConversationIsClosed(f)){showToast('Reopen this conversation before replying.','error');openFeedbackRecord(f);return;}const input=document.getElementById('drawerConversationReply');const body=String(input?.value||'').trim();if(!body){showToast('Write a reply before sending.','error');return;}convoReply.disabled=true;const original=convoReply.textContent;convoReply.textContent='Sending…';try{const ref=await addDoc(collection(db,'betaFeedback',f.id,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',body,createdAt:serverTimestamp()});const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Admin',updatedAt:serverTimestamp()};if(isSupportConversation(f))update.status='Waiting for Tester';else if(canonicalFeedbackStatus(f.status)==='New')update.status='Reviewing';await updateDoc(doc(db,'betaFeedback',f.id),update);f.lastMessageAt=new Date();f.lastMessageBy='Admin';f.updatedAt=new Date();if(update.status)f.status=update.status;let emailFailed=false;try{await callWorkerAdminAction('conversation-reply-added',{feedbackId:f.id,messageId:ref.id});}catch(emailErr){emailFailed=true;console.warn('Conversation reply email failed:',emailErr);}if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}renderFeedback();syncOpenAdminFeedbackState(f);showToast(emailFailed?`Reply saved, but the ${isEmailSupportConversation(f)?'customer':'tester'} email could not be sent.`:`Reply sent to ${isEmailSupportConversation(f)?'customer':'tester'}.`,emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{convoReply.disabled=false;convoReply.textContent=original;}return;}
+  const convoReply=e.target.closest('[data-send-conversation-reply]');if(convoReply){const f=await ensureFeedbackLoaded(convoReply.dataset.sendConversationReply);if(!f)return;if(adminConversationIsClosed(f)){showToast('Reopen this conversation before replying.','error');openFeedbackRecord(f);return;}const input=document.getElementById('drawerConversationReply');const rawBody=String(input?.value||'').trim();if(!rawBody){showToast('Write a reply before sending.','error');return;}convoReply.disabled=true;const original=convoReply.textContent;convoReply.textContent='Sending…';try{const ref=await addDoc(collection(db,'betaFeedback',f.id,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Admin',authorName:'RebataTrack',body:helpDeskReplyWithSignature(rawBody),createdAt:serverTimestamp()});const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Admin',updatedAt:serverTimestamp()};if(isSupportConversation(f))update.status='Waiting for Tester';else if(canonicalFeedbackStatus(f.status)==='New')update.status='Reviewing';await updateDoc(doc(db,'betaFeedback',f.id),update);f.lastMessageAt=new Date();f.lastMessageBy='Admin';f.updatedAt=new Date();if(update.status)f.status=update.status;let emailFailed=false;try{await callWorkerAdminAction('conversation-reply-added',{feedbackId:f.id,messageId:ref.id});}catch(emailErr){emailFailed=true;console.warn('Conversation reply email failed:',emailErr);}if(input){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}renderFeedback();syncOpenAdminFeedbackState(f);showToast(emailFailed?`Reply saved, but the ${isEmailSupportConversation(f)?'customer':'tester'} email could not be sent.`:`Reply sent to ${isEmailSupportConversation(f)?'customer':'tester'}.`,emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{convoReply.disabled=false;convoReply.textContent=original;}return;}
   const fbSave=e.target.closest('[data-save-feedback]');if(fbSave){
     const f=await ensureFeedbackLoaded(fbSave.dataset.saveFeedback);if(!f)return;const status=String(document.getElementById('drawerFeedbackStatus').value||'').trim();const notesBox=document.getElementById('drawerFeedbackNotes');const notesEditable=!!notesBox&&!notesBox.disabled;const notes=notesBox?notesBox.value:'';const support=isSupportConversation(f);const oldStatus=canonicalFeedbackStatus(f.status);const oldPublic=testerFacingFeedbackStatus(f);
     try{
@@ -2703,7 +2796,7 @@ document.addEventListener('click',async e=>{
     const a=state.taskAssignments.find(x=>x.id===keepAfterMissedBtn.dataset.reviewTaskKeep);if(!a)return;
     if(!(await confirmAction(`Keep ${a.name||a.email||'this tester'} active despite missing this task deadline? Their Beta access will stay unchanged and this missed task will be marked reviewed.`,'')))return;
     keepAfterMissedBtn.disabled=true;
-    try{await keepTesterActiveAfterMissedTask(a);showToast('Missed task reviewed. Tester kept active.');const task=findTask(a.taskId);if(task&&document.getElementById('adminDrawer')?.getAttribute('aria-hidden')==='false')openTaskRecord(task);}
+    try{await keepTesterActiveAfterMissedTask(a);showToast('Missed task reviewed. Tester kept active.');renderTesters();const task=findTask(a.taskId);if(task&&document.getElementById('adminDrawer')?.getAttribute('aria-hidden')==='false')openTaskRecord(task);}
     catch(err){showToast(friendlyFirebaseError(err),'error');}
     finally{keepAfterMissedBtn.disabled=false;}
     return;
@@ -2902,6 +2995,11 @@ document.querySelectorAll('[data-access-filter]').forEach(btn=>btn.addEventListe
 document.querySelectorAll('[data-send-reminder-group]').forEach(btn=>btn.addEventListener('click',async()=>{const key=btn.dataset.sendReminderGroup||'';const original=btn.innerHTML;btn.disabled=true;try{const result=await sendTesterReminderGroup(key);if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Friendly reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;renderTesterNextStepSummary();}}));
   document.getElementById('testerNextStepShowAll')?.addEventListener('click',clearTesterFilters);
   document.getElementById('testerSendPendingReminders')?.addEventListener('click',async()=>{const btn=document.getElementById('testerSendPendingReminders');const original=btn.textContent;btn.disabled=true;btn.textContent='Sending Reminders…';try{const result=await sendAllPendingTesterReminders();if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Personalized reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.textContent=original;renderTesterNextStepSummary();}});
+document.getElementById('quickReplySave')?.addEventListener('click',async()=>{const btn=document.getElementById('quickReplySave');btn.disabled=true;try{await saveQuickReplyFromEditor();showToast('Quick Reply saved.');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;}});
+document.getElementById('adminBetaDisableClose')?.addEventListener('click',closeBetaDisableModal);
+document.getElementById('adminBetaDisableCancel')?.addEventListener('click',closeBetaDisableModal);
+document.getElementById('adminBetaDisableBackdrop')?.addEventListener('click',e=>{if(e.target===e.currentTarget)closeBetaDisableModal();});
+document.getElementById('adminBetaDisableSubmit')?.addEventListener('click',async()=>{const btn=document.getElementById('adminBetaDisableSubmit');btn.disabled=true;btn.textContent='Disabling…';try{await submitBetaDisable();showToast('Beta access disabled and tester emailed.');}catch(err){const msg=document.getElementById('adminBetaDisableMessage');if(msg)msg.textContent=friendlyFirebaseError(err);showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.textContent='Disable & Email Tester';}});
 ['feedbackSearch','feedbackStatusFilter','feedbackTypeFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderFeedback));
 
 
