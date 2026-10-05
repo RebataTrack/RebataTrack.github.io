@@ -75,6 +75,10 @@ let reviewAppActivityByProductionUid = new Map();
 let reviewAppActivityLoadedAt = 0;
 let reviewAppActivityInFlight = null;
 const REVIEW_APP_ACTIVITY_CACHE_TTL_MS = 5 * 60 * 1000;
+// Build 210: all tester-level setup reminders and Review Testers warnings share one
+// recent-contact guard so Admin cannot accidentally send overlapping emails from
+// different parts of the Testers workspace. Firestore timestamps remain authoritative.
+const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // Build 183: the Beta/Production status check reads every Production user, so it is cached for a short time, never run twice at once,
 // and the reason a trial was not granted is remembered so the tester card can show it.
 let betaGrantReasons = new Map();
@@ -1087,16 +1091,35 @@ function testerNextStep(t){
   return {key:'complete',label:'Setup complete',detail:'Portal setup, testing access, and RebataTrack account are in place',reminderType:''};
 }
 function currentSetupReminderCount(t){const n=testerNextStep(t);return n.reminderType&&String(t.lastSetupReminderType||'')===String(n.reminderType)?Number(t.setupReminderCount||0):0;}
+function testerContactHistory(t){
+  const rows=[
+    {at:timestampToDate(t?.lastSetupReminderAt),source:'Setup reminder'},
+    {at:timestampToDate(t?.betaAccessWarningSentAt),source:'Review Tester warning'},
+    {at:timestampToDate(t?.inactivityWarningSentAt),source:'Activity reminder'}
+  ].filter(x=>x.at instanceof Date&&!Number.isNaN(x.at.getTime())).sort((a,b)=>b.at.getTime()-a.at.getTime());
+  const latest=rows[0]||null;
+  return {latest,rows,recent:!!latest&&(Date.now()-latest.at.getTime()<TESTER_CONTACT_COOLDOWN_MS)};
+}
+function testerContactText(t){
+  const h=testerContactHistory(t);if(!h.latest)return '';
+  return `Last tester email ${relativeDate(h.latest.at)} · ${h.latest.source}`;
+}
+function testerContactButtonState(t){
+  const h=testerContactHistory(t);
+  if(!h.recent)return {disabled:false,label:'',title:''};
+  return {disabled:true,label:'Emailed Recently',title:`A ${h.latest.source.toLowerCase()} was sent ${relativeDate(h.latest.at)}. Another tester-level reminder is available after 24 hours.`};
+}
 function testerNextStepHtml(t){
   const n=testerNextStep(t);
-  const last=timestampToDate(t.lastSetupReminderAt);
-  const count=currentSetupReminderCount(t);const lastText=count&&last?`Last reminder ${relativeDate(last)} · ${count} sent`:(count?`${count} reminder${count===1?'':'s'} sent`:'');
-  const button=n.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">Send Reminder</button>`:'';
-  return `<div class="admin-next-step-cell next-step-${esc(n.key)}"><strong>${esc(n.label)}</strong><small>${esc(n.detail)}</small>${lastText?`<small class="admin-next-step-last">${esc(lastText)}</small>`:''}${button}</div>`;
+  const count=currentSetupReminderCount(t);const contactText=testerContactText(t);const contactState=testerContactButtonState(t);
+  const countText=count?`${count} setup reminder${count===1?'':'s'} sent`:'';
+  const button=n.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${contactState.disabled?'disabled':''} ${contactState.title?`title="${esc(contactState.title)}"`:''}>${esc(contactState.disabled?contactState.label:'Send Reminder')}</button>`:'';
+  return `<div class="admin-next-step-cell next-step-${esc(n.key)}"><strong>${esc(n.label)}</strong><small>${esc(n.detail)}</small>${contactText?`<small class="admin-next-step-last">${esc(contactText)}</small>`:''}${countText?`<small class="admin-next-step-last">${esc(countText)}</small>`:''}${button}</div>`;
 }
 function testerReminderCandidates(){
-  return state.testers.filter(t=>!!testerNextStep(t).reminderType);
+  return state.testers.filter(t=>!!testerNextStep(t).reminderType&&!testerContactHistory(t).recent);
 }
+
 function renderTesterNextStepSummary(){
   const counts={portalSignIn:0,testingSetup:0,appAccount:0,adminSend:0,complete:0};
   state.testers.forEach(t=>{const n=testerNextStep(t);if(Object.prototype.hasOwnProperty.call(counts,n.key))counts[n.key]++;});
@@ -1104,7 +1127,7 @@ function renderTesterNextStepSummary(){
   set('testerNeedPortalCount',counts.portalSignIn);set('testerNeedSetupCount',counts.testingSetup);set('testerNeedAppAccountCount',counts.appAccount);set('testerAdminSendCount',counts.adminSend);set('testerSetupCompleteCount',counts.complete);
   const nav=document.getElementById('navTesterActionCount');if(nav){nav.textContent=String(counts.adminSend);nav.hidden=counts.adminSend<1;}
   if(state.metrics)state.metrics.readyForYou=counts.adminSend;
-  const bulk=document.getElementById('testerSendPendingReminders');if(bulk)bulk.disabled=(counts.portalSignIn+counts.testingSetup+counts.appAccount)===0;
+  const bulk=document.getElementById('testerSendPendingReminders');if(bulk)bulk.disabled=testerReminderCandidates().length===0;
 }
 function applyTesterNextStepFilter(key=''){
   const el=document.getElementById('testerNextStepFilter');if(el)el.value=key;renderTesters();
@@ -1116,6 +1139,8 @@ function clearTesterFilters(){
 async function sendTesterNextStepReminder(t){
   const n=testerNextStep(t);
   if(!n.reminderType)throw new Error('This tester does not currently have a tester-owned setup step to remind them about.');
+  const contact=testerContactHistory(t);
+  if(contact.recent)throw new Error(`A ${contact.latest.source.toLowerCase()} was already sent ${relativeDate(contact.latest.at)}. Wait 24 hours before sending another tester-level reminder.`);
   const result=await callWorkerAdminAction('tester-next-step-reminder',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',reminderType:n.reminderType});
   const sentAt=new Date();
   t.lastSetupReminderAt=sentAt;t.lastSetupReminderType=n.reminderType;t.setupReminderCount=Number(result.reminderCount||((t.setupReminderCount||0)+1));t.updatedAt=sentAt;
@@ -1135,7 +1160,7 @@ async function sendAllPendingTesterReminders(){
 }
 async function sendTesterReminderGroup(stepKey){
   const labels={portalSignIn:'Beta Portal sign-in',testingSetup:'Testing Setup',appAccount:'RebataTrack app login'};
-  const recipients=state.testers.filter(t=>testerNextStep(t).key===stepKey&&!!testerNextStep(t).reminderType);
+  const recipients=state.testers.filter(t=>testerNextStep(t).key===stepKey&&!!testerNextStep(t).reminderType&&!testerContactHistory(t).recent);
   if(!recipients.length)throw new Error(`There are no testers currently waiting on ${labels[stepKey]||'that step'}.`);
   if(!(await confirmAction(`Send a friendly ${labels[stepKey]||'next-step'} reminder to ${recipients.length} tester${recipients.length===1?'':'s'}?`, '')))return {cancelled:true,sent:0,failed:0};
   let sent=0,failed=0;const errors=[];
@@ -1235,18 +1260,17 @@ function applyTesterReadinessQuickFilter(readiness='',platform=''){
 function testerActionHtml(t){
   const next=testerNextStep(t);
   const readiness=testerInviteReadiness(t);
-  const last=timestampToDate(t.lastSetupReminderAt);
-  const lastText=last?`Last reminder ${relativeDate(last)}`:'';
+  const contactText=testerContactText(t);const contactState=testerContactButtonState(t);
   if(next.key==='adminSend'&&readiness.key==='ready'){
     const actionLabel=t.platform==='Android'?'Send Android Link':t.platform==='iOS'?'Send TestFlight':'Send Access';
     return `<div class="admin-tester-action-cell action-owner-admin"><span class="admin-owner-label">Your action</span><strong>${esc(next.label)}</strong><small>${esc(next.detail)}</small><button class="admin-readiness-action" type="button" data-send-ready-access="${esc(t.uid)}">${esc(actionLabel)}</button></div>`;
   }
-  const reminderCount=currentSetupReminderCount(t);const reminderLabel=reminderCount>=2?'Send Final Reminder':reminderCount===1?'Send Follow-up':'Send Reminder';const button=next.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button">${reminderLabel}</button>`:'';
+  const reminderCount=currentSetupReminderCount(t);const reminderLabel=contactState.disabled?contactState.label:(reminderCount>=2?'Send Final Reminder':reminderCount===1?'Send Follow-up':'Send Reminder');const button=next.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${contactState.disabled?'disabled':''} ${contactState.title?`title="${esc(contactState.title)}"`:''}>${esc(reminderLabel)}</button>`:'';
   const owner=next.reminderType?'Tester action':next.key==='complete'?'Complete':'Status';
   const labelHtml=next.key==='complete'
     ? `<span class="admin-progress-state complete admin-action-chip">${esc(next.label)}</span>`
     : `<strong>${esc(next.label)}</strong>`;
-  return `<div class="admin-tester-action-cell next-step-${esc(next.key)}"><span class="admin-owner-label">${esc(owner)}</span>${labelHtml}<small>${esc(next.detail)}</small>${lastText?`<small class="admin-next-step-last">${esc(lastText)}</small>`:''}${button}</div>`;
+  return `<div class="admin-tester-action-cell next-step-${esc(next.key)}"><span class="admin-owner-label">${esc(owner)}</span>${labelHtml}<small>${esc(next.detail)}</small>${contactText?`<small class="admin-next-step-last">${esc(contactText)}</small>`:''}${button}</div>`;
 }
 function testerProgressHtml(t){
   const stage=normalizeTimelineStage(t.timelineStage);
@@ -1356,7 +1380,10 @@ function betaWarningDefaultMessage(t,reason){
 }
 let betaWarningTargetUid='';
 function openBetaWarningModal(t,signals){
-  if(!t)return;betaWarningTargetUid=t.uid||'';
+  if(!t)return;
+  const contact=testerContactHistory(t);
+  if(contact.recent){showToast(`A ${contact.latest.source.toLowerCase()} was already sent ${relativeDate(contact.latest.at)}. Wait 24 hours before sending another tester-level email.`,'error');return;}
+  betaWarningTargetUid=t.uid||'';
   const reason=betaWarningDefaultReason(t,signals);
   const count=Number(t.betaAccessWarningCount||0);
   const level=document.getElementById('adminBetaWarningLevel');
@@ -1370,6 +1397,8 @@ function openBetaWarningModal(t,signals){
 function closeBetaWarningModal(){const backdrop=document.getElementById('adminBetaWarningBackdrop');if(backdrop)backdrop.hidden=true;betaWarningTargetUid='';}
 async function submitBetaWarning(){
   const t=findTester(betaWarningTargetUid);if(!t)throw new Error('Tester record is unavailable.');
+  const contact=testerContactHistory(t);
+  if(contact.recent)throw new Error(`A ${contact.latest.source.toLowerCase()} was already sent ${relativeDate(contact.latest.at)}. Wait 24 hours before sending another tester-level email.`);
   const app=applicationForTester(t);
   const level=String(document.getElementById('adminBetaWarningLevel')?.value||'Final Reminder').trim();
   const reason=String(document.getElementById('adminBetaWarningReason')?.value||'').trim();
@@ -1388,12 +1417,12 @@ function renderTesterReviewQueue(){
     const app=applicationForTester(t);const top=signals[0];const activity=testerActivityInfo(t);
     const signalHtml=signals.map(s=>`<div class="admin-review-reason review-${esc(s.key)}"><strong>${esc(s.label)}</strong><span>${esc(s.detail)}</span>${s.assignments?.length?s.assignments.map(a=>`<button class="admin-review-keep" data-review-task-keep="${esc(a.id)}" type="button">Keep Active for ${esc(a.taskTitle||'missed task')}</button>`).join(''):''}</div>`).join('');
     const chips=signals.slice(0,3).map(s=>`<span class="admin-review-chip">${esc(s.label)}</span>`).join('')+(signals.length>3?`<span class="admin-review-chip">+${signals.length-3}</span>`:'');
-    const warningCount=Number(t.betaAccessWarningCount||0);const lastWarning=t.betaAccessWarningSentAt?relativeDate(t.betaAccessWarningSentAt):'Never';const lastType=t.betaAccessWarningLevel||'—';
+    const warningCount=Number(t.betaAccessWarningCount||0);const lastWarning=t.betaAccessWarningSentAt?relativeDate(t.betaAccessWarningSentAt):'Never';const lastType=t.betaAccessWarningLevel||'—';const contact=testerContactHistory(t);const contactText=testerContactText(t);const warningButtonLabel=contact.recent?'Emailed Recently':'Send Warning';
     const appActivity=testerReviewAppActivity(t);
     const portalLogin=t.lastLogin?{label:relativeDate(t.lastLogin),exact:formatDate(t.lastLogin),className:'active'}:{label:'Never signed in',exact:'No Beta Portal login recorded',className:'never'};
     const setup=testerSetupReviewInfo(t);
     const disable=app?`<button class="admin-review-disable" data-disable-beta="${esc(app.id)}" data-disable-beta-reason="${esc(top.reason||'Beta Program requirements not met')}" type="button">Disable Access</button>`:'';
-    return `<article class="admin-review-tester-card" data-review-card="${esc(t.uid)}"><div class="admin-review-summary"><div class="admin-review-person-line"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div></div><div class="admin-review-summary-mid">${chips}<div class="admin-review-activity-strip"><span class="admin-review-activity-item ${esc(appActivity.className)}" title="${esc(appActivity.exact)}"><b>App</b><em>${esc(appActivity.label)}</em></span><span class="admin-review-activity-item ${esc(portalLogin.className)}" title="${esc(portalLogin.exact)}"><b>Portal login</b><em>${esc(portalLogin.label)}</em></span><span class="admin-review-activity-item ${esc(setup.className)}"><b>Setup</b><em>${esc(setup.label)}</em></span></div><div class="admin-review-summary-meta"><span>${warningCount} warning${warningCount===1?'':'s'}</span></div></div><div class="admin-review-summary-actions"><button class="admin-secondary-button admin-review-view" data-open-tester="${esc(t.uid)}" type="button">View</button><button class="admin-review-warning" data-review-warning="${esc(t.uid)}" type="button">Send Warning</button>${disable}<button class="admin-review-icon-button" data-review-toggle="${esc(t.uid)}" type="button" aria-label="Expand tester review"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button></div></div><div class="admin-review-details"><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-warning-history"><span><strong>App activity:</strong> ${esc(appActivity.exact)}</span><span><strong>Portal login:</strong> ${esc(portalLogin.exact)}</span><span><strong>Setup:</strong> ${esc(setup.label)}</span><span><strong>Warnings sent:</strong> ${warningCount}</span><span><strong>Last warning:</strong> ${esc(lastWarning)}</span><span><strong>Last warning type:</strong> ${esc(lastType)}</span></div></div></article>`;
+    return `<article class="admin-review-tester-card" data-review-card="${esc(t.uid)}"><div class="admin-review-summary"><div class="admin-review-person-line"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div></div><div class="admin-review-summary-mid">${chips}<div class="admin-review-activity-strip"><span class="admin-review-activity-item ${esc(appActivity.className)}" title="${esc(appActivity.exact)}"><b>App</b><em>${esc(appActivity.label)}</em></span><span class="admin-review-activity-item ${esc(portalLogin.className)}" title="${esc(portalLogin.exact)}"><b>Portal login</b><em>${esc(portalLogin.label)}</em></span><span class="admin-review-activity-item ${esc(setup.className)}"><b>Setup</b><em>${esc(setup.label)}</em></span></div><div class="admin-review-summary-meta"><span>${warningCount} warning${warningCount===1?'':'s'}</span></div></div><div class="admin-review-summary-actions"><button class="admin-secondary-button admin-review-view" data-open-tester="${esc(t.uid)}" type="button">View</button><button class="admin-review-warning" data-review-warning="${esc(t.uid)}" type="button" ${contact.recent?'disabled':''} ${contact.recent?`title="${esc(`A ${contact.latest.source.toLowerCase()} was sent ${relativeDate(contact.latest.at)}. Another tester-level email is available after 24 hours.`)}"`:''}>${esc(warningButtonLabel)}</button>${disable}<button class="admin-review-icon-button" data-review-toggle="${esc(t.uid)}" type="button" aria-label="Expand tester review"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button></div></div><div class="admin-review-details"><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-warning-history"><span><strong>App activity:</strong> ${esc(appActivity.exact)}</span><span><strong>Portal login:</strong> ${esc(portalLogin.exact)}</span><span><strong>Setup:</strong> ${esc(setup.label)}</span><span><strong>Last tester email:</strong> ${esc(contactText||'Never')}</span><span><strong>Warnings sent:</strong> ${warningCount}</span><span><strong>Last warning:</strong> ${esc(lastWarning)}</span><span><strong>Last warning type:</strong> ${esc(lastType)}</span></div></div></article>`;
   }).join(''):'<div class="admin-empty-inline">No testers currently need Admin review.</div>';
   const badge=document.getElementById('navTesterActionCount');if(badge){badge.textContent=String(rows.length);badge.hidden=rows.length===0;}
   const allExpanded=rows.length>0&&[...list.querySelectorAll('.admin-review-tester-card')].every(x=>x.classList.contains('is-expanded'));const toggle=document.getElementById('testerReviewToggleAll');if(toggle)toggle.textContent=allExpanded?'Collapse All':'Expand All';
