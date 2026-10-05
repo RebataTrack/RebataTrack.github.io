@@ -2657,7 +2657,7 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-feedback-resolved-group[open]>summary{border-bottom:1px solid #e4ebf5}
 .admin-feedback-resolved-list{display:grid;gap:10px;padding:12px}
 
-/* Website Build 205: saved Help Desk replies and reasoned Beta disable flow */
+/* Website Build 206: saved Help Desk replies and reasoned Beta disable flow */
 .admin-quick-reply-manager{margin:0 0 18px}.admin-quick-reply-editor{display:grid;grid-template-columns:minmax(180px,.7fr) minmax(280px,1.5fr) auto;gap:12px;align-items:end}.admin-quick-reply-editor .beta-field{margin:0}.admin-quick-reply-editor textarea{min-height:82px}.admin-saved-reply-chip{display:inline-flex;align-items:center;border:1px solid rgba(20,92,242,.18);border-radius:999px;background:#f7faff;overflow:hidden}.admin-saved-reply-chip .admin-support-quick-reply{border:0;border-radius:0;background:transparent}.admin-saved-reply-delete{border:0;border-left:1px solid rgba(20,92,242,.14);background:transparent;color:#8b2d2d;font-weight:900;font-size:18px;padding:6px 10px;cursor:pointer}.admin-saved-reply-delete:hover{background:#fff0f0}.admin-email-change-card select,.admin-email-change-card textarea{width:100%;box-sizing:border-box}@media(max-width:900px){.admin-quick-reply-editor{grid-template-columns:1fr}}
 
 
