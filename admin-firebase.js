@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 214
+// RebataTrack Admin Portal — Website Build 215
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -83,7 +83,7 @@ const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-const REBATATRACK_WEBSITE_BUILD = 214;
+const REBATATRACK_WEBSITE_BUILD = 215;
 let feedbackAutoCloseTimer = null;
 function enforceWebsiteBuildStamp(){
   document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
@@ -1346,7 +1346,8 @@ function testerActionHtml(t){
   const labelHtml=next.key==='complete'
     ? `<span class="admin-progress-state complete admin-action-chip">${esc(next.label)}</span>`
     : `<strong>${esc(next.label)}</strong>`;
-  return `<div class="admin-tester-action-cell next-step-${esc(next.key)}"><span class="admin-owner-label">${esc(owner)}</span>${labelHtml}<small>${esc(next.detail)}</small>${contactText?`<small class="admin-next-step-last">${esc(contactText)}</small>`:''}${button}</div>`;
+  const stepReminderText=testerCurrentStepReminderText(t);
+  return `<div class="admin-tester-action-cell next-step-${esc(next.key)}"><span class="admin-owner-label">${esc(owner)}</span>${labelHtml}<small>${esc(next.detail)}</small>${stepReminderText?`<small class="admin-next-step-last">${esc(stepReminderText)}</small>`:''}${contactText?`<small class="admin-next-step-last">${esc(contactText)}</small>`:''}${button}</div>`;
 }
 function testerProgressHtml(t){
   const stage=normalizeTimelineStage(t.timelineStage);
@@ -1366,6 +1367,29 @@ function testerProgressHtml(t){
 function applicationForTester(t){
   const email=String(t?.email||'').trim().toLowerCase();
   return state.applications.find(a=>a.testerUid===t?.uid||String(a.email||'').trim().toLowerCase()===email)||null;
+}
+function testerAppliedAt(t){
+  const app=applicationForTester(t);
+  return timestampToDate(app?.submittedAt||t?.createdAt||t?.timelineUpdatedAt)||null;
+}
+function testerAppliedSummary(t){
+  const appliedAt=testerAppliedAt(t);
+  if(!appliedAt)return {label:'Applied date unavailable',exact:'Application date unavailable',className:''};
+  const ageDays=Math.floor(Math.max(0,Date.now()-appliedAt.getTime())/DAY_MS);
+  const waitingOnTester=!!testerNextStep(t).reminderType;
+  return {
+    label:`Applied ${relativeDate(appliedAt)}`,
+    exact:`Applied ${formatDate(appliedAt)}`,
+    className:waitingOnTester&&ageDays>=3?'admin-applied-age-stale':''
+  };
+}
+function testerCurrentStepReminderText(t){
+  const next=testerNextStep(t);
+  if(!next.reminderType)return '';
+  const reminderAt=timestampToDate(t?.lastSetupReminderAt);
+  const sameStep=String(t?.lastSetupReminderType||'')===String(next.reminderType);
+  if(reminderAt&&sameStep)return `Current-step reminder ${relativeDate(reminderAt)}`;
+  return 'No reminder sent for this step yet';
 }
 function reviewAgeDays(value){const d=timestampToDate(value);return d?Math.floor(Math.max(0,Date.now()-d.getTime())/DAY_MS):null;}
 function testerReviewSignals(t){
@@ -1516,9 +1540,10 @@ function renderTesters(){
     const loginActivity=t.lastLogin?relativeDate(t.lastLogin):'Never';
     const deviceLine=device||'Device not provided';
     const buildLine=build||'Build not provided';
+    const applied=testerAppliedSummary(t);
     return `<tr>
       <td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td>
-      <td><div class="admin-tester-identity-cell"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small></div></div><div class="admin-tester-meta-line"><span class="admin-platform-pill">${esc(t.platform)}</span><span>${esc(buildLine)}</span><span>${esc(deviceLine)}</span>${t.screenSize?`<span>${esc(t.screenSize)}</span>`:''}</div></div></td>
+      <td><div class="admin-tester-identity-cell"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small><small class="admin-applied-age ${esc(applied.className||'')}" title="${esc(applied.exact)}">${esc(applied.label)}</small></div></div><div class="admin-tester-meta-line"><span class="admin-platform-pill">${esc(t.platform)}</span><span>${esc(buildLine)}</span><span>${esc(deviceLine)}</span>${t.screenSize?`<span>${esc(t.screenSize)}</span>`:''}</div></div></td>
       <td><div class="admin-tester-status-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small>${Number(t.inactivityWarningCount||0)?`<small class="admin-next-step-last">Activity reminders: ${Number(t.inactivityWarningCount||0)}${Number(t.inactivityWarningCount||0)>=3?' · Final reminder sent':''}</small>`:''}<span class="admin-last-seen">Portal ${esc(portalActivity)} · Login ${esc(loginActivity)}</span></div></td>
       <td>${testerActionHtml(t)}</td>
       <td>${testerProgressHtml(t)}</td>
@@ -3236,4 +3261,4 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
 
-// Website Build 214 cache/deployment stamp.
+// Website Build 215 cache/deployment stamp.

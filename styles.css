@@ -2523,6 +2523,12 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-more-filters>div{position:absolute;right:0;top:calc(100% + 7px);z-index:12;min-width:220px;padding:9px;border:1px solid #dfe7f1;border-radius:14px;background:#fff;box-shadow:0 12px 32px rgba(20,49,83,.14);display:grid;gap:8px}.admin-more-filters .admin-filter{width:100%}
 
 .admin-testers-card{overflow:visible}.admin-testers-table{min-width:1080px}.admin-testers-table th{white-space:nowrap}.admin-testers-table td{vertical-align:top;padding-top:14px;padding-bottom:14px}
+
+/* Tester application-age visibility. Applications waiting on tester action for 3+ days
+   receive a subtle amber treatment so stale approvals stand out without overpowering the row. */
+.admin-applied-age{display:inline-flex;width:max-content;margin-top:3px;color:#8292a6;font-size:.61rem;line-height:1.3;font-weight:750}
+.admin-applied-age.admin-applied-age-stale{padding:3px 7px;border:1px solid rgba(180,120,20,.20);border-radius:999px;background:#fff8e8;color:#9a6300;font-weight:900}
+
 .admin-tester-identity-cell{display:grid;gap:9px;min-width:230px}.admin-tester-meta-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:#71849a;font-size:.62rem;line-height:1.3}.admin-tester-meta-line>span:not(.admin-platform-pill){padding:3px 6px;border-radius:7px;background:#f4f7fb;border:1px solid #e7edf4}
 .admin-tester-status-cell{display:grid;gap:5px;min-width:150px}.admin-tester-status-cell>small{max-width:180px;color:#76879b;font-size:.64rem;line-height:1.35}.admin-last-seen{color:#8292a4;font-size:.61rem;line-height:1.35}
 .admin-tester-action-cell{display:grid;gap:5px;min-width:185px}.admin-owner-label{font-size:.58rem;font-weight:950;text-transform:uppercase;letter-spacing:.05em;color:#8998aa}.admin-tester-action-cell>strong{font-size:.72rem;color:#253c57}.admin-tester-action-cell>small{font-size:.63rem;line-height:1.35;color:#75879b}.admin-tester-action-cell.next-step-portalSignIn>strong,.admin-tester-action-cell.next-step-testingSetup>strong,.admin-tester-action-cell.next-step-appAccount>strong{color:#b02c37}.admin-tester-action-cell.next-step-complete>strong{color:#2f7e3b}.admin-tester-action-cell.action-owner-admin>strong{color:#805b00}
@@ -2712,4 +2718,4 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 
 /* Website Build 212 cache/deployment stamp. */
 
-/* Website Build 214 cache/deployment stamp. */
+/* Website Build 215 cache/deployment stamp. */
