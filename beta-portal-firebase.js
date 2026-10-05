@@ -884,8 +884,7 @@ document.addEventListener('click',event=>{
   const req=event.target.closest('[data-open-required-task]');if(req){const found=requiredTasks.find(t=>t.id===req.dataset.openRequiredTask);if(found){requiredTasks=[found,...requiredTasks.filter(t=>t.id!==found.id)];renderRequiredTask();}return;}
   const retest=event.target.closest('[data-retest-feedback]');if(retest){openRetestFeedback(retest.dataset.retestFeedback);return;}
 });
-const retestClose=document.getElementById('portalRetestClose');if(retestClose)retestClose.addEventListener('click',closeRetestFeedback);
-const retestBackdrop=document.getElementById('portalRetestBackdrop');if(retestBackdrop)retestBackdrop.addEventListener('click',event=>{if(event.target===retestBackdrop)closeRetestFeedback();});
+// Required retests are intentionally non-dismissible. The modal closes only after a successful submit.
 const retestSubmit=document.getElementById('portalRetestSubmit');if(retestSubmit)retestSubmit.addEventListener('click',submitRetest);
 const conversationClose=document.getElementById('portalConversationClose');if(conversationClose)conversationClose.addEventListener('click',closeConversation);
 const conversationBackdrop=document.getElementById('portalConversationBackdrop');if(conversationBackdrop)conversationBackdrop.addEventListener('click',event=>{if(event.target===conversationBackdrop)closeConversation();});
