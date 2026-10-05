@@ -328,13 +328,31 @@ async function acknowledgeAnnouncement(id,button){
   }catch(error){if(button){button.disabled=false;button.textContent='Acknowledge';}setFeedbackMessage('We could not save that acknowledgement. '+friendlyFirebaseError(error),'error');}
 }
 function maybePromptPendingRetest(){
-  const pendingRetest=feedbackHistory.find(f=>String(f.status||'')==='Needs Retest'&&!f.retestedAt);
-  if(!pendingRetest)return;
-  const promptKey='rebatifyBetaRetestPrompted:'+pendingRetest.id;
-  if(!sessionStorage.getItem(promptKey)){
-    sessionStorage.setItem(promptKey,'1');
-    setTimeout(()=>openRetestFeedback(pendingRetest.id),350);
+  // Needs Retest is a persistent server-authoritative required action.
+  // Never suppress it with sessionStorage/localStorage: refreshes, tab closes,
+  // browser restarts, and navigation must not clear an unresolved retest.
+  const pendingRetests=feedbackHistory.filter(f=>String(f.status||'')==='Needs Retest'&&!f.retestedAt);
+  if(!pendingRetests.length)return;
+
+  const backdrop=document.getElementById('portalRetestBackdrop');
+  const modalOpen=!!backdrop&&!backdrop.hidden;
+
+  // Do not reset a tester's in-progress answer when the Firestore listener emits
+  // another snapshot while the required retest modal is already open.
+  if(modalOpen&&activeRetestFeedback){
+    const fresh=feedbackHistory.find(f=>f.id===activeRetestFeedback.id&&String(f.status||'')==='Needs Retest'&&!f.retestedAt);
+    if(fresh){activeRetestFeedback=fresh;return;}
   }
+
+  // Always rebuild the requirement from the latest Firestore snapshot. The first
+  // unresolved retest is shown now; after successful submission the listener will
+  // surface the next unresolved retest, if one exists.
+  const pendingRetest=pendingRetests[0];
+  setTimeout(()=>{
+    const stillPending=feedbackHistory.find(f=>f.id===pendingRetest.id&&String(f.status||'')==='Needs Retest'&&!f.retestedAt);
+    const currentBackdrop=document.getElementById('portalRetestBackdrop');
+    if(stillPending&&currentBackdrop?.hidden!==false)openRetestFeedback(stillPending.id);
+  },250);
 }
 function syncOpenConversationHeader(){
   if(!activeConversation)return;
