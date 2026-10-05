@@ -121,10 +121,21 @@ function testFlightPrepared(profile=currentProfile||{}){
 }
 
 function isSupportConversation(f){return String(f&&f.workflowType||'Feedback')==='Support'||String(f&&f.type||'')==='Account / Access Problem';}
-function conversationIsClosed(f){
-  if(!f)return false;
-  if(isSupportConversation(f))return ['Resolved','Closed'].includes(String(f.status||''));
-  return ['Closed','Declined'].includes(String(f.status||''));
+function canonicalConversationStatus(value){
+  const raw=String(value||'New');
+  if(raw==='Planned')return 'Confirmed';
+  if(raw==='Declined'||raw==='Resolved')return 'Closed';
+  if(raw==='Waiting for Tester')return 'Reviewing';
+  if(raw==='Waiting for RebataTrack'||raw==='Waiting on RebataTrack')return 'New';
+  return ['New','Reviewing','Confirmed','Fixed','Needs Retest','Closed'].includes(raw)?raw:'New';
+}
+function conversationIsClosed(f){return !!f&&canonicalConversationStatus(f.status)==='Closed';}
+function testerConversationResponsibility(f){
+  if(!f||conversationIsClosed(f))return '';
+  const lastBy=String(f.lastMessageBy||'').trim();
+  if(lastBy==='Admin')return 'Waiting for you';
+  if(lastBy==='Tester')return 'Waiting on RebataTrack';
+  return 'Waiting on RebataTrack';
 }
 function conversationActivityMs(f){const d=timestampToDate(f?.lastMessageAt||f?.updatedAt||f?.submittedAt);return d?d.getTime():0;}
 function conversationReadMap(){try{return JSON.parse(localStorage.getItem(PORTAL_CONVERSATION_READ_KEY)||'{}')||{};}catch(_){return {};}}
@@ -145,19 +156,12 @@ function renderSupportLauncher(){
   if(status)status.textContent=count?`You have ${count} unread conversation ${count===1?'update':'updates'}.`:'Start a new conversation or check updates from the RebataTrack team.';
 }
 function feedbackPublicStatus(f){
-  if(isSupportConversation(f)){
-    const status=String(f.status||'Waiting for RebataTrack');
-    if(status==='Resolved'||status==='Closed')return {label:'Resolved',className:'resolved'};
-    if(status==='Waiting for Tester')return {label:'Waiting for you',className:'testing'};
-    return {label:'Waiting for RebataTrack',className:'reviewing'};
-  }
-  const raw=String(f.status||'New');const status=raw==='Planned'?'Confirmed':raw==='Declined'?'Closed':raw;
+  const status=canonicalConversationStatus(f&&f.status);
   if(status==='Closed')return {label:'Resolved',className:'resolved'};
   if(status==='Needs Retest'&&f.retestedAt)return {label:'Retest submitted',className:'testing'};
   if(status==='Needs Retest')return {label:'Needs retest',className:'testing'};
-  if(status==='Fixed')return {label:'Fix in progress',className:'testing'};
-  if(status==='Reviewing'||status==='Confirmed')return {label:'Reviewing',className:'reviewing'};
-  return {label:'Received',className:'received'};
+  const waiting=testerConversationResponsibility(f);
+  return waiting==='Waiting for you'?{label:waiting,className:'testing'}:{label:waiting||'Waiting on RebataTrack',className:'reviewing'};
 }
 
 function formatPortalDate(value){const d=timestampToDate(value);return d?d.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}):'';}
@@ -250,7 +254,7 @@ function renderPortalTaskSummary(){
   const section=document.getElementById('portalTaskSummary');if(!section)return;
   const pending=allTaskAssignments.filter(t=>t.recordType!=='Announcement'&&t.status==='Pending').sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
   const retests=feedbackHistory.filter(f=>!isSupportConversation(f)&&String(f.status||'')==='Needs Retest'&&!f.retestedAt);
-  const supportActions=feedbackHistory.filter(f=>isSupportConversation(f)&&(String(f.status||'')==='Waiting for Tester'||conversationIsUnread(f))).sort((a,b)=>conversationActivityMs(b)-conversationActivityMs(a));
+  const supportActions=feedbackHistory.filter(f=>isSupportConversation(f)&&((!conversationIsClosed(f)&&String(f.lastMessageBy||'')==='Admin')||conversationIsUnread(f))).sort((a,b)=>conversationActivityMs(b)-conversationActivityMs(a));
   const broadcasts=allTaskAssignments.filter(t=>t.recordType==='Announcement'&&!t.announcementArchived&&t.status!=='Acknowledged');
   const total=pending.length+retests.length+supportActions.length+broadcasts.length;
   const mobileCount=document.getElementById('portalMobileActionCount');if(mobileCount){mobileCount.textContent=total;mobileCount.hidden=total===0;}
@@ -264,7 +268,7 @@ function renderPortalTaskSummary(){
   const retestRows=retests.slice(0,6).map(f=>`<button class="portal-required-summary-item portal-required-retest" data-retest-feedback="${escapeHtml(f.id)}" type="button"><strong>Retest: ${escapeHtml(f.subject||'Reported issue')}</strong><span>Retest required</span></button>`);
   const taskRows=pending.slice(0,6).map(t=>`<button class="portal-required-summary-item" data-open-required-task="${escapeHtml(t.id)}" type="button"><strong>${escapeHtml(t.taskTitle||'Required task')}</strong><span>${escapeHtml(formatTaskDue(t.dueAt))}</span></button>`);
   const broadcastRows=broadcasts.slice(0,6).map(a=>`<button class="portal-required-summary-item portal-required-broadcast" data-scroll-broadcast="${escapeHtml(a.id)}" type="button"><strong>Broadcast: ${escapeHtml(a.announcementTitle||'RebataTrack Beta Update')}</strong><span>Acknowledgement required</span></button>`);
-  const supportRows=supportActions.slice(0,6).map(f=>`<button class="portal-required-summary-item portal-required-support" data-open-conversation="${escapeHtml(f.id)}" type="button"><strong>${escapeHtml(f.subject||'Support conversation')}</strong><span>${String(f.status||'')==='Waiting for Tester'?'Reply needed':'New support update'}</span></button>`);
+  const supportRows=supportActions.slice(0,6).map(f=>`<button class="portal-required-summary-item portal-required-support" data-open-conversation="${escapeHtml(f.id)}" type="button"><strong>${escapeHtml(f.subject||'Support conversation')}</strong><span>${(!conversationIsClosed(f)&&String(f.lastMessageBy||'')==='Admin')?'Reply needed':'New support update'}</span></button>`);
   list.innerHTML=[...broadcastRows,...retestRows,...supportRows,...taskRows].slice(0,10).join('');
 }
 function renderRequiredTask(){
@@ -397,7 +401,7 @@ function renderFeedbackHistory(){
   const list=document.getElementById('portalFeedbackHistory');if(!list)return;
   if(!feedbackHistory.length){list.innerHTML='<div class="portal-feedback-history-empty">No conversations yet.</div>';return;}
   list.innerHTML=feedbackHistory.slice(0,40).map(f=>{
-    const publicStatus=feedbackPublicStatus(f);const support=isSupportConversation(f);const unread=conversationIsUnread(f);const needsRetest=!support&&String(f.status||'')==='Needs Retest'&&!f.retestedAt;const replyNeeded=support&&String(f.status||'')==='Waiting for Tester';
+    const publicStatus=feedbackPublicStatus(f);const support=isSupportConversation(f);const unread=conversationIsUnread(f);const needsRetest=canonicalConversationStatus(f.status)==='Needs Retest'&&!f.retestedAt;const replyNeeded=support&&!conversationIsClosed(f)&&String(f.lastMessageBy||'')==='Admin';
     const action=needsRetest?`<button class="portal-retest-button" data-retest-feedback="${escapeHtml(f.id)}" type="button">Retest This Issue</button>`:(replyNeeded?`<button class="portal-conversation-open portal-reply-needed-button" data-open-conversation="${escapeHtml(f.id)}" type="button">Reply Needed</button>`:'');
     const workflow=support?'Support':'Beta Feedback';
     return `<article class="portal-feedback-history-card${(needsRetest||replyNeeded)?' needs-action':''}${unread?' has-unread':''}"><div class="portal-feedback-history-top"><div><span>${escapeHtml(workflow)} · ${escapeHtml(f.type||'Conversation')}${unread?'<b class="portal-history-unread">New update</b>':''}</span><h3>${escapeHtml(f.subject||'Conversation')}</h3></div><span class="portal-feedback-public-status ${publicStatus.className}">${escapeHtml(publicStatus.label)}</span></div><p>${escapeHtml(f.details||'')}</p><div class="portal-feedback-history-meta"><span>${escapeHtml(formatPortalDate(f.lastMessageAt||f.updatedAt||f.submittedAt))}</span>${f.appVersion?`<span>${escapeHtml(f.appVersion)}</span>`:''}${f.pageFeature?`<span>${escapeHtml(f.pageFeature)}</span>`:''}${f.supportAccountEmail?`<span>${escapeHtml(f.supportAccountEmail)}</span>`:''}</div>${f.retestedAt?`<div class="portal-retest-result"><strong>${escapeHtml(f.retestResult||'Retest submitted')}</strong>${f.retestNotes?`<span>${escapeHtml(f.retestNotes)}</span>`:''}</div>`:''}<div class="portal-conversation-card-actions"><button class="portal-conversation-open" data-open-conversation="${escapeHtml(f.id)}" type="button">Open Conversation</button>${action}</div></article>`;
@@ -485,7 +489,6 @@ async function sendConversationReply(){
     const feedbackId=activeConversation.id;
     const ref=await addDoc(collection(db,'betaFeedback',feedbackId,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Tester',authorName:currentProfile?.name||'Tester',body,createdAt:serverTimestamp()});
     const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',updatedAt:serverTimestamp()};
-    if(isSupportConversation(activeConversation))update.status='Waiting for RebataTrack';
     await updateDoc(doc(db,'betaFeedback',feedbackId),update);
     input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));resizeConversationComposer();message.textContent='';message.className='portal-task-message';scrollConversationToLatest('smooth');
     workerPostAuthorized('conversation-reply-added',{feedbackId,messageId:ref.id}).catch(err=>console.warn('Conversation reply email failed:',err));
@@ -927,7 +930,7 @@ if (feedbackForm) {
       ownerUid:auth.currentUser.uid,name:currentProfile.name||'',email:currentProfile.email||auth.currentUser.email||'',platform:currentProfile.platform||'',
       workflowType:support?'Support':'Feedback',type,subject:String(data.get('subject')||'').trim(),details:String(data.get('details')||'').trim(),appVersion,deviceDetails,
       deviceModel:String(currentProfile.deviceModel||'').trim(),osVersion:String(currentProfile.osVersion||'').trim(),screenSize:String(currentProfile.screenSize||detectedScreenSize()||'').trim(),pageFeature:support?'':String(data.get('pageFeature')||'').trim(),
-      supportAccountEmail:support?String(data.get('supportAccountEmail')||'').trim():'',status:support?'Waiting for RebataTrack':'New',adminNotes:'',lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',submittedAt:serverTimestamp(),updatedAt:serverTimestamp()
+      supportAccountEmail:support?String(data.get('supportAccountEmail')||'').trim():'',status:'New',adminNotes:'',lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',submittedAt:serverTimestamp(),updatedAt:serverTimestamp()
     };
     try{
       const ref=await addDoc(collection(db,'betaFeedback'),payload);const local={id:ref.id,...payload,submittedAt:new Date(),updatedAt:new Date(),lastMessageAt:new Date()};feedbackHistory.unshift(local);renderFeedbackHistory();
