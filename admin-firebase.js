@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 217
+// RebataTrack Admin Portal — Website Build 219
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -67,10 +67,9 @@ let androidTestingInviteUrl = '';
 let betaProgramEndDate = '';
 let betaProductionMapping = new Map();
 let suppressBetaProductionAutoRefresh = false;
-// Review Testers app-activity cache. The Production bridge exposes one devices-list call,
-// which is substantially cheaper than opening a full Production user detail record for every tester.
-// Cache the newest Production-device lastSeenAt per UID so the review queue can distinguish
-// actual RebataTrack app use from Beta Portal activity.
+// Review Testers meaningful-app-activity cache. This must represent actual user data changes
+// in RebataTrack, never device registration, sign-in, foregrounding, or lastSeenAt heartbeats.
+// Production Admin exposes the latest profile state mutation per matched Production UID.
 let reviewAppActivityByProductionUid = new Map();
 let reviewAppActivityLoadedAt = 0;
 let reviewAppActivityInFlight = null;
@@ -83,7 +82,7 @@ const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-const REBATATRACK_WEBSITE_BUILD = 217;
+const REBATATRACK_WEBSITE_BUILD = 219;
 let feedbackAutoCloseTimer = null;
 function enforceWebsiteBuildStamp(){
   document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
@@ -581,6 +580,14 @@ function testerTaskRows(t){
   const email=String(t.email||'').trim().toLowerCase();
   return regularAssignments().filter(a=>a.testerUid===t.uid||String(a.email||'').trim().toLowerCase()===email);
 }
+function regularTaskById(taskId){return regularTasks().find(t=>String(t.id||'')===String(taskId||''))||null;}
+function taskCampaignIsActive(task){
+  if(!task||String(task.status||'Active')!=='Active')return false;
+  const due=timestampToDate(task.dueAt);
+  return !due||due.getTime()>Date.now();
+}
+function assignmentBelongsToActiveCampaign(a){return taskCampaignIsActive(regularTaskById(a?.taskId));}
+function activeTesterTaskRows(t){return testerTaskRows(t).filter(assignmentBelongsToActiveCampaign);}
 function mostRecentBy(rows,field){
   return rows.map(r=>({row:r,date:timestampToDate(r[field])})).filter(x=>x.date).sort((a,b)=>b.date-a.date)[0]?.row||null;
 }
@@ -601,7 +608,9 @@ function testerActivityInfo(t){
   return {label:'Inactive',className:'activity-inactive',days,hours,ageMs,anchor:anchorValue,reason:'14+ days without portal activity'};
 }
 function testerScore(t){
-  const tasks=testerTaskRows(t);
+  // Participation task totals are current-work totals only. Closed campaigns move unresolved
+  // testers to Review Testers and must not keep inflating the active Tasks/Participation counts.
+  const tasks=activeTesterTaskRows(t);
   const conversations=testerFeedbackRows(t);
   const feedback=conversations.filter(f=>!isSupportConversation(f));
   const lastFeedback=mostRecentBy(feedback,'submittedAt');
@@ -686,10 +695,7 @@ async function loadMetricsAggregated(){
     aggregateCount(apps,[['platform','==','iOS']]),
     aggregateCount(apps,[['platform','==','Android']]),
     Promise.all([aggregateCount(feedback,[['status','==','New']]),aggregateCount(feedback,[['status','==','Waiting for RebataTrack']])]).then(([a,b])=>a+b),
-    Promise.all([
-      aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']]),
-      aggregateCount('betaTaskAssignments',[['status','==','Review Required'],['recordType','==','Task']]).catch(()=>0)
-    ]).then(([a,b])=>Number(a||0)+Number(b||0)),
+    aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']]),
     Promise.all([
       aggregateCount('betaUsers',[['timelineStage','==','setupComplete'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
       aggregateCount('betaUsers',[['timelineStage','==','setupComplete'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0),
@@ -732,13 +738,10 @@ async function loadMetricsLegacy(){
     countQuery(query(apps,where('platform','==','iOS'))),
     countQuery(query(apps,where('platform','==','Android'))),
     Promise.all([countQuery(query(feedback,where('status','==','New'))),countQuery(query(feedback,where('status','==','Waiting for RebataTrack')))]).then(([a,b])=>a+b),
-    Promise.all([
-      countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),where('recordType','==','Task'))).catch(async()=>{
-        const fallback=await getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)),'metrics fallback: pending assignments');
-        return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
-      }),
-      countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Review Required'),where('recordType','==','Task'))).catch(()=>0)
-    ]).then(([a,b])=>Number(a||0)+Number(b||0))
+    countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),where('recordType','==','Task'))).catch(async()=>{
+      const fallback=await getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)),'metrics fallback: pending assignments');
+      return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
+    })
   ]);
   const fullySetUpCounts=await Promise.all([
     Promise.all([
@@ -1391,24 +1394,46 @@ function testerCurrentStepReminderText(t){
   return 'No reminder sent for this step yet';
 }
 function reviewAgeDays(value){const d=timestampToDate(value);return d?Math.floor(Math.max(0,Date.now()-d.getTime())/DAY_MS):null;}
+function testerMeaningfulEngagement(t){
+  const candidates=[];
+  const push=(value,source)=>{const d=timestampToDate(value);if(d)candidates.push({date:d,source});};
+  push(t?.lastPortalActivity,'Beta Portal activity');
+  push(t?.lastLogin,'Beta Portal sign-in');
+  const app=testerReviewAppActivity(t);if(app?.date)push(app.date,'RebataTrack app change');
+  for(const a of testerTaskRows(t)){
+    if(a.status==='Completed')push(a.completedAt,'Required task completed');
+  }
+  for(const f of testerFeedbackRows(t)){
+    push(f.submittedAt,'Feedback submitted');
+    push(f.retestedAt,'Retest submitted');
+    const by=String(f.lastMessageBy||'').trim().toLowerCase();
+    if(by&&by!=='admin'&&by!=='rebatatrack')push(f.lastMessageAt,'Tester response');
+  }
+  candidates.sort((a,b)=>b.date-a.date);
+  const latest=candidates[0]||null;
+  const ageMs=latest?Math.max(0,Date.now()-latest.date.getTime()):null;
+  return {latest,ageMs,days:ageMs==null?999:Math.floor(ageMs/DAY_MS)};
+}
 function testerReviewSignals(t){
   if(!t||t.accessStatus!=='Enabled'||!isEnabledStatus(t.status))return [];
   const signals=[];const tasks=testerTaskRows(t);const next=testerNextStep(t);const setupCount=currentSetupReminderCount(t);
+  const engagement=testerMeaningfulEngagement(t);
+  const appliedAt=testerAppliedAt(t)||timestampToDate(t.createdAt||t.timelineUpdatedAt);
+  const appliedDays=appliedAt?Math.floor(Math.max(0,Date.now()-appliedAt.getTime())/DAY_MS):null;
+  const inactive3=engagement.latest?engagement.days>=3:(appliedDays!=null&&appliedDays>=3);
+  if(!inactive3)return [];
+
   const reviewTasks=tasks.filter(a=>a.status==='Review Required');
-  if(reviewTasks.length)signals.push({key:'missed-task',label:'Required task missed',detail:`${reviewTasks.length} required task${reviewTasks.length===1?'':'s'} reached Review Required.`,reason:'Required tasks not completed',priority:100,assignments:reviewTasks});
+  if(reviewTasks.length)signals.push({key:'missed-task',label:'Required task missed + no activity',detail:`${reviewTasks.length} required task${reviewTasks.length===1?' was':'s were'} missed and there has been no meaningful tester activity for 3+ days.`,reason:'Required task missed with no activity',priority:100,assignments:reviewTasks});
   const overduePending=tasks.filter(a=>a.status==='Pending'&&timestampToDate(a.dueAt)&&timestampToDate(a.dueAt).getTime()<Date.now());
-  if(overduePending.length)signals.push({key:'task-overdue',label:'Required task deadline passed',detail:`${overduePending.length} required task${overduePending.length===1?' is':'s are'} past due and still incomplete.`,reason:'Required tasks not completed',priority:95});
-  const finalTaskReminders=tasks.filter(a=>a.status==='Pending'&&Number(a.reminderCount||0)>=3);
-  if(finalTaskReminders.length)signals.push({key:'task-reminders',label:'Multiple task reminders',detail:`${finalTaskReminders.length} pending task${finalTaskReminders.length===1?' has':'s have'} reached a final reminder without completion.`,reason:'No response after multiple reminders',priority:90});
-  if(next.reminderType&&setupCount>=3)signals.push({key:'setup-final',label:'Final setup reminder sent',detail:`${next.label} is still incomplete after ${setupCount} reminders.`,reason:'No response after multiple reminders',priority:88});
-  const progressAge=reviewAgeDays(t.timelineUpdatedAt||t.lastSetupReminderAt||t.createdAt);
-  if(next.reminderType&&setupCount<3&&progressAge!=null&&progressAge>=3)signals.push({key:'setup-stalled',label:'Setup stalled 3+ days',detail:`${next.label} has not progressed for about ${progressAge} day${progressAge===1?'':'s'}.`,reason:'Setup not completed',priority:75});
-  const activity=testerActivityInfo(t);
-  if(activity.anchor){
-    if(activity.days>=3)signals.push({key:'inactivity',label:'No activity for 3+ days',detail:`Last Beta Portal activity was about ${activity.days} day${activity.days===1?'':'s'} ago.`,reason:'Inactivity',priority:70});
+  if(overduePending.length)signals.push({key:'task-overdue',label:'Required task missed + no activity',detail:`${overduePending.length} required task${overduePending.length===1?' was':'s were'} not completed before the campaign deadline, with no meaningful tester activity for 3+ days.`,reason:'Required task missed with no activity',priority:95});
+  const finalTaskReminders=tasks.filter(a=>assignmentBelongsToActiveCampaign(a)&&a.status==='Pending'&&Number(a.reminderCount||0)>=3);
+  if(finalTaskReminders.length)signals.push({key:'task-reminders',label:'Multiple task reminders + no activity',detail:`${finalTaskReminders.length} active pending task${finalTaskReminders.length===1?' has':'s have'} reached a final reminder with no meaningful tester activity for 3+ days.`,reason:'No response after multiple reminders',priority:90});
+  if(next.reminderType&&setupCount>=3)signals.push({key:'setup-final',label:'Final setup reminder + no activity',detail:`${next.label} is still incomplete after ${setupCount} reminders and no meaningful tester activity for 3+ days.`,reason:'No response after multiple reminders',priority:88});
+  if(!engagement.latest){
+    signals.push({key:'never-active',label:'No activity for 3+ days',detail:`No meaningful Beta Portal, RebataTrack app, task, feedback, or retest activity after about ${appliedDays} day${appliedDays===1?'':'s'} in the program.`,reason:'Inactivity',priority:80});
   }else{
-    const neverAge=reviewAgeDays(t.createdAt||t.timelineUpdatedAt);
-    if(neverAge!=null&&neverAge>=3)signals.push({key:'never-active',label:'Never activated',detail:`No Beta Portal sign-in after about ${neverAge} day${neverAge===1?'':'s'} in the program.`,reason:'Inactivity',priority:80});
+    signals.push({key:'inactivity',label:'No activity for 3+ days',detail:`Last meaningful tester activity was ${engagement.days} day${engagement.days===1?'':'s'} ago (${engagement.latest.source}).`,reason:'Inactivity',priority:70});
   }
   return signals.sort((a,b)=>b.priority-a.priority);
 }
@@ -1426,11 +1451,12 @@ function testerSetupReviewInfo(t){
 function testerReviewAppActivity(t){
   const email=String(t?.email||'').trim().toLowerCase();
   const mapping=betaProductionMapping.get(email);
-  if(!mapping||mapping.matched!==true)return {label:'App account not set up',exact:'No matching RebataTrack app account',className:'never'};
+  if(!mapping||mapping.matched!==true)return {label:'App account not set up',exact:'No matching RebataTrack app account',className:'never',date:null};
   const productionUid=String(mapping.productionUid||'').trim();
-  const lastSeen=productionUid?reviewAppActivityByProductionUid.get(productionUid):null;
-  if(!lastSeen)return {label:'No app activity recorded',exact:'No RebataTrack device activity has been recorded yet',className:'never'};
-  return {label:relativeDate(lastSeen),exact:formatDate(lastSeen),className:'active'};
+  const value=productionUid?reviewAppActivityByProductionUid.get(productionUid):null;
+  const date=timestampToDate(value);
+  if(!date)return {label:'No app changes recorded',exact:'No meaningful RebataTrack data change has been recorded yet',className:'never',date:null};
+  return {label:relativeDate(date),exact:formatDate(date),className:'active',date};
 }
 async function refreshTesterReviewAppActivity(rows,{force=false}={}){
   const bridge=window.RebataTrackProductionAdminBridge;
@@ -1445,20 +1471,17 @@ async function refreshTesterReviewAppActivity(rows,{force=false}={}){
   if(reviewAppActivityInFlight)return reviewAppActivityInFlight;
   reviewAppActivityInFlight=(async()=>{
     try{
-      const result=await bridge.call('devices-list',{limit:1000});
+      const result=await bridge.call('meaningful-activity-list',{uids:[...needed]});
       const newest=new Map();
-      for(const d of (result?.devices||[])){
-        const uid=String(d?.uid||'').trim();if(!uid||!needed.has(uid))continue;
-        const candidate=d?.lastSeenAt||d?.firstSeenAt||null;
-        const date=timestampToDate(candidate);if(!date)continue;
-        const previous=timestampToDate(newest.get(uid));
-        if(!previous||date>previous)newest.set(uid,candidate);
+      for(const row of (result?.activities||[])){
+        const uid=String(row?.uid||'').trim();if(!uid||!needed.has(uid))continue;
+        newest.set(uid,row?.meaningfulActivityAt||null);
       }
       needed.forEach(uid=>reviewAppActivityByProductionUid.set(uid,newest.get(uid)||null));
       reviewAppActivityLoadedAt=Date.now();
       renderTesterReviewQueue();
     }catch(error){
-      console.warn('Could not load Review Testers app activity:',error);
+      console.warn('Could not load Review Testers meaningful app activity:',error);
     }finally{reviewAppActivityInFlight=null;}
   })();
   return reviewAppActivityInFlight;
@@ -1522,9 +1545,8 @@ function renderTesterReviewQueue(){
     const portalLogin=t.lastLogin?{label:relativeDate(t.lastLogin),exact:formatDate(t.lastLogin),className:'active'}:{label:'Never signed in',exact:'No Beta Portal login recorded',className:'never'};
     const setup=testerSetupReviewInfo(t);
     const disable=app?`<button class="admin-review-disable" data-disable-beta="${esc(app.id)}" data-disable-beta-reason="${esc(top.reason||'Beta Program requirements not met')}" type="button">Disable Access</button>`:'';
-    return `<article class="admin-review-tester-card" data-review-card="${esc(t.uid)}"><div class="admin-review-summary"><div class="admin-review-person-line"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div></div><div class="admin-review-summary-mid">${chips}<div class="admin-review-activity-strip"><span class="admin-review-activity-item ${esc(appActivity.className)}" title="${esc(appActivity.exact)}"><b>App</b><em>${esc(appActivity.label)}</em></span><span class="admin-review-activity-item ${esc(portalLogin.className)}" title="${esc(portalLogin.exact)}"><b>Portal login</b><em>${esc(portalLogin.label)}</em></span><span class="admin-review-activity-item ${esc(setup.className)}"><b>Setup</b><em>${esc(setup.label)}</em></span></div><div class="admin-review-summary-meta"><span>${warningCount} warning${warningCount===1?'':'s'}</span></div></div><div class="admin-review-summary-actions"><button class="admin-secondary-button admin-review-view" data-open-tester="${esc(t.uid)}" type="button">View</button><button class="admin-review-warning" data-review-warning="${esc(t.uid)}" type="button" ${contact.recent?'disabled':''} ${contact.recent?`title="${esc(`A ${contact.latest.source.toLowerCase()} was sent ${relativeDate(contact.latest.at)}. Another tester-level email is available after 24 hours.`)}"`:''}>${esc(warningButtonLabel)}</button>${disable}<button class="admin-review-icon-button" data-review-toggle="${esc(t.uid)}" type="button" aria-label="Expand tester review"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button></div></div><div class="admin-review-details"><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-warning-history"><span><strong>App activity:</strong> ${esc(appActivity.exact)}</span><span><strong>Portal login:</strong> ${esc(portalLogin.exact)}</span><span><strong>Setup:</strong> ${esc(setup.label)}</span><span><strong>Last tester email:</strong> ${esc(contactText||'Never')}</span><span><strong>Warnings sent:</strong> ${warningCount}</span><span><strong>Last warning:</strong> ${esc(lastWarning)}</span><span><strong>Last warning type:</strong> ${esc(lastType)}</span></div></div></article>`;
+    return `<article class="admin-review-tester-card" data-review-card="${esc(t.uid)}"><div class="admin-review-summary"><div class="admin-review-person-line"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div></div><div class="admin-review-summary-mid">${chips}<div class="admin-review-activity-strip"><span class="admin-review-activity-item ${esc(appActivity.className)}" title="${esc(appActivity.exact)}"><b>Last app change</b><em>${esc(appActivity.label)}</em></span><span class="admin-review-activity-item ${esc(portalLogin.className)}" title="${esc(portalLogin.exact)}"><b>Portal login</b><em>${esc(portalLogin.label)}</em></span><span class="admin-review-activity-item ${esc(setup.className)}"><b>Setup</b><em>${esc(setup.label)}</em></span></div><div class="admin-review-summary-meta"><span>${warningCount} warning${warningCount===1?'':'s'}</span></div></div><div class="admin-review-summary-actions"><button class="admin-secondary-button admin-review-view" data-open-tester="${esc(t.uid)}" type="button">View</button><button class="admin-review-warning" data-review-warning="${esc(t.uid)}" type="button" ${contact.recent?'disabled':''} ${contact.recent?`title="${esc(`A ${contact.latest.source.toLowerCase()} was sent ${relativeDate(contact.latest.at)}. Another tester-level email is available after 24 hours.`)}"`:''}>${esc(warningButtonLabel)}</button>${disable}<button class="admin-review-icon-button" data-review-toggle="${esc(t.uid)}" type="button" aria-label="Expand tester review"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button></div></div><div class="admin-review-details"><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-warning-history"><span><strong>Last meaningful app change:</strong> ${esc(appActivity.exact)}</span><span><strong>Portal login:</strong> ${esc(portalLogin.exact)}</span><span><strong>Setup:</strong> ${esc(setup.label)}</span><span><strong>Last tester email:</strong> ${esc(contactText||'Never')}</span><span><strong>Warnings sent:</strong> ${warningCount}</span><span><strong>Last warning:</strong> ${esc(lastWarning)}</span><span><strong>Last warning type:</strong> ${esc(lastType)}</span></div></div></article>`;
   }).join(''):'<div class="admin-empty-inline">No testers currently need Admin review.</div>';
-  const badge=document.getElementById('navTesterActionCount');if(badge){badge.textContent=String(rows.length);badge.hidden=rows.length===0;}
   const allExpanded=rows.length>0&&[...list.querySelectorAll('.admin-review-tester-card')].every(x=>x.classList.contains('is-expanded'));const toggle=document.getElementById('testerReviewToggleAll');if(toggle)toggle.textContent=allExpanded?'Collapse All':'Expand All';
   refreshTesterReviewAppActivity(rows).catch(()=>{});
 }
@@ -1838,28 +1860,31 @@ function taskAssignmentStats(taskId){
 }
 function taskDisplayStatus(t,stats){
   if(t.status==='Cancelled')return 'Cancelled';
-  // A task campaign with no remaining assignments is not active.
-  // This also corrects older 0/0 task records whose task document still says Active.
+  // Campaign status is separate from tester-level Review Required. Once the campaign
+  // is closed or its deadline has passed, it is no longer counted as active work.
+  if(!taskCampaignIsActive(t))return 'Closed';
   if(stats.total===0)return 'Closed';
-  if(stats.reviewRequired>0)return 'Review Required';
   if(stats.completed===stats.total)return 'Completed';
   if(stats.pending===0)return 'Closed';
-  return t.status||'Active';
+  return 'Active';
 }
 function renderTaskDashboard(){
-  const pending=regularAssignments().filter(a=>a.status==='Pending').sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
+  const pending=regularAssignments().filter(a=>a.status==='Pending'&&assignmentBelongsToActiveCampaign(a)).sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
   const review=regularAssignments().filter(a=>a.status==='Review Required').sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
   const now=Date.now(), day=DAY_MS;
-  const open=regularTasks().filter(t=>{const s=taskAssignmentStats(t.id);return t.status!=='Cancelled'&&(s.pending>0||s.reviewRequired>0);}).length;
+  const open=regularTasks().filter(t=>taskCampaignIsActive(t)&&taskAssignmentStats(t.id).pending>0).length;
   const dueSoon=pending.filter(a=>{const d=timestampToDate(a.dueAt);return d&&d.getTime()>now&&d.getTime()-now<=day;}).length;
   const reminded=pending.filter(a=>a.lastReminderSentAt).length;
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
   set('taskMetricOpen',open);set('taskMetricPending',pending.length);set('taskMetricDueSoon',dueSoon);set('taskMetricReminded',reminded);
+  // Once task data is loaded, the Tasks navigation badge is owned by active-campaign
+  // pending assignments only. Closed/ended campaigns and Review Required history do not count.
+  setNavBadge('navTaskCount',pending.length);
 }
 function renderTasks(){
   const body=document.getElementById('tasksTableBody'); if(!body)return;
   const tasks=regularTasks();
-  body.innerHTML=tasks.map(t=>{const stats=taskAssignmentStats(t.id);const pct=stats.total?Math.round(stats.completed/stats.total*100):0;const displayStatus=taskDisplayStatus(t,stats);const pendingLabel=stats.reviewRequired?`${stats.pending} + ${stats.reviewRequired} review`:String(stats.pending);return `<tr><td><strong>${esc(t.title||'Required task')}</strong><small style="display:block;color:#718095;margin-top:3px">${esc(t.templateLabel||t.responseType||'Custom task')}</small></td><td>${esc(formatDate(t.dueAt))}</td><td>${stats.total}</td><td><div class="admin-task-progress"><strong>${stats.completed}/${stats.total}</strong><span class="admin-task-progress-bar"><span style="width:${pct}%"></span></span></div></td><td><strong>${esc(pendingLabel)}</strong></td><td><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></td><td><button class="admin-table-open" data-open-task="${esc(t.id)}" type="button">Manage</button></td></tr>`;}).join('');
+  body.innerHTML=tasks.map(t=>{const stats=taskAssignmentStats(t.id);const activeCampaign=taskCampaignIsActive(t);const activePending=activeCampaign?stats.pending:0;const pct=stats.total?Math.round(stats.completed/stats.total*100):0;const displayStatus=taskDisplayStatus(t,stats);const pendingLabel=String(activePending);return `<tr><td><strong>${esc(t.title||'Required task')}</strong><small style="display:block;color:#718095;margin-top:3px">${esc(t.templateLabel||t.responseType||'Custom task')}</small></td><td>${esc(formatDate(t.dueAt))}</td><td>${stats.total}</td><td><div class="admin-task-progress"><strong>${stats.completed}/${stats.total}</strong><span class="admin-task-progress-bar"><span style="width:${pct}%"></span></span></div></td><td><strong>${esc(pendingLabel)}</strong></td><td><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></td><td><button class="admin-table-open" data-open-task="${esc(t.id)}" type="button">Manage</button></td></tr>`;}).join('');
   document.getElementById('tasksEmpty').hidden=tasks.length>0;
   renderTaskDashboard();
 }
@@ -1972,15 +1997,15 @@ function openTaskRecord(t){
   const assignments=stats.rows.sort((a,b)=>String(a.name||a.email).localeCompare(String(b.name||b.email)));
   const coverage=taskRecipientCoverage(t);
   const due=timestampToDate(t.dueAt);
-  const deadlineOpen=!!due&&due.getTime()>Date.now()&&t.status!=='Cancelled';
+  const deadlineOpen=taskCampaignIsActive(t);
   const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminderCount=Number(a.reminderCount||0);const reminderLabel=a.emailStatus==='Error'?'Retry Task Email':reminderCount>=2?'Send Final Reminder':reminderCount===1?'Send Follow-up':'Send Reminder';const reminder=a.status==='Pending'?`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${reminderLabel}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const reviewActions='';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><strong>${esc(a.name||'Tester')}</strong><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Email: ${esc(a.emailStatus||'Unknown')}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> This tester is listed in Review Testers on the Testers page for the access decision.</div>':''}<div class="admin-task-assignment-actions">${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
   const newRows=coverage.notAssigned.length?coverage.notAssigned.map(x=>`<div class="admin-task-assignment admin-task-unassigned"><div class="admin-task-assignment-top"><div><strong>${esc(x.name||'Tester')}</strong><small>${esc(x.email||'')} · ${esc(x.platform||'')}</small></div><span class="admin-status-pill status-pending">Not sent</span></div><div class="admin-task-assignment-reminder">This tester is fully set up and eligible, but has never received this task.</div>${deadlineOpen?`<div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-assign-existing-task="${esc(t.id)}" data-task-tester="${esc(x.uid)}" type="button">Send Task</button></div>`:''}</div>`).join(''):'<div class="admin-empty-inline">Every currently eligible tester has already received this task.</div>';
   const addNew=coverage.notAssigned.length&&deadlineOpen?`<button class="admin-action-button approve" data-task-action="assign-new-eligible" data-task-id="${esc(t.id)}" type="button">Send to Newly Eligible (${coverage.notAssigned.length})</button>`:'';
   const deadlineNote=coverage.notAssigned.length&&!deadlineOpen?'<div class="admin-task-coverage-note is-warning"><strong>New eligible testers detected</strong><span>The original task deadline has passed or the task was cancelled, so it cannot be sent to them without creating a new task.</span></div>':'';
-  const cancel=(t.status==='Active'&&stats.pending>0)?`<button class="admin-action-button danger-soft" data-task-action="cancel" data-task-id="${esc(t.id)}" type="button">Cancel Task</button>`:'';
-  const remind=stats.pending?`<button class="admin-action-button approve" data-task-action="remind-pending" data-task-id="${esc(t.id)}" type="button">Remind Pending Testers (${stats.pending})</button>`:'';
+  const cancel=(taskCampaignIsActive(t)&&stats.pending>0)?`<button class="admin-action-button danger-soft" data-task-action="cancel" data-task-id="${esc(t.id)}" type="button">Cancel Task</button>`:'';
+  const remind=(taskCampaignIsActive(t)&&stats.pending>0)?`<button class="admin-action-button approve" data-task-action="remind-pending" data-task-id="${esc(t.id)}" type="button">Remind Pending Testers (${stats.pending})</button>`:'';
   const deleteTask=`<button class="admin-action-button danger" data-task-action="delete-task" data-task-id="${esc(t.id)}" type="button">Delete Task from All Testers</button>`;
-  openDrawer('Beta Program Task',t.title||'Required Task',`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-status-pill ${statusClass(taskDisplayStatus(t,stats))}">${esc(taskDisplayStatus(t,stats))}</span><span class="admin-subtle-chip">Due ${esc(formatDate(t.dueAt))}</span></div>${t.objective?`<div class="admin-feedback-detail"><span>Testing Objective</span><p>${esc(t.objective)}</p></div>`:''}<div class="admin-feedback-detail"><span>Instructions</span><p>${esc(t.instructions||'')}</p></div><div class="admin-task-coverage"><div><span>Already received</span><strong>${coverage.assigned}</strong></div><div><span>Currently eligible</span><strong>${coverage.eligible}</strong></div><div class="${coverage.notAssigned.length?'needs-send':''}"><span>Eligible · not sent</span><strong>${coverage.notAssigned.length}</strong></div></div>${deadlineNote}<div class="admin-detail-grid"><div><span>Template</span><strong>${esc(t.templateLabel||'Custom')}</strong></div><div><span>Response Type</span><strong>${esc(t.responseType||'Acknowledgement')}</strong></div><div><span>Recipients</span><strong>${stats.total}</strong></div><div><span>Completed</span><strong>${stats.completed}</strong></div><div><span>Pending</span><strong>${stats.pending}</strong></div><div><span>Review Required</span><strong>${stats.reviewRequired}</strong></div><div><span>Reminded</span><strong>${stats.reminded}</strong></div><div><span>Removed from Task</span><strong>${stats.removedByAdmin}</strong></div><div><span>Missed · Kept Active</span><strong>${stats.reviewedKept}</strong></div><div><span>Closed After Tester Removal</span><strong>${stats.accessEnded}</strong></div><div><span>Automatic Reminders</span><strong>${t.autoReminders===false?'Off':'On'}</strong></div></div><div><label class="admin-detail-label">Newly eligible — not yet sent</label><div class="admin-task-response-list">${newRows}</div></div><div><label class="admin-detail-label">Assignment history</label><div class="admin-task-response-list">${rows}</div></div><div class="admin-drawer-actions">${addNew}${remind}${cancel}${deleteTask}</div></div>`);
+  openDrawer('Beta Program Task',t.title||'Required Task',`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-status-pill ${statusClass(taskDisplayStatus(t,stats))}">${esc(taskDisplayStatus(t,stats))}</span><span class="admin-subtle-chip">Due ${esc(formatDate(t.dueAt))}</span></div>${t.objective?`<div class="admin-feedback-detail"><span>Testing Objective</span><p>${esc(t.objective)}</p></div>`:''}<div class="admin-feedback-detail"><span>Instructions</span><p>${esc(t.instructions||'')}</p></div><div class="admin-task-coverage"><div><span>Already received</span><strong>${coverage.assigned}</strong></div><div><span>Currently eligible</span><strong>${coverage.eligible}</strong></div><div class="${coverage.notAssigned.length?'needs-send':''}"><span>Eligible · not sent</span><strong>${coverage.notAssigned.length}</strong></div></div>${deadlineNote}<div class="admin-detail-grid"><div><span>Template</span><strong>${esc(t.templateLabel||'Custom')}</strong></div><div><span>Response Type</span><strong>${esc(t.responseType||'Acknowledgement')}</strong></div><div><span>Recipients</span><strong>${stats.total}</strong></div><div><span>Completed</span><strong>${stats.completed}</strong></div><div><span>Pending</span><strong>${taskCampaignIsActive(t)?stats.pending:0}</strong></div><div><span>Review Required</span><strong>${stats.reviewRequired}</strong></div><div><span>Reminded</span><strong>${stats.reminded}</strong></div><div><span>Removed from Task</span><strong>${stats.removedByAdmin}</strong></div><div><span>Missed · Kept Active</span><strong>${stats.reviewedKept}</strong></div><div><span>Closed After Tester Removal</span><strong>${stats.accessEnded}</strong></div><div><span>Automatic Reminders</span><strong>${t.autoReminders===false?'Off':'On'}</strong></div></div><div><label class="admin-detail-label">Newly eligible — not yet sent</label><div class="admin-task-response-list">${newRows}</div></div><div><label class="admin-detail-label">Assignment history</label><div class="admin-task-response-list">${rows}</div></div><div class="admin-drawer-actions">${addNew}${remind}${cancel}${deleteTask}</div></div>`);
 }
 async function assignExistingTaskToTesters(t,testers){
   if(!t)throw new Error('Task not found.');
@@ -3260,4 +3285,4 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
 
-// Website Build 217 cache/deployment stamp.
+// Website Build 219 cache/deployment stamp.
