@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 219
+// RebataTrack Admin Portal — Website Build 220
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -82,7 +82,7 @@ const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-const REBATATRACK_WEBSITE_BUILD = 219;
+const REBATATRACK_WEBSITE_BUILD = 220;
 let feedbackAutoCloseTimer = null;
 function enforceWebsiteBuildStamp(){
   document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
@@ -1005,10 +1005,10 @@ async function reconcilePendingTasksForInactiveTesters(){
   return stale.length;
 }
 
+function setNavBadge(id,v){const el=document.getElementById(id);if(!el)return;const count=Number(v||0);el.textContent=count;el.hidden=count<1;}
 function renderMetrics(){
   const m=state.metrics||{};
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v==null?0:v;};
-  const setNavBadge=(id,v)=>{const el=document.getElementById(id);if(!el)return;const count=Number(v||0);el.textContent=count;el.hidden=count<1;};
   set('metricApplicationsReceived',m.total);set('metricAcceptedTesters',m.accepted);set('metricFullySetUp',m.fullySetUp);set('metricFullySetUpIOS',m.fullySetUpIOS);set('metricFullySetUpAndroid',m.fullySetUpAndroid);set('metricFeedback',m.newFeedback);
   set('metricApplied',m.applied);set('metricWaitlist',m.waitlist);set('metricDeclined',m.declined);set('metricInactive',m.inactive);set('iosCount',m.ios);set('androidCount',m.android);
   setNavBadge('navPendingCount',m.applied);setNavBadge('navTesterActionCount',m.readyForYou);setNavBadge('navTaskCount',m.activeTasks);setNavBadge('navFeedbackCount',m.newFeedback);
@@ -3285,4 +3285,4 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
 
-// Website Build 219 cache/deployment stamp.
+// Website Build 220 cache/deployment stamp.
