@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 216
+// RebataTrack Admin Portal — Website Build 217
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -83,7 +83,7 @@ const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-const REBATATRACK_WEBSITE_BUILD = 216;
+const REBATATRACK_WEBSITE_BUILD = 217;
 let feedbackAutoCloseTimer = null;
 function enforceWebsiteBuildStamp(){
   document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
@@ -532,7 +532,7 @@ function testerFacingFeedbackStatus(f){
   return conversationResponsibility(f,'tester')||'Waiting on RebataTrack';
 }
 function feedbackEligibleForAutoClose(f,nowMs=Date.now()){
-  if(!f||adminConversationIsClosed(f)||!isSupportConversation(f))return false;
+  if(!f||adminConversationIsClosed(f))return false;
   const lifecycleStatus=canonicalFeedbackStatus(f.status);
   // Needs Retest and Feature Request Hold are intentionally protected from the
   // 72-hour no-reply rule. In Progress remains eligible when RebataTrack was the
@@ -3260,4 +3260,4 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
 
-// Website Build 216 cache/deployment stamp.
+// Website Build 217 cache/deployment stamp.
