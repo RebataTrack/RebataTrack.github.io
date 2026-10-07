@@ -333,25 +333,26 @@ const TASK_TEMPLATES = {
 4. Edit one field, save again, and confirm the change persists.
 5. Report any field that was confusing, any calculation that looked wrong, or anything that took more steps than expected. If no issue occurred, say “No issues.”`
   },
-  'refund-workflow': {
-    label:'Partial + final refund workflow', platform:'All', responseType:'Long Answer', suggestedHours:48,
-    objective:'Confirm RebataTrack correctly handles a partial refund, preserves the remaining shortfall, and then completes the order after the final refund.',
-    instructions:`1. Create or use a test order that has not yet received its full expected refund.
-2. Record a partial refund that is less than the expected refund.
-3. Reopen the order and verify RebataTrack still shows the remaining amount correctly instead of treating the order as fully refunded.
-4. Record the remaining refund amount.
-5. Verify the order moves to the correct completed/refunded state and the totals are correct in Order Details and Reports.
-6. Tell us anything that was unclear or incorrect, or respond “No issues.”`
-  },
-  'multi-order-refund': {
-    label:'Multi-order refund workflow', platform:'All', responseType:'Long Answer', suggestedHours:48,
-    objective:'Validate the multi-order refund workflow, including the single-order guardrail, selecting multiple eligible orders, and allocation/results after saving.',
-    instructions:`1. Make sure at least two eligible test orders are available for a refund.
-2. Open Record a Multi-Order Refund.
-3. First try to continue with only one order selected. Confirm RebataTrack blocks the action and clearly explains that multiple orders are required.
-4. Select at least two eligible orders and complete a test multi-order refund.
-5. Reopen each affected order and verify the refund amounts and remaining balances are correct.
-6. Report any confusing message, incorrect allocation, duplicate record, or unexpected result. If everything worked, say “No issues.”`
+  'refund-processing': {
+    label:'Refund processing — single + multi-order', platform:'All', responseType:'Long Answer', suggestedHours:72,
+    objective:'Validate the complete RebataTrack refund experience for both single orders and multi-order refunds, including full refunds, partial refunds, final refunds after a partial payment, and editing or deleting a saved refund.',
+    instructions:`Complete each refund scenario below using temporary test orders. Use test values that make it easy to verify the expected and received amounts.
+
+SINGLE-ORDER REFUNDS
+1. Full refund: Open an eligible test order, choose the option to record a refund, enter the full remaining expected refund amount, and save it. Reopen the order and confirm the received refund, remaining balance, status, and totals are correct.
+2. Partial refund: Use another eligible test order, record an amount that is less than the remaining expected refund, and save it. Reopen the order and confirm RebataTrack keeps the order active and clearly shows the correct amount still expected.
+3. Final refund after a partial refund: On that same partially refunded order, record the remaining refund amount. Confirm the combined refund total is correct and the order moves to the appropriate fully refunded/completed state when its other requirements are satisfied.
+
+MULTI-ORDER REFUNDS
+4. Full multi-order refund: Make sure at least two eligible test orders are available. Open Record a Multi-Order Refund, select multiple orders, enter a refund that fully satisfies the selected orders, review the allocations, and save. Reopen each affected order and confirm the refund amounts, remaining balances, and totals are correct.
+5. Partial multi-order refund: Use at least two eligible orders again and record a multi-order refund that is less than the combined amount still expected. Save it, then reopen each affected order and confirm the partial amounts were allocated correctly and each remaining balance is accurate.
+6. Final refund after a partial multi-order refund: Record the remaining refund for those orders and verify each order reaches the correct refunded/completed state when its other requirements are satisfied.
+
+EDITING AND DELETING REFUNDS
+7. Edit a saved refund: Open an order that has a recorded test refund, open the refund entry, edit an amount or other editable refund detail, save it, and confirm the order totals and remaining refund recalculate correctly.
+8. Delete a saved refund: Delete a test refund entry and confirm it is removed from the order and the expected/received/remaining totals return to the correct values. If the refund was part of a multi-order refund, verify the affected orders remain accurate after the deletion.
+
+In your response, tell us which scenarios you completed and report any confusing wording, incorrect amount, allocation problem, status issue, edit/delete problem, duplicate refund, or unexpected behavior. If every scenario worked correctly, respond “No issues.”`
   },
   reports: {
     label:'Reports & spending insights', platform:'All', responseType:'Long Answer', suggestedHours:48,
@@ -2607,6 +2608,10 @@ async function refreshBetaProductionMapping(options={}){
       const result=await bridge.call('beta-program-status',{testers});
       applyBetaProductionResult(result);betaMappingLoadedAt=Date.now();
       await reconcileMatchedTesterTimelines();
+      // Production mapping and meaningful app activity are separate reads. If the
+      // Production bridge became available after the tester table first rendered,
+      // retry app activity now that matched Production UIDs are known.
+      await refreshTesterReviewAppActivity(state.testers,{force:options.force===true});
       renderTesters();
       renderTaskRecipientPicker();
       await maybeAutoSyncBetaProgram();
@@ -3290,7 +3295,21 @@ document.getElementById('adminBetaDisableSubmit')?.addEventListener('click',asyn
 document.getElementById('betaProgramSaveSync')?.addEventListener('click',saveAndSyncBetaProgram);
 window.RebataTrackBetaEmailBridge={call:(type,payload={})=>callWorkerAdminAction(type,payload)};
 window.addEventListener('rebatatrack-production-bridge-ready',()=>{
-  if(state.loaded.testers&&betaProgramEndDate)ensureSavedBetaProgramReconciled().catch(error=>console.warn('Automatic Beta Program reconciliation failed after Production connection:',error));
+  if(!state.loaded.testers)return;
+  // The Beta Admin runtime can render before production-admin.js has finished
+  // creating its bridge. Retry both the Production mapping and meaningful app
+  // activity as soon as that bridge becomes available instead of leaving App
+  // Activity stuck in its initial disconnected/loading state.
+  const retryActivity=()=>refreshTesterReviewAppActivity(state.testers,{force:true})
+    .catch(error=>console.warn('Could not refresh tester app activity after Production connection:',error));
+  if(betaProgramEndDate){
+    ensureSavedBetaProgramReconciled({force:true})
+      .then(()=>refreshBetaProductionMapping({force:true}))
+      .then(retryActivity)
+      .catch(error=>console.warn('Automatic Beta Program reconciliation failed after Production connection:',error));
+  }else{
+    retryActivity();
+  }
 });
 })().catch(function(error){
   console.error('RebataTrack page runtime failed:',error);
