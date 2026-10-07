@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 221
+// RebataTrack Admin Portal — Website Build 222
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -2002,13 +2002,38 @@ function taskRecipientCoverage(t){
   const notAssigned=eligible.filter(x=>!assigned.has(String(x.uid||'')));
   return {assigned:assigned.size,eligible:eligible.length,notAssigned};
 }
+
+function openTaskSupportComposer(a){
+  if(!a)return;
+  const subject=`Follow-up on: ${a.taskTitle||'Beta Program task'}`;
+  const response=String(a.response||'').trim();
+  openDrawer('Start Support Conversation',a.name||a.email||'Tester',`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-feedback-type-chip">Help &amp; Feedback</span><span class="admin-platform-pill">${esc(a.platform||'')}</span></div><div class="admin-feedback-detail"><span>Task</span><p>${esc(a.taskTitle||'Required Beta Program Task')}</p></div>${response?`<div class="admin-feedback-detail"><span>Tester response</span><p>${esc(response)}</p></div>`:''}<div class="beta-field"><label for="taskSupportSubject">Support ticket subject</label><input id="taskSupportSubject" class="admin-detail-input" maxlength="160" value="${esc(subject)}"/></div><div><label class="admin-detail-label" for="taskSupportMessage">Message to tester</label><textarea id="taskSupportMessage" class="admin-detail-textarea" maxlength="5000" placeholder="Explain what you want to follow up on and what you need from the tester…"></textarea></div><div class="admin-task-coverage-note"><strong>This opens a real Help &amp; Feedback conversation.</strong><span>The tester will see it in their Beta Portal and receive an email. They can reply through Help &amp; Feedback like any other support ticket.</span></div><button class="admin-primary-button" data-create-task-support="${esc(a.id)}" type="button">Create Support Ticket &amp; Send</button></div>`);
+  setTimeout(()=>document.getElementById('taskSupportMessage')?.focus(),0);
+}
+async function createTaskSupportConversation(a,subject,message){
+  if(!a)throw new Error('Task assignment not found.');
+  subject=String(subject||'').trim();message=String(message||'').trim();
+  if(subject.length<2)throw new Error('Enter a support ticket subject.');
+  if(message.length<2)throw new Error('Write a message to the tester.');
+  if(!emailWorkerEndpoint)throw new Error('Connect the Cloudflare email service before starting a support conversation.');
+  const result=await callWorkerAdminAction('admin-support-conversation-create',{
+    assignmentId:a.id||'',
+    subject,
+    message
+  });
+  state.loaded.feedback=false;
+  await loadFeedback(true);
+  await loadMetrics().catch(()=>{});renderMetrics();renderOverview();if(state.loaded.testers)renderTesters();
+  return {feedbackId:result.feedbackId||'',emailFailed:!!result.emailFailed,emailError:String(result.emailError||'')};
+}
+
 function openTaskRecord(t){
   const stats=taskAssignmentStats(t.id);
   const assignments=stats.rows.sort((a,b)=>String(a.name||a.email).localeCompare(String(b.name||b.email)));
   const coverage=taskRecipientCoverage(t);
   const due=timestampToDate(t.dueAt);
   const deadlineOpen=taskCampaignIsActive(t);
-  const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminderCount=Number(a.reminderCount||0);const reminderLabel=a.emailStatus==='Error'?'Retry Task Email':reminderCount>=2?'Send Final Reminder':reminderCount===1?'Send Follow-up':'Send Reminder';const reminder=a.status==='Pending'?`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${reminderLabel}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const reviewActions='';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><strong>${esc(a.name||'Tester')}</strong><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Email: ${esc(a.emailStatus||'Unknown')}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> This tester is listed in Review Testers on the Testers page for the access decision.</div>':''}<div class="admin-task-assignment-actions">${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
+  const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminderCount=Number(a.reminderCount||0);const reminderLabel=a.emailStatus==='Error'?'Retry Task Email':reminderCount>=2?'Send Final Reminder':reminderCount===1?'Send Follow-up':'Send Reminder';const reminder=a.status==='Pending'?`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${reminderLabel}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const support=a.response?`<button class="admin-task-remind-button" data-task-support-contact="${esc(a.id)}" type="button">Reach Out via Support</button>`:'';const reviewActions='';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><strong>${esc(a.name||'Tester')}</strong><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Email: ${esc(a.emailStatus||'Unknown')}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> This tester is listed in Review Testers on the Testers page for the access decision.</div>':''}<div class="admin-task-assignment-actions">${support}${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
   const newRows=coverage.notAssigned.length?coverage.notAssigned.map(x=>`<div class="admin-task-assignment admin-task-unassigned"><div class="admin-task-assignment-top"><div><strong>${esc(x.name||'Tester')}</strong><small>${esc(x.email||'')} · ${esc(x.platform||'')}</small></div><span class="admin-status-pill status-pending">Not sent</span></div><div class="admin-task-assignment-reminder">This tester is fully set up and eligible, but has never received this task.</div>${deadlineOpen?`<div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-assign-existing-task="${esc(t.id)}" data-task-tester="${esc(x.uid)}" type="button">Send Task</button></div>`:''}</div>`).join(''):'<div class="admin-empty-inline">Every currently eligible tester has already received this task.</div>';
   const addNew=coverage.notAssigned.length&&deadlineOpen?`<button class="admin-action-button approve" data-task-action="assign-new-eligible" data-task-id="${esc(t.id)}" type="button">Send to Newly Eligible (${coverage.notAssigned.length})</button>`:'';
   const deadlineNote=coverage.notAssigned.length&&!deadlineOpen?'<div class="admin-task-coverage-note is-warning"><strong>New eligible testers detected</strong><span>The original task deadline has passed or the task was cancelled, so it cannot be sent to them without creating a new task.</span></div>':'';
@@ -2287,9 +2312,10 @@ function adminConversationMessageHtml(m){
 }
 function adminInitialConversationMessageHtml(f){
   const emailSupport=isEmailSupportConversation(f);
+  const adminInitiated=f?.adminInitiated===true||String(f?.initiatedBy||'').toLowerCase()==='rebatatrack';
   return adminConversationMessageHtml({
-    authorRole:emailSupport?'Customer':'Tester',
-    authorName:f.name||(emailSupport?'Customer':'Tester'),
+    authorRole:adminInitiated?'Admin':(emailSupport?'Customer':'Tester'),
+    authorName:adminInitiated?'RebataTrack':(f.name||(emailSupport?'Customer':'Tester')),
     body:f.details||'No details provided.',
     createdAt:f.submittedAt,
     supportAccountEmail:f.supportAccountEmail||'',
@@ -2314,7 +2340,7 @@ function subscribeAdminConversationMessages(feedback){
     const initial=adminInitialConversationMessageHtml(feedback);
     list.innerHTML=initial+rows.map(adminConversationMessageHtml).join('');
     const replyBox=document.getElementById('drawerConversationReply');
-    const hasAdminReply=rows.some(row=>String(row.authorRole||'').toLowerCase()==='admin');
+    const hasAdminReply=feedback?.adminInitiated===true||rows.some(row=>String(row.authorRole||'').toLowerCase()==='admin');
     if(replyBox&&replyBox.dataset.supportInitialGreeting==='1'&&!hasAdminReply&&!String(replyBox.value||'').trim())replyBox.value=SUPPORT_REPLY_GREETING;
     requestAnimationFrame(()=>list.scrollTo({top:list.scrollHeight,behavior:animate?'smooth':'auto'}));
   },error=>{console.error('Realtime admin conversation listener failed:',error);if(activeDrawerFeedbackId===feedbackId)list.innerHTML='<div class="admin-empty-inline">Live conversation could not be loaded right now.</div>';});
@@ -2395,8 +2421,9 @@ function openFeedbackRecord(f){
   if(status==='Needs Retest'||f.retestedAt){
     if(f.retestedAt){const resultClass=String(f.retestResult||'').toLowerCase().includes('still')?'is-still-happening':'is-fixed';retestBlock=`<section class="admin-feedback-section admin-feedback-retest"><div class="admin-feedback-section-head"><div><span>Retest Result</span><strong class="admin-retest-result-badge ${resultClass}">${esc(f.retestResult||'Retest submitted')}</strong></div><time>${esc(formatDate(f.retestedAt))}</time></div><p>${f.retestNotes?esc(f.retestNotes):'<em>No additional retest notes were provided.</em>'}</p></section>`;}else{retestBlock=`<section class="admin-feedback-section admin-feedback-retest is-pending"><div class="admin-feedback-section-head"><div><span>Retest Result</span><strong>Waiting for tester</strong></div></div><p>The tester has been asked to retest this issue. Their portal shows the original report and requires a retest response.</p></section>`;}
   }
-  const details=`<div class="admin-detail-grid"><div><span>${personLabel}</span><strong>${esc(f.name||'Customer')}</strong><small>${esc(f.email)}</small></div><div><span>Submitted</span><strong>${esc(formatDate(f.submittedAt))}</strong></div>${support?`<div><span>Workflow</span><strong>${emailSupport?'General Support':'Account / Access Support'}</strong></div><div><span>Source</span><strong>${emailSupport?'Direct email':'Beta Portal'}</strong></div>${emailSupport?'':`<div><span>Testing Platform</span><strong>${esc(f.platform||'Not provided')}</strong></div>`}`:`<div><span>Build</span><strong>${esc(f.appVersion||'Not provided')}</strong></div><div><span>Device / OS</span><strong>${esc(f.deviceDetails||[f.deviceModel,f.osVersion].filter(Boolean).join(' · ')||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(f.screenSize||'Not provided')}</strong></div><div><span>Page / Feature</span><strong>${esc(f.pageFeature||'Not provided')}</strong></div>`}</div>`;
-  const supportEmailAction=support&&!emailSupport?`<div class="admin-support-identity-action"><button class="admin-secondary-button" data-feedback-change-email="${esc(f.id)}" type="button">Change Beta Email</button><span>${f.supportAccountEmail?'The corrected email from this ticket will be prefilled for verification.':'Use this when the tester supplied a corrected Apple Account or Google Play email.'}</span></div>`:'';
+  const adminInitiated=f.adminInitiated===true||String(f.initiatedBy||'').toLowerCase()==='rebatatrack';
+  const details=`<div class="admin-detail-grid"><div><span>${personLabel}</span><strong>${esc(f.name||'Customer')}</strong><small>${esc(f.email)}</small></div><div><span>Submitted</span><strong>${esc(formatDate(f.submittedAt))}</strong></div>${support?`<div><span>Workflow</span><strong>${adminInitiated?'Admin Follow-up':emailSupport?'General Support':'Account / Access Support'}</strong></div><div><span>Source</span><strong>${adminInitiated?'Beta Task Response':emailSupport?'Direct email':'Beta Portal'}</strong></div>${f.sourceTaskTitle?`<div><span>Related Task</span><strong>${esc(f.sourceTaskTitle)}</strong></div>`:''}${emailSupport?'':`<div><span>Testing Platform</span><strong>${esc(f.platform||'Not provided')}</strong></div>`}`:`<div><span>Build</span><strong>${esc(f.appVersion||'Not provided')}</strong></div><div><span>Device / OS</span><strong>${esc(f.deviceDetails||[f.deviceModel,f.osVersion].filter(Boolean).join(' · ')||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(f.screenSize||'Not provided')}</strong></div><div><span>Page / Feature</span><strong>${esc(f.pageFeature||'Not provided')}</strong></div>`}</div>`;
+  const supportEmailAction=support&&!emailSupport&&!adminInitiated?`<div class="admin-support-identity-action"><button class="admin-secondary-button" data-feedback-change-email="${esc(f.id)}" type="button">Change Beta Email</button><span>${f.supportAccountEmail?'The corrected email from this ticket will be prefilled for verification.':'Use this when the tester supplied a corrected Apple Account or Google Play email.'}</span></div>`:'';
   const gmailAction=emailSupport?`<div class="admin-support-identity-action"><a class="admin-secondary-button" href="${esc(f.gmailMessageUrl||'https://mail.google.com/mail/u/0/#inbox')}" target="_blank" rel="noopener">Open Original Email in Gmail</a><span>${f.hasAttachments?'Attachments stay in Gmail and are intentionally not copied into the portal.':'Gmail remains the original email archive for this conversation.'}</span></div>`:'';
   const productionAccountAction=support?supportProductionMatchHtml(f):'';
   const closed=adminConversationIsClosed(f);
@@ -3011,6 +3038,8 @@ document.addEventListener('click',async e=>{
   }
   const testerBtn=e.target.closest('[data-open-tester]');if(testerBtn){if(!state.loaded.applications)await loadApplications();if(!state.loaded.tasks)await loadTasks();if(!state.loaded.feedback)await loadFeedback();const t=findTester(testerBtn.dataset.openTester);if(t)openTesterRecord(t);return;}
   const taskOpenBtn=e.target.closest('[data-open-task]');if(taskOpenBtn){if(!state.loaded.tasks)await loadTasks();const t=findTask(taskOpenBtn.dataset.openTask);if(t)openTaskRecord(t);return;}
+  const taskSupportBtn=e.target.closest('[data-task-support-contact]');if(taskSupportBtn){const a=state.taskAssignments.find(x=>x.id===taskSupportBtn.dataset.taskSupportContact);if(a)openTaskSupportComposer(a);return;}
+  const createTaskSupportBtn=e.target.closest('[data-create-task-support]');if(createTaskSupportBtn){const a=state.taskAssignments.find(x=>x.id===createTaskSupportBtn.dataset.createTaskSupport);if(!a)return;const subject=String(document.getElementById('taskSupportSubject')?.value||'').trim();const message=String(document.getElementById('taskSupportMessage')?.value||'').trim();const original=createTaskSupportBtn.textContent;createTaskSupportBtn.disabled=true;createTaskSupportBtn.textContent='Creating…';try{const result=await createTaskSupportConversation(a,subject,message);const f=state.feedback.find(x=>x.id===result.feedbackId);if(f){markFeedbackViewed(f);openFeedbackRecord(f);}else closeDrawer();showToast(result.emailFailed?`Support ticket created, but the tester email could not be sent. ${result.emailError}`:'Support ticket created and sent to the tester.',result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');createTaskSupportBtn.disabled=false;createTaskSupportBtn.textContent=original;}return;}
   const feedbackBtn=e.target.closest('[data-open-feedback]');if(feedbackBtn){try{const f=await ensureFeedbackLoaded(feedbackBtn.dataset.openFeedback);if(f){markFeedbackViewed(f);openFeedbackRecord(f);}}catch(err){showToast('Could not open that feedback.','error');}return;}
   const announcementOpen=e.target.closest('[data-open-announcement]');if(announcementOpen){if(!state.loaded.tasks)await loadTasks();const t=findTask(announcementOpen.dataset.openAnnouncement);if(t&&isAnnouncementTask(t))openAnnouncementRecord(t);return;}
   const announcementAction=e.target.closest('[data-announcement-action]');if(announcementAction){
@@ -3316,4 +3345,4 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
 
-// Website Build 221 cache/deployment stamp.
+// Website Build 222 cache/deployment stamp.

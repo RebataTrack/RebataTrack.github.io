@@ -10,7 +10,7 @@ const {onAuthStateChanged,signOut,doc,getDoc,updateDoc,addDoc,collection,serverT
 // Build 171 live-update safety lock: the signed-in tester profile and Help & Feedback
 // conversation streams remain realtime. This preserves access revocation, task/support
 // messaging, and live Admin/tester replies while other non-critical reads are throttled.
-// RebataTrack Beta Tester Portal - Website Build 221
+// RebataTrack Beta Tester Portal - Website Build 222
 const loading = document.getElementById('portalLoading');
 const app = document.getElementById('portalApp');
 const content = document.getElementById('portalContent');
@@ -442,7 +442,8 @@ function renderOpenConversationThread(messages=[]){
   if(!activeConversation)return;
   const thread=document.getElementById('portalConversationThread');if(!thread)return;
   const f=activeConversation;
-  const original=`<div class="portal-chat-message from-tester initial"><div class="portal-chat-message-head"><strong>You <span class="portal-chat-original-label">Original</span></strong><time>${escapeHtml(formatPortalMessageTime(f.submittedAt))}</time></div><p>${escapeHtml(f.details||'')}</p><div class="portal-chat-meta-list">${f.supportAccountEmail?`<span>Account: ${escapeHtml(f.supportAccountEmail)}</span>`:''}${f.appVersion?`<span>${escapeHtml(f.appVersion)}</span>`:''}${f.pageFeature?`<span>${escapeHtml(f.pageFeature)}</span>`:''}</div></div>`;
+  const initiatedByAdmin=f.adminInitiated===true||String(f.initiatedBy||'').toLowerCase()==='rebatatrack';
+  const original=`<div class="portal-chat-message ${initiatedByAdmin?'from-rebatify':'from-tester'} initial"><div class="portal-chat-message-head"><strong>${initiatedByAdmin?'RebataTrack':'You'} <span class="portal-chat-original-label">Original</span></strong><time>${escapeHtml(formatPortalMessageTime(f.submittedAt))}</time></div><p>${escapeHtml(f.details||'')}</p><div class="portal-chat-meta-list">${f.sourceTaskTitle?`<span>Follow-up: ${escapeHtml(f.sourceTaskTitle)}</span>`:''}${f.supportAccountEmail?`<span>Account: ${escapeHtml(f.supportAccountEmail)}</span>`:''}${f.appVersion?`<span>${escapeHtml(f.appVersion)}</span>`:''}${f.pageFeature?`<span>${escapeHtml(f.pageFeature)}</span>`:''}</div></div>`;
   const replies=messages.map(conversationMessageHtml).join('');
   const hasRetestRequest=messages.some(m=>m.eventType==='retest-request');
   const hasRetestSubmission=messages.some(m=>m.eventType==='retest-submitted');
