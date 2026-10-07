@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 220
+// RebataTrack Admin Portal — Website Build 221
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1453,21 +1453,24 @@ function testerReviewAppActivity(t){
   const mapping=betaProductionMapping.get(email);
   if(!mapping||mapping.matched!==true)return {label:'App account not set up',exact:'No matching RebataTrack app account',className:'never',date:null};
   const productionUid=String(mapping.productionUid||'').trim();
+  if(productionUid&&!reviewAppActivityByProductionUid.has(productionUid))return {label:'Loading…',exact:'Loading last meaningful RebataTrack app activity',className:'pending',date:null};
   const value=productionUid?reviewAppActivityByProductionUid.get(productionUid):null;
   const date=timestampToDate(value);
   if(!date)return {label:'No app changes recorded',exact:'No meaningful RebataTrack data change has been recorded yet',className:'never',date:null};
   return {label:relativeDate(date),exact:formatDate(date),className:'active',date};
 }
-async function refreshTesterReviewAppActivity(rows,{force=false}={}){
+async function refreshTesterReviewAppActivity(items,{force=false}={}){
   const bridge=window.RebataTrackProductionAdminBridge;
-  if(!bridge||typeof bridge.call!=='function'||!rows?.length)return;
-  const needed=new Set(rows.map(({tester:t})=>{
+  if(!bridge||typeof bridge.call!=='function'||!items?.length)return;
+  const testers=items.map(item=>item?.tester||item).filter(Boolean);
+  const needed=new Set(testers.map(t=>{
     const mapping=betaProductionMapping.get(String(t?.email||'').trim().toLowerCase());
     return mapping?.matched===true?String(mapping.productionUid||'').trim():'';
   }).filter(Boolean));
   if(!needed.size)return;
+  const allLoaded=[...needed].every(uid=>reviewAppActivityByProductionUid.has(uid));
   const fresh=reviewAppActivityLoadedAt&&Date.now()-reviewAppActivityLoadedAt<REVIEW_APP_ACTIVITY_CACHE_TTL_MS;
-  if(!force&&fresh)return;
+  if(optionsForce(force,allLoaded,fresh))return;
   if(reviewAppActivityInFlight)return reviewAppActivityInFlight;
   reviewAppActivityInFlight=(async()=>{
     try{
@@ -1479,13 +1482,17 @@ async function refreshTesterReviewAppActivity(rows,{force=false}={}){
       }
       needed.forEach(uid=>reviewAppActivityByProductionUid.set(uid,newest.get(uid)||null));
       reviewAppActivityLoadedAt=Date.now();
-      renderTesterReviewQueue();
+      renderTesters();
+      const drawer=document.getElementById('adminDrawer');
+      const drawerTesterUid=String(drawer?.dataset?.testerUid||'');
+      if(drawerTesterUid){const current=findTester(drawerTesterUid);if(current&&drawer?.getAttribute('aria-hidden')==='false')openTesterRecord(current);}
     }catch(error){
-      console.warn('Could not load Review Testers meaningful app activity:',error);
+      console.warn('Could not load tester meaningful app activity:',error);
     }finally{reviewAppActivityInFlight=null;}
   })();
   return reviewAppActivityInFlight;
 }
+function optionsForce(force,allLoaded,fresh){return force!==true&&allLoaded&&fresh;}
 
 function betaWarningDefaultReason(t,signals){
   const top=signals?.[0];
@@ -1548,7 +1555,7 @@ function renderTesterReviewQueue(){
     return `<article class="admin-review-tester-card" data-review-card="${esc(t.uid)}"><div class="admin-review-summary"><div class="admin-review-person-line"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'')}</small></div></div></div><div class="admin-review-summary-mid">${chips}<div class="admin-review-activity-strip"><span class="admin-review-activity-item ${esc(appActivity.className)}" title="${esc(appActivity.exact)}"><b>Last app change</b><em>${esc(appActivity.label)}</em></span><span class="admin-review-activity-item ${esc(portalLogin.className)}" title="${esc(portalLogin.exact)}"><b>Portal login</b><em>${esc(portalLogin.label)}</em></span><span class="admin-review-activity-item ${esc(setup.className)}"><b>Setup</b><em>${esc(setup.label)}</em></span></div><div class="admin-review-summary-meta"><span>${warningCount} warning${warningCount===1?'':'s'}</span></div></div><div class="admin-review-summary-actions"><button class="admin-secondary-button admin-review-view" data-open-tester="${esc(t.uid)}" type="button">View</button><button class="admin-review-warning" data-review-warning="${esc(t.uid)}" type="button" ${contact.recent?'disabled':''} ${contact.recent?`title="${esc(`A ${contact.latest.source.toLowerCase()} was sent ${relativeDate(contact.latest.at)}. Another tester-level email is available after 24 hours.`)}"`:''}>${esc(warningButtonLabel)}</button>${disable}<button class="admin-review-icon-button" data-review-toggle="${esc(t.uid)}" type="button" aria-label="Expand tester review"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 9.5 5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button></div></div><div class="admin-review-details"><div class="admin-review-reasons">${signalHtml}</div><div class="admin-review-warning-history"><span><strong>Last meaningful app change:</strong> ${esc(appActivity.exact)}</span><span><strong>Portal login:</strong> ${esc(portalLogin.exact)}</span><span><strong>Setup:</strong> ${esc(setup.label)}</span><span><strong>Last tester email:</strong> ${esc(contactText||'Never')}</span><span><strong>Warnings sent:</strong> ${warningCount}</span><span><strong>Last warning:</strong> ${esc(lastWarning)}</span><span><strong>Last warning type:</strong> ${esc(lastType)}</span></div></div></article>`;
   }).join(''):'<div class="admin-empty-inline">No testers currently need Admin review.</div>';
   const allExpanded=rows.length>0&&[...list.querySelectorAll('.admin-review-tester-card')].every(x=>x.classList.contains('is-expanded'));const toggle=document.getElementById('testerReviewToggleAll');if(toggle)toggle.textContent=allExpanded?'Collapse All':'Expand All';
-  refreshTesterReviewAppActivity(rows).catch(()=>{});
+  refreshTesterReviewAppActivity(state.testers).catch(()=>{});
 }
 function renderTesters(){
   renderTestingAccessReadinessSummary();
@@ -1562,10 +1569,11 @@ function renderTesters(){
     const deviceLine=device||'Device not provided';
     const buildLine=build||'Build not provided';
     const applied=testerAppliedSummary(t);
+    const appActivity=testerReviewAppActivity(t);
     return `<tr>
       <td class="admin-select-col"><label class="admin-timeline-row-check"><input type="checkbox" data-timeline-tester="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${selectedTimelineTesters.has(t.uid)?' checked':''}><span></span></label></td>
       <td><div class="admin-tester-identity-cell"><div class="admin-table-person"><span>${esc((t.name||'?').slice(0,1).toUpperCase())}</span><div><strong>${esc(t.name)}</strong><small>${esc(t.email)}</small><small class="admin-applied-age ${esc(applied.className||'')}" title="${esc(applied.exact)}">${esc(applied.label)}</small></div></div><div class="admin-tester-meta-line"><span class="admin-platform-pill">${esc(t.platform)}</span><span>${esc(buildLine)}</span><span>${esc(deviceLine)}</span>${t.screenSize?`<span>${esc(t.screenSize)}</span>`:''}</div></div></td>
-      <td><div class="admin-tester-status-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small>${Number(t.inactivityWarningCount||0)?`<small class="admin-next-step-last">Activity reminders: ${Number(t.inactivityWarningCount||0)}${Number(t.inactivityWarningCount||0)>=3?' · Final reminder sent':''}</small>`:''}<span class="admin-last-seen">Portal ${esc(portalActivity)} · Login ${esc(loginActivity)}</span></div></td>
+      <td><div class="admin-tester-status-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small><span class="admin-last-app-activity ${esc(appActivity.className)}" title="${esc(appActivity.exact)}"><strong>App activity:</strong> ${esc(appActivity.label)}</span>${Number(t.inactivityWarningCount||0)?`<small class="admin-next-step-last">Activity reminders: ${Number(t.inactivityWarningCount||0)}${Number(t.inactivityWarningCount||0)>=3?' · Final reminder sent':''}</small>`:''}<span class="admin-last-seen">Portal ${esc(portalActivity)} · Login ${esc(loginActivity)}</span></div></td>
       <td>${testerActionHtml(t)}</td>
       <td>${testerProgressHtml(t)}</td>
       <td><div class="admin-tester-participation-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>All required tasks clear</small>'}</div></td>
@@ -1576,6 +1584,7 @@ function renderTesters(){
   document.getElementById('testersEmpty').hidden=data.length>0;
   renderTesterActivityMetrics();
   updateTimelineSelectionUI();
+  refreshTesterReviewAppActivity(data).catch(()=>{});
 }
 
 function testingAccessSentEmailCopy(t){
@@ -2197,7 +2206,7 @@ async function switchView(view){
   updateSupportInboxAutoSync();
 }
 function openDrawer(kicker,title,html){document.getElementById('drawerKicker').textContent=kicker;document.getElementById('drawerTitle').textContent=title;document.getElementById('adminDrawerContent').innerHTML=html;document.getElementById('adminDrawerBackdrop').hidden=false;document.getElementById('adminDrawer').classList.add('is-open');document.getElementById('adminDrawer').setAttribute('aria-hidden','false');}
-function closeDrawer(){if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}adminConversationMessageCount=0;activeDrawerFeedbackId=null;document.getElementById('adminDrawerBackdrop').hidden=true;document.getElementById('adminDrawer').classList.remove('is-open');document.getElementById('adminDrawer').setAttribute('aria-hidden','true');}
+function closeDrawer(){if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}adminConversationMessageCount=0;activeDrawerFeedbackId=null;const drawer=document.getElementById('adminDrawer');if(drawer){delete drawer.dataset.testerUid;drawer.classList.remove('is-open');drawer.setAttribute('aria-hidden','true');}document.getElementById('adminDrawerBackdrop').hidden=true;}
 function findApp(id){return state.applications.find(a=>a.id===id)||state.recentApplications.find(a=>a.id===id);}
 function findFeedback(id){return state.feedback.find(f=>f.id===id)||state.recentFeedback.find(f=>f.id===id);}
 function findTester(uid){return state.testers.find(t=>t.uid===uid);}
@@ -2245,8 +2254,11 @@ function openTesterRecord(t){
   const actions=[reminderAction,emailAction,accessAction,deleteAction].filter(Boolean).join('');
   const nextIndex=Math.min(TIMELINE_STAGES.length-1,timelineStageRank(timelineStage)+1);const canAdvance=timelineStage!=='activeTesting'&&t.accessStatus==='Enabled';
   const lastActive=activity.anchor?formatDate(activity.anchor):'Never';
+  const appActivity=testerReviewAppActivity(t);
   const lastFeedbackText=lastFeedback?`${formatDate(lastFeedback.submittedAt)} · ${lastFeedback.subject||'Feedback'}`:'No beta feedback submitted yet';
-  openDrawer('Tester Activity',t.name,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus)}</span><span class="admin-platform-pill">${esc(t.platform)}</span>${testerTimelineDisplayHtml(t)}</div><div class="admin-scorecard-drawer"><div><span>Tasks Completed</span><strong>${score.tasksCompleted}</strong><small>${score.tasksPending} pending</small></div><div><span>Feedback Submitted</span><strong>${score.feedbackCount}</strong><small>${esc(lastFeedbackText)}</small></div><div><span>Retests Completed</span><strong>${score.retests}</strong><small>Feedback fixes retested</small></div><div><span>Days Inactive</span><strong>${activity.days===999?'—':activity.days}</strong><small>${esc(activity.reason)}</small></div></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(t.email)}</strong></div><div><span>Last Portal Activity</span><strong>${esc(lastActive)}</strong></div><div><span>Last Login</span><strong>${esc(t.lastLogin?formatDate(t.lastLogin):'Never')}</strong></div><div><span>Last Feedback</span><strong>${esc(lastFeedback?formatDate(lastFeedback.submittedAt):'Never')}</strong></div><div><span>Last Reported Build</span><strong>${esc(build||'Not provided')}</strong></div><div><span>Device Model</span><strong>${esc(t.deviceModel||device||'Not provided')}</strong></div><div><span>OS Version</span><strong>${esc(t.osVersion||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(t.screenSize||'Not provided')}</strong></div><div><span>Created</span><strong>${esc(formatDate(t.createdAt))}</strong></div><div><span>Authentication</span><strong>Email verification code</strong></div></div>${testerProductionResolutionHtml(t)}<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Program timeline stage</span><p>Choose the milestone this tester has reached. Their portal will mark earlier steps complete and highlight what they should do next.</p></div><div class="beta-field"><label for="drawerTimelineStage">Current milestone</label><select id="drawerTimelineStage">${timelineStageOptions(t.platform,timelineStage)}</select></div><div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-save-timeline="${esc(t.uid)}" type="button">Set Exact Stage</button><button class="admin-primary-button" data-advance-timeline="${esc(t.uid)}" data-next-stage="${esc(TIMELINE_STAGES[nextIndex])}" type="button"${canAdvance?'':' disabled'}>${canAdvance?'Advance to Next Stage':'Active Testing'}</button></div></div><div><label class="admin-detail-label">Outstanding required tasks</label><div class="admin-task-response-list">${pendingHtml}</div></div><div class="admin-drawer-actions">${actions}</div></div>`);
+  openDrawer('Tester Activity',t.name,`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus)}</span><span class="admin-platform-pill">${esc(t.platform)}</span>${testerTimelineDisplayHtml(t)}</div><div class="admin-scorecard-drawer"><div><span>Tasks Completed</span><strong>${score.tasksCompleted}</strong><small>${score.tasksPending} pending</small></div><div><span>Feedback Submitted</span><strong>${score.feedbackCount}</strong><small>${esc(lastFeedbackText)}</small></div><div><span>Retests Completed</span><strong>${score.retests}</strong><small>Feedback fixes retested</small></div><div><span>Days Inactive</span><strong>${activity.days===999?'—':activity.days}</strong><small>${esc(activity.reason)}</small></div></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(t.email)}</strong></div><div><span>Last App Activity</span><strong>${esc(appActivity.label)}</strong><small>${esc(appActivity.exact)}</small></div><div><span>Last Portal Activity</span><strong>${esc(lastActive)}</strong></div><div><span>Last Login</span><strong>${esc(t.lastLogin?formatDate(t.lastLogin):'Never')}</strong></div><div><span>Last Feedback</span><strong>${esc(lastFeedback?formatDate(lastFeedback.submittedAt):'Never')}</strong></div><div><span>Last Reported Build</span><strong>${esc(build||'Not provided')}</strong></div><div><span>Device Model</span><strong>${esc(t.deviceModel||device||'Not provided')}</strong></div><div><span>OS Version</span><strong>${esc(t.osVersion||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(t.screenSize||'Not provided')}</strong></div><div><span>Created</span><strong>${esc(formatDate(t.createdAt))}</strong></div><div><span>Authentication</span><strong>Email verification code</strong></div></div>${testerProductionResolutionHtml(t)}<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Program timeline stage</span><p>Choose the milestone this tester has reached. Their portal will mark earlier steps complete and highlight what they should do next.</p></div><div class="beta-field"><label for="drawerTimelineStage">Current milestone</label><select id="drawerTimelineStage">${timelineStageOptions(t.platform,timelineStage)}</select></div><div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-save-timeline="${esc(t.uid)}" type="button">Set Exact Stage</button><button class="admin-primary-button" data-advance-timeline="${esc(t.uid)}" data-next-stage="${esc(TIMELINE_STAGES[nextIndex])}" type="button"${canAdvance?'':' disabled'}>${canAdvance?'Advance to Next Stage':'Active Testing'}</button></div></div><div><label class="admin-detail-label">Outstanding required tasks</label><div class="admin-task-response-list">${pendingHtml}</div></div><div class="admin-drawer-actions">${actions}</div></div>`);
+  const drawer=document.getElementById('adminDrawer');if(drawer)drawer.dataset.testerUid=String(t.uid||'');
+  refreshTesterReviewAppActivity([t]).catch(()=>{});
 }
 function feedbackWorkflowOptions(f){
   const status=canonicalFeedbackStatus(f.status);
@@ -3285,4 +3297,4 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
 
-// Website Build 220 cache/deployment stamp.
+// Website Build 221 cache/deployment stamp.
