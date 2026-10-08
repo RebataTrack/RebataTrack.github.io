@@ -1,4 +1,4 @@
-// RebataTrack Website Build 199 dependency sync.
+// RebataTrack Website Build 223 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {auth,isAdminUser}=Core;
 const {onAuthStateChanged}=Compat;
-// RebataTrack Production Admin Console — Website Build 199
+// RebataTrack Production Admin Console — Website Build 223
 // Uses the signed-in Admin Portal Firebase session only as the administrator identity.
 // All privileged production reads/writes go through the Production Admin Worker.
 // No production service-account secret is ever present in browser code.
@@ -24,6 +24,7 @@ const state = {
   identities: [],
   access: { premiumGrants: [], trialOverrides: [], reviewAccess: [], summary: {} },
   audit: [],
+  messages: [],
   selectedUser: null,
   selectedUserDetail: null,
   selectedProductionUsers: new Set(),
@@ -155,6 +156,7 @@ function switchProductionView(view,focus=''){
   if(state.view==='identities') loadIdentities().catch(err=>showProdToast(err.message,'error'));
   if(state.view==='access') loadAccess().then(()=>{if(focus)focusProductionAccessTarget(focus);}).catch(err=>showProdToast(err.message,'error'));
   if(state.view==='audit') loadAudit().catch(err=>showProdToast(err.message,'error'));
+  if(state.view==='messages') Promise.all([loadUsers(),loadMessages()]).then(renderProductionMessageUsers).catch(err=>showProdToast(err.message,'error'));
   if(state.view==='settings') fillSettings();
 }
 
@@ -173,6 +175,7 @@ async function initializeProduction(force=false){
     else if(state.view==='identities') await loadIdentities(true);
     else if(state.view==='access') await loadAccess(true);
     else if(state.view==='audit') await loadAudit(true);
+    else if(state.view==='messages'){await Promise.all([loadUsers(true),loadMessages(true)]);renderProductionMessageUsers();}
   }catch(error){setConnectionUI(false);productionMessage(error.message,'error');renderDisconnected();}
   state.initialized=true;
 }
@@ -690,9 +693,64 @@ async function revokeAction(kind,button){
   finally{button.disabled=false;button.textContent=original;}
 }
 
+
+async function loadMessages(force=false){
+  if(state.messages.length&&!force){renderProductionMessages();return;}
+  const data=await callProduction('messages-list',{limit:200});
+  state.messages=Array.isArray(data.messages)?data.messages:[];
+  renderProductionMessages();
+}
+function renderProductionMessageUsers(){
+  const select=$('productionMessageSelectedUsers');if(!select)return;
+  const rows=[...state.users].sort((a,b)=>String(a.name||a.email||'').localeCompare(String(b.name||b.email||'')));
+  const selected=new Set([...select.selectedOptions].map(o=>o.value));
+  select.innerHTML=rows.map(u=>`<option value="${esc(u.uid||u.id||'')}" ${selected.has(String(u.uid||u.id||''))?'selected':''}>${esc(u.name||'User')} — ${esc(u.email||'')}</option>`).join('');
+}
+function renderProductionMessages(){
+  const list=$('productionMessageList'),count=$('productionMessageCount');if(!list)return;
+  if(count)count.textContent=String(state.messages.length);
+  if(!state.messages.length){list.innerHTML='<div class="admin-empty-inline">No production in-app messages have been published yet.</div>';return;}
+  list.innerHTML=state.messages.map(m=>{
+    const platforms=Array.isArray(m.platforms)?m.platforms:[];
+    const audience=m.audienceType==='selected'?`${Number(m.recipientCount||0)} selected user${Number(m.recipientCount||0)===1?'':'s'}`:'All production users';
+    return `<div class="production-message-row"><div class="production-message-row-copy"><strong>${esc(m.title||'Message')}</strong><small>${esc(m.active===false?'Inactive':'Active')} · ${esc(audience)} · ${esc(fmtDateTime(m.createdAt))}</small><div class="production-message-platforms">${platforms.map(x=>`<span>${esc(x)}</span>`).join('')}</div><p>${esc(m.message||'')}</p></div><div class="production-message-row-actions">${m.active===false?'':`<button class="admin-secondary-button" data-production-message-deactivate="${esc(m.id)}" type="button">Deactivate</button>`}</div></div>`;
+  }).join('');
+}
+function productionMessageStatus(message='',type=''){
+  const el=$('productionMessageStatus');if(!el)return;el.textContent=message;el.className='production-action-message'+(type?` ${type}`:'');
+}
+async function publishProductionMessage(){
+  const button=$('productionMessagePublish');
+  const title=String($('productionMessageTitle')?.value||'').trim();
+  const message=String($('productionMessageBody')?.value||'').trim();
+  const platforms=[];if($('productionMessageIOS')?.checked)platforms.push('iOS');if($('productionMessageAndroid')?.checked)platforms.push('Android');if($('productionMessageWeb')?.checked)platforms.push('Web');
+  const audienceType=$('productionMessageAudience')?.value==='selected'?'selected':'all';
+  const selectedUIDs=audienceType==='selected'?[...($('productionMessageSelectedUsers')?.selectedOptions||[])].map(o=>o.value).filter(Boolean):[];
+  const important=!!$('productionMessageImportant')?.checked;
+  const expiresRaw=String($('productionMessageExpires')?.value||'').trim();
+  if(title.length<2){productionMessageStatus('Enter a headline.','error');return;}
+  if(message.length<2){productionMessageStatus('Enter a message.','error');return;}
+  if(!platforms.length){productionMessageStatus('Select at least one platform.','error');return;}
+  if(audienceType==='selected'&&!selectedUIDs.length){productionMessageStatus('Select at least one production user.','error');return;}
+  let expiresAt=null;if(expiresRaw){const d=new Date(expiresRaw);if(Number.isNaN(d.getTime())){productionMessageStatus('Choose a valid expiration date/time.','error');return;}expiresAt=d.toISOString();}
+  button.disabled=true;const old=button.innerHTML;button.textContent='Publishing…';productionMessageStatus('');
+  try{
+    const result=await callProduction('message-publish',{title,message,platforms,audienceType,selectedUIDs,important,expiresAt});
+    showProdToast(`In-app message published${result.recipientCount?` to ${result.recipientCount} selected users`:''}.`);
+    $('productionMessageTitle').value='';$('productionMessageBody').value='';$('productionMessageImportant').checked=false;$('productionMessageExpires').value='';
+    state.messages=[];await loadMessages(true);
+  }catch(error){productionMessageStatus(error.message,'error');}
+  finally{button.disabled=false;button.innerHTML=old;}
+}
+async function deactivateProductionMessage(id,button){
+  if(!id)return;button.disabled=true;const old=button.textContent;button.textContent='Deactivating…';
+  try{await callProduction('message-deactivate',{messageId:id});showProdToast('In-app message deactivated.');state.messages=[];await loadMessages(true);}
+  catch(error){showProdToast(error.message,'error');button.disabled=false;button.textContent=old;}
+}
+
 async function refreshProduction(){
   const btn=$('productionAdminRefresh'); if(btn)btn.classList.add('is-spinning');
-  try{state.overview=null;await loadOverview(true);if(state.view==='users'){state.users=[];await loadUsers(true);}else if(state.view==='devices'){state.devices=[];await loadDevices(true);}else if(state.view==='identities'){state.identities=[];await loadIdentities(true);}else if(state.view==='access'){state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};await loadAccess(true);}else if(state.view==='audit'){state.audit=[];await loadAudit(true);}showProdToast('Production data refreshed.');}
+  try{state.overview=null;await loadOverview(true);if(state.view==='users'){state.users=[];await loadUsers(true);}else if(state.view==='devices'){state.devices=[];await loadDevices(true);}else if(state.view==='identities'){state.identities=[];await loadIdentities(true);}else if(state.view==='access'){state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};await loadAccess(true);}else if(state.view==='audit'){state.audit=[];await loadAudit(true);}else if(state.view==='messages'){state.messages=[];state.users=[];await Promise.all([loadUsers(true),loadMessages(true)]);renderProductionMessageUsers();}showProdToast('Production data refreshed.');}
   catch(error){showProdToast(error.message,'error');}
   finally{if(btn)btn.classList.remove('is-spinning');}
 }
@@ -712,6 +770,7 @@ document.addEventListener('click',event=>{
   if(event.target.closest('[data-production-cancel-action]')){closeAction();return;}
   const submit=event.target.closest('[data-production-submit]');if(submit){submitAction(submit.dataset.productionSubmit,submit);return;}
   const revoke=event.target.closest('[data-production-revoke]');if(revoke){revokeAction(revoke.dataset.productionRevoke,revoke);return;}
+  const deactivateMessage=event.target.closest('[data-production-message-deactivate]');if(deactivateMessage){deactivateProductionMessage(deactivateMessage.dataset.productionMessageDeactivate,deactivateMessage);return;}
 });
 // Use 'change' instead of 'click' for checkboxes because the custom checkbox CSS
 // sets pointer-events:none on the real input — clicks land on the <span> visual,
@@ -726,6 +785,8 @@ $('productionDrawerClose')?.addEventListener('click',closeUserDrawer);$('product
 $('productionActionClose')?.addEventListener('click',closeAction);$('productionActionBackdrop')?.addEventListener('click',event=>{if(event.target===$('productionActionBackdrop'))closeAction();});
 $('productionUserSearch')?.addEventListener('input',renderUsers);$('productionUserFilter')?.addEventListener('change',renderUsers);$('productionDeviceSearch')?.addEventListener('input',renderDevices);
 $('productionAdminRefresh')?.addEventListener('click',refreshProduction);
+$('productionMessagePublish')?.addEventListener('click',publishProductionMessage);
+$('productionMessageAudience')?.addEventListener('change',()=>{const selected=$('productionMessageAudience')?.value==='selected';if($('productionMessageSelectedWrap'))$('productionMessageSelectedWrap').hidden=!selected;if(selected){loadUsers().then(renderProductionMessageUsers).catch(err=>showProdToast(err.message,'error'));}});
 $('productionBulkDelete')?.addEventListener('click',bulkDeleteProductionUsers);
 $('productionWorkerSave')?.addEventListener('click',async()=>{
   const value=String($('productionWorkerUrl')?.value||'').trim().replace(/\/$/,'');
