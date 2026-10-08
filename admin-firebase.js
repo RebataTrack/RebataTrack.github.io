@@ -1962,16 +1962,16 @@ async function createAnnouncement(){
     batch.set(assignmentRef,{recordType:'Announcement',taskId:taskRef.id,announcementTitle:title,announcementMessage:message,announcementAudience:audience,announcementImportant:important,requiresAcknowledgement,testerUid:t.uid,applicationId:t.applicationId||'',name:t.name||'',email:String(t.email||'').toLowerCase(),platform:t.platform||'',status:requiresAcknowledgement?'Awaiting Acknowledgement':'Published',response:requiresAcknowledgement?'':'Informational',assignedAt:serverTimestamp(),publishedAt:serverTimestamp(),acknowledgedAt:null,announcementArchived:false,emailNotificationRequested:emailTesters,updatedAt:serverTimestamp()});
   });
   await batch.commit();
-  let emailSent=0,emailFailed=0;const emailErrors=[];
+  let emailSent=0,emailSkipped=0,emailFailed=0;const emailErrors=[];
   if(emailTesters){
     for(const t of testers){
-      try{await callWorkerAdminAction('portal-announcement',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').toLowerCase(),name:t.name||'Tester',platform:t.platform||'',announcementTitle:title,announcementMessage:message,important,requiresAcknowledgement});emailSent++;}
+      try{const result=await callWorkerAdminAction('portal-announcement',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').toLowerCase(),name:t.name||'Tester',platform:t.platform||'',announcementTitle:title,announcementMessage:message,important,requiresAcknowledgement});if(result?.sent===false)emailSkipped++;else emailSent++;}
       catch(err){emailFailed++;emailErrors.push(String(err&&err.message||'Email delivery failed.'));}
     }
   }
   state.loaded.tasks=false;await loadTasks(true);renderAnnouncements();
   document.getElementById('announcementTitle').value='';document.getElementById('announcementMessage').value='';document.getElementById('announcementAudience').value='All';document.getElementById('announcementImportant').checked=false;document.getElementById('announcementAckRequired').checked=true;if(document.getElementById('announcementEmailTesters'))document.getElementById('announcementEmailTesters').checked=false;
-  return {count:testers.length,emailSent,emailFailed,emailErrors,emailTesters};
+  return {count:testers.length,emailSent,emailSkipped,emailFailed,emailErrors,emailTesters};
 }
 function openAnnouncementRecord(t){
   const stats=announcementStats(t);const status=t.status||'Published';
@@ -3284,7 +3284,7 @@ if(announcementTestButton)announcementTestButton.addEventListener('click',()=>{i
 if(announcementTestCancel)announcementTestCancel.addEventListener('click',()=>{if(announcementTestPanel)announcementTestPanel.hidden=true;setAnnouncementTestMessage('');});
 if(announcementTestEmail)announcementTestEmail.addEventListener('input',()=>{updateAnnouncementTestSendState();setAnnouncementTestMessage('');});
 if(announcementTestSend)announcementTestSend.addEventListener('click',async()=>{const recipient=String(announcementTestEmail?.value||'').trim();const original=announcementTestSend.textContent;announcementTestSend.disabled=true;announcementTestSend.textContent='Sending…';setAnnouncementTestMessage('');try{await sendAnnouncementTestEmail();setAnnouncementTestMessage(`Test announcement sent successfully to ${recipient}`,'success');showToast(`Test announcement sent successfully to ${recipient}`,'success');}catch(err){setAnnouncementTestMessage(friendlyFirebaseError(err),'error');showToast(friendlyFirebaseError(err),'error');}finally{announcementTestSend.textContent=original;updateAnnouncementTestSendState();}});
-const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
+const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailSkipped||0} skipped; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}${result.emailSkipped?`; ${result.emailSkipped} opted out/skipped`:''}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
 document.addEventListener('click',async event=>{
   const correct=event.target.closest('[data-correct-production-email]');

@@ -2719,3 +2719,20 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 /* Website Build 212 cache/deployment stamp. */
 
 /* Website Build 222 cache/deployment stamp. */
+
+/* Audit hardening: keyboard focus and reduced-motion accessibility */
+:where(a[href],button,input,select,textarea,summary,[tabindex]):focus-visible{
+  outline:3px solid rgba(20,92,242,.48);
+  outline-offset:3px;
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    scroll-behavior:auto!important;
+    animation-duration:.001ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:.001ms!important;
+  }
+}
+
+.skip-link{position:fixed;left:14px;top:14px;z-index:10000;transform:translateY(-180%);background:#fff;color:#145cf2;border:2px solid #145cf2;border-radius:10px;padding:10px 14px;font-weight:850;box-shadow:0 8px 24px rgba(0,0,0,.16)}
+.skip-link:focus{transform:translateY(0)}

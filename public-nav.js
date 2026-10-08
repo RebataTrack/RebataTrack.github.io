@@ -1,5 +1,16 @@
 // RebataTrack Website Build 140 dependency sync.
 (() => {
+  const main = document.querySelector('main');
+  if (main) {
+    if (!main.id) main.id = 'main-content';
+    if (!document.querySelector('.skip-link')) {
+      const skip = document.createElement('a');
+      skip.className = 'skip-link';
+      skip.href = `#${main.id}`;
+      skip.textContent = 'Skip to main content';
+      document.body.prepend(skip);
+    }
+  }
   const nav = document.querySelector('header nav');
   if (!nav) return;
   const links = [...nav.querySelectorAll('a')];
