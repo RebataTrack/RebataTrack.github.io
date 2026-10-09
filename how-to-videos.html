@@ -6,31 +6,16 @@
 <section class="page-head"><div class="wrap"><span class="eyebrow"><span class="plus-dot"></span> Help &amp; Learning</span><h1>How-To Videos</h1><p class="lead">Short, step-by-step videos showing how to use RebataTrack. Choose a topic below and watch it directly on this page.</p></div></section>
 <section class="wrap howto-section">
 <div class="howto-grid">
-<article class="howto-card" data-youtube-id=""><div class="howto-video-slot"><div class="howto-placeholder"><span>▶</span><strong>Video coming soon</strong></div></div><div class="howto-copy"><h2>RebataTrack+ How to Record an Order (Manual)</h2><p>Learn how to manually create an order and enter the details RebataTrack uses to track the purchase, requirements, and expected refund.</p></div></article>
-<article class="howto-card" data-youtube-id=""><div class="howto-video-slot"><div class="howto-placeholder"><span>▶</span><strong>Video coming soon</strong></div></div><div class="howto-copy"><h2>RebataTrack+ How to Record an Order with RebataScan</h2><p>See how RebataScan reads order information from a screenshot and helps prefill a new RebataTrack order.</p></div></article>
-<article class="howto-card" data-youtube-id=""><div class="howto-video-slot"><div class="howto-placeholder"><span>▶</span><strong>Video coming soon</strong></div></div><div class="howto-copy"><h2>RebataTrack+ How to Record a Refund</h2><p>Learn how to record a refund, including the refund amount, refund method details, and applicable processing fees.</p></div></article>
-<article class="howto-card" data-youtube-id=""><div class="howto-video-slot"><div class="howto-placeholder"><span>▶</span><strong>Video coming soon</strong></div></div><div class="howto-copy"><h2>RebataTrack+ How to Edit a Refund</h2><p>Learn how to edit an existing refund while keeping the order's refund and fee information accurate.</p></div></article>
-<article class="howto-card" data-youtube-id=""><div class="howto-video-slot"><div class="howto-placeholder"><span>▶</span><strong>Video coming soon</strong></div></div><div class="howto-copy"><h2>RebataTrack+ How to Add and Edit Sources and Accounts</h2><p>Learn how to add and manage rebate sources, shopping accounts, refund methods, and refund accounts in RebataTrack.</p></div></article>
+<article class="howto-card"><div class="howto-video-slot"><iframe src="https://www.youtube-nocookie.com/embed/Qf2J9F8B0IU?rel=0&modestbranding=1" title="RebataTrack+ How to Record an Order (Manual)" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div><div class="howto-copy"><h2>RebataTrack+ How to Record an Order (Manual)</h2><p>Learn how to manually create an order and enter the details RebataTrack uses to track the purchase, requirements, and expected refund.</p></div></article>
+<article class="howto-card"><div class="howto-video-slot"><iframe src="https://www.youtube-nocookie.com/embed/UtG5-cv7oPM?rel=0&modestbranding=1" title="RebataTrack+ How to Record an Order with RebataScan" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div><div class="howto-copy"><h2>RebataTrack+ How to Record an Order with RebataScan</h2><p>See how RebataScan reads order information from a screenshot and helps prefill a new RebataTrack order.</p></div></article>
+<article class="howto-card"><div class="howto-video-slot"><iframe src="https://www.youtube-nocookie.com/embed/kLr5Xwtr6KQ?rel=0&modestbranding=1" title="RebataTrack+ How to Record a Refund" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div><div class="howto-copy"><h2>RebataTrack+ How to Record a Refund</h2><p>Learn how to record a refund, including the refund amount, refund method details, and applicable processing fees.</p></div></article>
+<article class="howto-card"><div class="howto-video-slot"><iframe src="https://www.youtube-nocookie.com/embed/4I3fxy457JA?rel=0&modestbranding=1" title="RebataTrack+ How to Edit a Refund" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div><div class="howto-copy"><h2>RebataTrack+ How to Edit a Refund</h2><p>Learn how to edit an existing refund while keeping the order's refund and fee information accurate.</p></div></article>
+<article class="howto-card"><div class="howto-video-slot"><iframe src="https://www.youtube-nocookie.com/embed/lNFkGoE24cA?rel=0&modestbranding=1" title="RebataTrack+ How to Add and Edit Sources and Accounts" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div><div class="howto-copy"><h2>RebataTrack+ How to Add and Edit Sources and Accounts</h2><p>Learn how to add and manage rebate sources, shopping accounts, refund methods, and refund accounts in RebataTrack.</p></div></article>
 </div>
 <div class="notice howto-note"><strong>More tutorials will be added here as RebataTrack grows.</strong> The app's Help &amp; Learning section always links back to this page.</div>
 </section>
 </main>
 <footer><div class="wrap foot"><div>© 2026 RebataTrack. All rights reserved.</div><div class="foot-links"><a href="index.html">Home</a><a href="support.html">Support</a><a href="privacy.html">Privacy Policy</a><a href="terms.html">Terms of Service</a></div></div></footer>
-<script>
-// Add a YouTube video by placing its video ID in the corresponding article's data-youtube-id.
-// Example: data-youtube-id="fueAy8dlwiw". The page uses youtube-nocookie.com, matching the Beta page.
-document.querySelectorAll('.howto-card[data-youtube-id]').forEach(card=>{
-  const id=(card.dataset.youtubeId||'').trim();
-  if(!id)return;
-  const slot=card.querySelector('.howto-video-slot');
-  if(!slot)return;
-  const iframe=document.createElement('iframe');
-  iframe.src=`https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?rel=0&modestbranding=1`;
-  iframe.title=card.querySelector('h2')?.textContent||'RebataTrack how-to video';
-  iframe.loading='lazy'; iframe.allow='accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'; iframe.allowFullscreen=true;
-  slot.replaceChildren(iframe);
-});
-</script>
 <script src="public-nav.js?v=224.1"></script>
 <footer data-rebatatrack-website-build="224" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#66758b;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 224</footer>
 </body></html>
