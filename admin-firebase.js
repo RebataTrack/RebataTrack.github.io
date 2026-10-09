@@ -1914,7 +1914,22 @@ function announcementStats(t){
 function renderAnnouncements(){
   const list=document.getElementById('announcementList');if(!list)return;
   const campaigns=announcementCampaigns();
+  renderAnnouncementRecipientPicker();
   list.innerHTML=campaigns.length?campaigns.map(t=>{const stats=announcementStats(t);const status=t.status||'Published';const ack=t.requiresAcknowledgement?`${stats.acknowledged}/${stats.total} acknowledged`:'No acknowledgement required';return `<button class="admin-announcement-row" type="button" data-open-announcement="${esc(t.id)}"><span class="admin-announcement-row-icon${t.important?' is-important':''}">!</span><span class="admin-announcement-row-copy"><span><strong>${esc(t.title||'Beta update')}</strong><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><small>${esc(t.audience||'All')} · ${esc(formatDate(t.publishedAt||t.createdAt))} · ${esc(ack)}</small><p>${esc(t.message||'')}</p></span><span class="admin-feedback-chevron">›</span></button>`;}).join(''):'<div class="admin-empty-inline">No announcements have been published yet.</div>';
+}
+// Selection persists during searches; visibility is purely a filter.
+const announcementSelectedUids=new Set();
+function renderAnnouncementRecipientPicker(){
+  const audience=document.getElementById('announcementAudience')?.value||'All';
+  const wrap=document.getElementById('announcementSelectedWrap');if(wrap)wrap.hidden=audience!=='Selected';
+  if(audience!=='Selected')return;
+  const search=String(document.getElementById('announcementSelectedSearch')?.value||'').trim().toLowerCase();
+  const testers=activeTaskTesters();
+  const eligibleIds=new Set(testers.map(t=>String(t.uid)));
+  for(const id of announcementSelectedUids)if(!eligibleIds.has(id))announcementSelectedUids.delete(id);
+  const list=document.getElementById('announcementSelectedList');
+  if(list)list.innerHTML=testers.filter(t=>!search||`${t.name||''} ${t.email||''}`.toLowerCase().includes(search)).map(t=>`<label><input type="checkbox" data-announcement-recipient value="${esc(t.uid)}" ${announcementSelectedUids.has(String(t.uid))?'checked':''}/><span><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'Unknown')}</small></span></label>`).join('')||'<p style="padding:10px">No eligible testers match your search.</p>';
+  const counter=document.getElementById('announcementSelectedCount');if(counter)counter.textContent=`${announcementSelectedUids.size} selected · ${testers.length} eligible testers`;
 }
 function announcementDraft(){
   return {
@@ -1958,8 +1973,8 @@ async function createAnnouncement(){
   const emailTesters=important||emailRequested;
   if(title.length<2)throw new Error('Enter an announcement headline.');
   if(message.length<2)throw new Error('Enter the announcement message.');
-  const testers=activeTaskTesters().filter(t=>audience==='All'||t.platform===audience);
-  if(!testers.length)throw new Error('No active testers match this announcement audience.');
+  const testers=activeTaskTesters().filter(t=>audience==='Selected'?announcementSelectedUids.has(String(t.uid)):audience==='All'||t.platform===audience);
+  if(!testers.length)throw new Error(audience==='Selected'?'Select at least one eligible tester before publishing.':'No active testers match this announcement audience.');
   const taskRef=doc(collection(db,'betaTasks'));
   const batch=writeBatch(db);
   batch.set(taskRef,{recordType:'Announcement',title,message,audience,important,requiresAcknowledgement,emailTesters,status:'Published',recipientCount:testers.length,publishedAt:serverTimestamp(),createdAt:serverTimestamp(),updatedAt:serverTimestamp(),createdBy:adminEmail});
@@ -1976,7 +1991,7 @@ async function createAnnouncement(){
     }
   }
   state.loaded.tasks=false;await loadTasks(true);renderAnnouncements();
-  document.getElementById('announcementTitle').value='';document.getElementById('announcementMessage').value='';document.getElementById('announcementAudience').value='All';document.getElementById('announcementImportant').checked=false;document.getElementById('announcementAckRequired').checked=true;if(document.getElementById('announcementEmailTesters'))document.getElementById('announcementEmailTesters').checked=false;
+  document.getElementById('announcementTitle').value='';document.getElementById('announcementMessage').value='';document.getElementById('announcementAudience').value='All';announcementSelectedUids.clear();document.getElementById('announcementSelectedSearch').value='';renderAnnouncementRecipientPicker();document.getElementById('announcementImportant').checked=false;document.getElementById('announcementAckRequired').checked=true;if(document.getElementById('announcementEmailTesters'))document.getElementById('announcementEmailTesters').checked=false;
   return {count:testers.length,emailSent,emailSkipped,emailFailed,emailErrors,emailTesters};
 }
 function openAnnouncementRecord(t){
@@ -3340,6 +3355,9 @@ if(announcementTestButton)announcementTestButton.addEventListener('click',()=>{i
 if(announcementTestCancel)announcementTestCancel.addEventListener('click',()=>{if(announcementTestPanel)announcementTestPanel.hidden=true;setAnnouncementTestMessage('');});
 if(announcementTestEmail)announcementTestEmail.addEventListener('input',()=>{updateAnnouncementTestSendState();setAnnouncementTestMessage('');});
 if(announcementTestSend)announcementTestSend.addEventListener('click',async()=>{const recipient=String(announcementTestEmail?.value||'').trim();const original=announcementTestSend.textContent;announcementTestSend.disabled=true;announcementTestSend.textContent='Sending…';setAnnouncementTestMessage('');try{await sendAnnouncementTestEmail();setAnnouncementTestMessage(`Test announcement sent successfully to ${recipient}`,'success');showToast(`Test announcement sent successfully to ${recipient}`,'success');}catch(err){setAnnouncementTestMessage(friendlyFirebaseError(err),'error');showToast(friendlyFirebaseError(err),'error');}finally{announcementTestSend.textContent=original;updateAnnouncementTestSendState();}});
+document.getElementById('announcementAudience')?.addEventListener('change',renderAnnouncementRecipientPicker);
+document.getElementById('announcementSelectedSearch')?.addEventListener('input',renderAnnouncementRecipientPicker);
+document.getElementById('announcementSelectedList')?.addEventListener('change',event=>{const input=event.target.closest('input[data-announcement-recipient]');if(!input)return;if(input.checked)announcementSelectedUids.add(input.value);else announcementSelectedUids.delete(input.value);renderAnnouncementRecipientPicker();});
 const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?` ${result.emailSent} email notification${result.emailSent===1?'':'s'} queued for the five-minute review window; ${result.emailFailed||0} failed.`:'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
 document.addEventListener('click',async event=>{
