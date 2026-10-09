@@ -1,4 +1,4 @@
-// RebataTrack Website Build 226 dependency sync.
+// RebataTrack Website Build 227 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 226
+// RebataTrack Admin Portal — Website Build 227
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -82,7 +82,7 @@ const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-const REBATATRACK_WEBSITE_BUILD = 226;
+const REBATATRACK_WEBSITE_BUILD = 227;
 let feedbackAutoCloseTimer = null;
 function enforceWebsiteBuildStamp(){
   document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
@@ -2271,14 +2271,14 @@ async function toggleMeaningfulTester(button){
   const uid=String(button?.dataset.meaningfulUid||'').trim();const email=String(button?.dataset.meaningfulEmail||'').trim().toLowerCase();const appId=String(button?.dataset.meaningfulApp||'').trim();
   const seed=(uid&&findTester(uid))||(appId&&findApp(appId))||state.testers.find(t=>meaningfulIdentityEmail(t)===email)||state.applications.find(a=>meaningfulIdentityEmail(a)===email);
   if(!seed)throw new Error('Tester record is unavailable. Refresh and try again.');
-  const next=!isMeaningfulTester(seed);const batch=writeBatch(db);let writes=0;
+  const next=!isMeaningfulTester(seed);
+  const result=await callWorkerAdminAction('admin-meaningful-tester',{testerUid:uid,email,applicationId:appId,meaningfulTester:next});
+  if(result?.meaningfulTester!==next)throw new Error('The Meaningful Tester update was not confirmed. Refresh and try again.');
   const testers=state.testers.filter(t=>(uid&&t.uid===uid)||(email&&meaningfulIdentityEmail(t)===email));
   const apps=state.applications.filter(a=>(appId&&a.id===appId)||(uid&&String(a.testerUid||'')===uid)||(email&&meaningfulIdentityEmail(a)===email));
-  testers.forEach(t=>{batch.update(doc(db,'betaUsers',t.uid),{meaningfulTester:next,meaningfulTesterUpdatedAt:serverTimestamp(),updatedAt:serverTimestamp()});writes++;});
-  apps.forEach(a=>{batch.update(doc(db,'betaApplications',a.id),{meaningfulTester:next,meaningfulTesterUpdatedAt:serverTimestamp(),lastUpdated:serverTimestamp()});writes++;});
-  if(!writes)throw new Error('No linked Beta record was found for this tester.');
-  await batch.commit();testers.forEach(t=>t.meaningfulTester=next);apps.forEach(a=>a.meaningfulTester=next);
+  testers.forEach(t=>t.meaningfulTester=next);apps.forEach(a=>a.meaningfulTester=next);
   state.recentApplications.forEach(a=>{if((appId&&a.id===appId)||(uid&&String(a.testerUid||'')===uid)||(email&&meaningfulIdentityEmail(a)===email))a.meaningfulTester=next;});
+  if(button){button.classList.toggle('is-on',next);button.querySelector('span')?.replaceChildren(document.createTextNode(next?'★':'☆'));const label=next?'Remove Meaningful Tester marker':'Mark as Meaningful Tester';button.setAttribute('aria-label',label);button.title=label;button.disabled=false;}
   renderOverview();if(state.loaded.applications)renderApplications();if(state.loaded.testers)renderTesters();if(state.loaded.feedback)renderFeedback();if(state.loaded.tasks)renderTasks();
   showToast(next?'Marked as a Meaningful Tester.':'Meaningful Tester marker removed.','success');
 }
