@@ -1,4 +1,4 @@
-// RebataTrack Website Build 227 dependency sync.
+// RebataTrack Website Build 228 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 227
+// RebataTrack Admin Portal — Website Build 228
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -82,7 +82,7 @@ const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-const REBATATRACK_WEBSITE_BUILD = 227;
+const REBATATRACK_WEBSITE_BUILD = 228;
 let feedbackAutoCloseTimer = null;
 function enforceWebsiteBuildStamp(){
   document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
