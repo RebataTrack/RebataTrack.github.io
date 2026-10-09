@@ -132,6 +132,7 @@ function canonicalConversationStatus(value){
 function conversationIsClosed(f){return !!f&&canonicalConversationStatus(f.status)==='Closed';}
 function testerConversationResponsibility(f){
   if(!f||conversationIsClosed(f))return '';
+  if(canonicalConversationStatus(f.status)==='Feature Request Hold')return '';
   const lastBy=String(f.lastMessageBy||'').trim();
   if(lastBy==='Admin')return 'Waiting for you';
   if(lastBy==='Tester')return 'Waiting on RebataTrack';
@@ -158,6 +159,7 @@ function renderSupportLauncher(){
 function feedbackPublicStatus(f){
   const status=canonicalConversationStatus(f&&f.status);
   if(status==='Closed')return {label:'Resolved',className:'resolved'};
+  if(status==='Feature Request Hold')return {label:'Feature Request Logged',className:'reviewing'};
   if(status==='Needs Retest'&&f.retestedAt)return {label:'Retest submitted',className:'testing'};
   if(status==='Needs Retest')return {label:'Needs retest',className:'testing'};
   const waiting=testerConversationResponsibility(f);
@@ -403,7 +405,7 @@ function renderFeedbackHistory(){
   const list=document.getElementById('portalFeedbackHistory');if(!list)return;
   if(!feedbackHistory.length){list.innerHTML='<div class="portal-feedback-history-empty">No conversations yet.</div>';return;}
   list.innerHTML=feedbackHistory.slice(0,40).map(f=>{
-    const publicStatus=feedbackPublicStatus(f);const support=isSupportConversation(f);const unread=conversationIsUnread(f);const needsRetest=canonicalConversationStatus(f.status)==='Needs Retest'&&!f.retestedAt;const replyNeeded=support&&!conversationIsClosed(f)&&String(f.lastMessageBy||'')==='Admin';
+    const publicStatus=feedbackPublicStatus(f);const support=isSupportConversation(f);const unread=conversationIsUnread(f);const needsRetest=canonicalConversationStatus(f.status)==='Needs Retest'&&!f.retestedAt;const replyNeeded=support&&!conversationIsClosed(f)&&canonicalConversationStatus(f.status)!=='Feature Request Hold'&&String(f.lastMessageBy||'')==='Admin';
     const action=needsRetest?`<button class="portal-retest-button" data-retest-feedback="${escapeHtml(f.id)}" type="button">Retest This Issue</button>`:(replyNeeded?`<button class="portal-conversation-open portal-reply-needed-button" data-open-conversation="${escapeHtml(f.id)}" type="button">Reply Needed</button>`:'');
     const workflow=support?'Support':'Beta Feedback';
     return `<article class="portal-feedback-history-card${(needsRetest||replyNeeded)?' needs-action':''}${unread?' has-unread':''}"><div class="portal-feedback-history-top"><div><span>${escapeHtml(workflow)} · ${escapeHtml(f.type||'Conversation')}${unread?'<b class="portal-history-unread">New update</b>':''}</span><h3>${escapeHtml(f.subject||'Conversation')}</h3></div><span class="portal-feedback-public-status ${publicStatus.className}">${escapeHtml(publicStatus.label)}</span></div><p>${escapeHtml(f.details||'')}</p><div class="portal-feedback-history-meta"><span>${escapeHtml(formatPortalDate(f.lastMessageAt||f.updatedAt||f.submittedAt))}</span>${f.appVersion?`<span>${escapeHtml(f.appVersion)}</span>`:''}${f.pageFeature?`<span>${escapeHtml(f.pageFeature)}</span>`:''}${f.supportAccountEmail?`<span>${escapeHtml(f.supportAccountEmail)}</span>`:''}</div>${f.retestedAt?`<div class="portal-retest-result"><strong>${escapeHtml(f.retestResult||'Retest submitted')}</strong>${f.retestNotes?`<span>${escapeHtml(f.retestNotes)}</span>`:''}</div>`:''}<div class="portal-conversation-card-actions"><button class="portal-conversation-open" data-open-conversation="${escapeHtml(f.id)}" type="button">Open Conversation</button>${action}</div></article>`;

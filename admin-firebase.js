@@ -520,6 +520,7 @@ function canonicalFeedbackStatus(value){
 function adminConversationIsClosed(f){return canonicalFeedbackStatus(f&&f.status)==='Closed';}
 function conversationResponsibility(f,viewer='admin'){
   if(!f||adminConversationIsClosed(f))return '';
+  if(canonicalFeedbackStatus(f.status)==='Feature Request Hold')return '';
   const lastBy=String(f.lastMessageBy||'').trim();
   if(lastBy==='Admin')return viewer==='tester'?'Waiting for you':'Waiting for tester';
   if(lastBy==='Tester')return 'Waiting on RebataTrack';
@@ -528,6 +529,7 @@ function conversationResponsibility(f,viewer='admin'){
 function testerFacingFeedbackStatus(f){
   const status=canonicalFeedbackStatus(f&&f.status);
   if(status==='Closed')return 'Resolved';
+  if(status==='Feature Request Hold')return 'Feature Request Logged';
   if(status==='Needs Retest')return f&&f.retestedAt?'Retest submitted':'Needs retest';
   return conversationResponsibility(f,'tester')||'Waiting on RebataTrack';
 }
