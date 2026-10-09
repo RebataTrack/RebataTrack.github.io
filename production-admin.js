@@ -157,7 +157,7 @@ function switchProductionView(view,focus=''){
   if(state.view==='access') loadAccess().then(()=>{if(focus)focusProductionAccessTarget(focus);}).catch(err=>showProdToast(err.message,'error'));
   if(state.view==='audit') loadAudit().catch(err=>showProdToast(err.message,'error'));
   if(state.view==='messages') Promise.all([loadUsers(),loadMessages()]).then(renderProductionMessageUsers).catch(err=>showProdToast(err.message,'error'));
-  if(state.view==='settings') fillSettings();
+  if(state.view==='settings'){fillSettings();loadClientPolicy().catch(err=>policyMessage(err.message,'error'));}
 }
 
 async function initializeProduction(force=false){
@@ -188,6 +188,47 @@ function renderDisconnected(){
 }
 
 function fillSettings(){ if($('productionWorkerUrl'))$('productionWorkerUrl').value=endpoint(); }
+
+function policyMessage(message,kind=''){
+  const target=$('productionVersionPolicyMessage'); if(!target)return;
+  target.textContent=message||'';
+  target.className='production-connection-message'+(kind?' '+kind:'');
+}
+async function loadClientPolicy(){
+  const status=$('productionVersionPolicyStatus'); if(status)status.textContent='Loading…';
+  const data=await callProduction('client-policy-get');const p=data.policy||{};
+  for(const [field,id] of [['minimumSupportedBuildIOS','policyBuildIOS'],['minimumSupportedBuildAndroid','policyBuildAndroid'],['minimumSupportedBuildWeb','policyBuildWeb']])
+    if($(id))$(id).value=Number.isInteger(p[field])?String(p[field]):'0';
+  for(const [field,id] of [['iosUpdateURL','policyURLIOS'],['androidUpdateURL','policyURLAndroid']])if($(id))$(id).value=String(p[field]||'');
+  if(status)status.textContent=data.exists?'Configured':'Not created';
+  policyMessage(data.exists?'Loaded current production policy.':'No clientPolicy document exists. Save here to create it.');
+}
+async function saveClientPolicy(){
+  const btn=$('productionVersionPolicySave'); if(btn?.disabled)return;
+  const policy={};
+  for(const [field,id] of [['minimumSupportedBuildIOS','policyBuildIOS'],['minimumSupportedBuildAndroid','policyBuildAndroid'],['minimumSupportedBuildWeb','policyBuildWeb']]){
+    const raw=String($(id)?.value??'');const value=Number(raw);
+    if(!raw.trim()||!Number.isSafeInteger(value)||value<0){policyMessage('All minimum builds must be nonnegative whole numbers.','error');return;}
+    policy[field]=value;
+  }
+  policy.iosUpdateURL=String($('policyURLIOS')?.value||'').trim();
+  policy.androidUpdateURL=String($('policyURLAndroid')?.value||'').trim();
+  const reason=String($('policyChangeReason')?.value||'').trim();
+  if(!reason){policyMessage('Enter a reason for the audit log.','error');return;}
+  for(const key of ['iosUpdateURL','androidUpdateURL']){
+    if(policy[key]&&!/^https:\/\//i.test(policy[key])){policyMessage('Update links must use HTTPS.','error');return;}
+  }
+  const confirmation=`Save the production minimum builds?\niOS: ${policy.minimumSupportedBuildIOS}\nAndroid: ${policy.minimumSupportedBuildAndroid}\nWeb: ${policy.minimumSupportedBuildWeb}\n\nOlder versions may immediately be blocked.`;
+  if(!window.confirm(confirmation))return;
+  btn.disabled=true;policyMessage('Saving policy securely…');
+  try{
+    const data=await callProduction('client-policy-save',{policy,reason,confirmInitialEnforcement:true});
+    policyMessage(data.created?'Created appConfig/clientPolicy successfully.':'Production version policy updated.','success');
+    if($('policyChangeReason'))$('policyChangeReason').value='';
+    if($('productionVersionPolicyStatus'))$('productionVersionPolicyStatus').textContent='Configured';
+    showProdToast(data.created?'App version policy created.':'App version policy saved.');
+  }catch(err){policyMessage(err.message,'error');}finally{btn.disabled=false;}
+}
 
 async function loadOverview(force=false){
   if(state.overview&&!force){renderOverview();return;}
@@ -788,6 +829,8 @@ $('productionAdminRefresh')?.addEventListener('click',refreshProduction);
 $('productionMessagePublish')?.addEventListener('click',publishProductionMessage);
 $('productionMessageAudience')?.addEventListener('change',()=>{const selected=$('productionMessageAudience')?.value==='selected';if($('productionMessageSelectedWrap'))$('productionMessageSelectedWrap').hidden=!selected;if(selected){loadUsers().then(renderProductionMessageUsers).catch(err=>showProdToast(err.message,'error'));}});
 $('productionBulkDelete')?.addEventListener('click',bulkDeleteProductionUsers);
+$('productionVersionPolicyReload')?.addEventListener('click',()=>loadClientPolicy().catch(err=>policyMessage(err.message,'error')));
+$('productionVersionPolicySave')?.addEventListener('click',saveClientPolicy);
 $('productionWorkerSave')?.addEventListener('click',async()=>{
   const value=String($('productionWorkerUrl')?.value||'').trim().replace(/\/$/,'');
   if(!/^https:\/\//i.test(value)){productionMessage('Enter the HTTPS URL for the Production Admin Worker.','error');return;}

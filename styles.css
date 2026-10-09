@@ -2757,3 +2757,9 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-automation-health.is-ok{background:#edf8f0;border-color:#cfe7d4;color:#2f7e3b}
 .admin-automation-health.is-warning{background:#fff8dc;border-color:#ead79a;color:#805b00}
 .admin-automation-health.is-error{background:#fff2f0;border-color:#f0c8c3;color:#9f2f23}
+
+/* Build 400: Production version policy */
+.admin-version-policy-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:16px;margin:18px 0}
+.admin-version-policy-grid label{display:flex;flex-direction:column;gap:7px;color:#34445e;font-size:13px;font-weight:700}
+.admin-version-policy-grid input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:11px 12px;color:#13223d;background:#fff;font:inherit}
+.admin-version-policy-grid input:focus{outline:2px solid #3d8bff;outline-offset:1px}
