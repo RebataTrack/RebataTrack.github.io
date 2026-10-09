@@ -82,15 +82,7 @@ const TESTER_CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-const REBATATRACK_WEBSITE_BUILD = 228;
 let feedbackAutoCloseTimer = null;
-function enforceWebsiteBuildStamp(){
-  document.querySelectorAll('[data-rebatatrack-website-build]').forEach(el=>{
-    el.setAttribute('data-rebatatrack-website-build',String(REBATATRACK_WEBSITE_BUILD));
-    el.textContent=`Website Build ${REBATATRACK_WEBSITE_BUILD}`;
-  });
-}
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',enforceWebsiteBuildStamp);else enforceWebsiteBuildStamp();
 // Build 183: the Beta/Production status check reads every Production user, so it is cached for a short time, never run twice at once,
 // and the reason a trial was not granted is remembered so the tester card can show it.
 let betaGrantReasons = new Map();
