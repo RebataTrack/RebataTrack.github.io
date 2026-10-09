@@ -1928,7 +1928,7 @@ function renderAnnouncementRecipientPicker(){
   const eligibleIds=new Set(testers.map(t=>String(t.uid)));
   for(const id of announcementSelectedUids)if(!eligibleIds.has(id))announcementSelectedUids.delete(id);
   const list=document.getElementById('announcementSelectedList');
-  if(list)list.innerHTML=testers.filter(t=>!search||`${t.name||''} ${t.email||''}`.toLowerCase().includes(search)).map(t=>`<label><input type="checkbox" data-announcement-recipient value="${esc(t.uid)}" ${announcementSelectedUids.has(String(t.uid))?'checked':''}/><span><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')} · ${esc(t.platform||'Unknown')}</small></span></label>`).join('')||'<p style="padding:10px">No eligible testers match your search.</p>';
+  if(list)list.innerHTML=testers.filter(t=>!search||`${t.name||''} ${t.email||''}`.toLowerCase().includes(search)).map(t=>`<label class="admin-user-picker-row"><input type="checkbox" data-announcement-recipient value="${esc(t.uid)}" ${announcementSelectedUids.has(String(t.uid))?'checked':''}/><span class="admin-user-picker-copy"><strong>${esc(t.name||'Tester')}</strong><small>${esc(t.email||'')}</small></span><span class="admin-platform-pill">${esc(t.platform||'Unknown')}</span></label>`).join('')||'<p style="padding:10px">No eligible testers match your search.</p>';
   const counter=document.getElementById('announcementSelectedCount');if(counter)counter.textContent=`${announcementSelectedUids.size} selected · ${testers.length} eligible testers`;
 }
 function announcementDraft(){
