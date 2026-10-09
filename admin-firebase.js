@@ -830,8 +830,14 @@ async function loadFeedback(force=false){
   // betaFeedbackAdmin and are fetched for ONE ticket when its drawer opens (ensureFeedbackNotesLoaded), instead of
   // reading up to 500 note documents every time the workspace loads. Only legacy tickets that still carry a note in
   // the tester-readable document need their private document checked (to migrate without overwriting).
-  const snap=await getDocs(query(collection(db,'betaFeedback'),orderBy('submittedAt','desc'),limit(100)),'workspace: feedback (100)');
-  const raw=snap.docs.map(normalizeDoc);
+  // Merge recent submissions with recently updated conversations, so replies to old
+  // tickets are not lost outside the newest-submission window. Keep legacy tickets
+  // without updatedAt visible via the submittedAt query.
+  const [submittedSnap,updatedSnap]=await Promise.all([
+    getDocs(query(collection(db,'betaFeedback'),orderBy('submittedAt','desc'),limit(100)),'workspace: recent feedback submissions (100)'),
+    getDocs(query(collection(db,'betaFeedback'),orderBy('updatedAt','desc'),limit(100)),'workspace: recent feedback activity (100)')
+  ]);
+  const raw=[...new Map([...submittedSnap.docs,...updatedSnap.docs].map(d=>[d.id,normalizeDoc(d)])).values()];
   const previous=new Map(state.feedback.map(f=>[f.id,f]));
   const privateNotes=new Map();
 
@@ -911,7 +917,7 @@ function startFeedbackRealtimeAdmin(){
     if(state.loaded.feedback){
       const byId=new Map(state.feedback.map(f=>[f.id,f]));
       incoming.forEach(f=>{const existing=byId.get(f.id)||{};byId.set(f.id,{...existing,...f,adminNotes:privateNotes.get(f.id)||existing.adminNotes||''});});
-      state.feedback=[...byId.values()].sort((a,b)=>adminNotificationDateMs(b.submittedAt)-adminNotificationDateMs(a.submittedAt)).slice(0,100);
+      state.feedback=[...byId.values()].sort((a,b)=>feedbackLastActivityMs(b)-feedbackLastActivityMs(a)).slice(0,200);
       if(activeView==='feedback')renderFeedback();
       if(activeDrawerFeedbackId){const active=state.feedback.find(f=>f.id===activeDrawerFeedbackId);if(active)syncOpenAdminFeedbackState(active);}
       if(state.loaded.testers)renderTesters();
@@ -1023,7 +1029,7 @@ function renderOverview(){
   const apps=(state.recentApplications||[]).filter(a=>String(a.status||'')!=='Removed');const c=document.getElementById('overviewApplications');
   c.innerHTML=apps.length?apps.map(a=>`<button type="button" class="admin-recent-row" data-open-app="${esc(a.id)}"><span class="admin-person-dot">${esc((a.fullName||'?').slice(0,1).toUpperCase())}</span><span><strong>${esc(a.fullName)}${meaningfulTesterStarIndicatorHtml(a)}</strong><small>${esc(a.platform)} · ${relativeDate(a.submittedAt)}</small></span><span class="admin-status-pill ${statusClass(a.status)}">${esc(a.status)}</span></button>`).join(''):'<div class="admin-empty-inline">No applications yet.</div>';
   const fb=state.recentFeedback||[];const fbc=document.getElementById('overviewFeedback');
-  fbc.innerHTML=fb.length?fb.map(f=>{const needsResponse=feedbackNeedsAdminResponse(f);const lifecycle=canonicalFeedbackStatus(f.status);const responsibility=conversationResponsibility(f,'admin');return `<button class="admin-feedback-preview${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-preview-copy"><strong>${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}${esc(f.subject)}</strong><small>${esc(f.name)}${isEmailSupportConversation(f)?'':meaningfulTesterStarIndicatorHtml(meaningfulLinkedTester(f)||f)} · ${esc(f.type)} · ${relativeDate(f.submittedAt)}${responsibility?' · '+esc(responsibility):''}</small></span><span class="admin-status-pill ${statusClass(lifecycle)}">${esc(lifecycle)}</span></button>`;}).join(''):'<div class="admin-empty-inline">No tester feedback yet.</div>';
+  fbc.innerHTML=fb.length?fb.map(f=>{const needsResponse=feedbackNeedsAdminResponse(f);const lifecycle=canonicalFeedbackStatus(f.status);const responsibility=conversationResponsibility(f,'admin');return `<button class="admin-feedback-preview${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-preview-copy"><strong>${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}${esc(f.subject)}</strong><small>${esc(f.name)}${isEmailSupportConversation(f)?'':meaningfulTesterStarIndicatorHtml(meaningfulLinkedTester(f)||f)} · ${esc(f.type)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)}${responsibility?' · '+esc(responsibility):''}</small></span><span class="admin-status-pill ${statusClass(lifecycle)}">${esc(lifecycle)}</span></button>`;}).join(''):'<div class="admin-empty-inline">No tester feedback yet.</div>';
 }
 function applicationFiltered(){
   const q=document.getElementById('applicationSearch').value.trim().toLowerCase();const status=document.getElementById('applicationStatusFilter').value;const platform=document.getElementById('applicationPlatformFilter').value;
@@ -1760,10 +1766,19 @@ function feedbackCardHtml(f){
   const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const support=isSupportConversation(f);const emailSupport=isEmailSupportConversation(f);const workflow=support?(emailSupport?'Support · Email':'Support · Portal'):'Beta Feedback';const needsResponse=feedbackNeedsAdminResponse(f);const platform=emailSupport?'Email':(f.platform||'Not provided');const responsibility=conversationResponsibility(f,'admin');const statusContext=(emailSupport?'Email':'Tester sees: '+publicStatus)+(responsibility?' · '+responsibility:'');
   return `<button class="admin-feedback-card${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}<strong>${esc(f.subject)}</strong>${needsResponse?'<b class="admin-feedback-update-label">Needs response</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · <span class="admin-inline-person">${esc(f.name||f.email||'Customer')}${isEmailSupportConversation(f)?'':meaningfulTesterStarIndicatorHtml(meaningfulLinkedTester(f)||f)}</span> · ${esc(platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · ${esc(statusContext)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;
 }
+function feedbackDateMs(value){const d=timestampToDate(value);return d?d.getTime():0;}
+function feedbackLastActivityMs(f){
+  return Math.max(feedbackDateMs(f.lastMessageAt),feedbackDateMs(f.updatedAt),feedbackDateMs(f.submittedAt));
+}
+function feedbackClosedMs(f){
+  // Prefer the most recent closure/resolution event, not the initial submission.
+  // updatedAt is the fallback for historical records without dedicated close fields.
+  return Math.max(feedbackDateMs(f.closedAt),feedbackDateMs(f.resolvedAt),feedbackDateMs(f.autoClosedAt),feedbackDateMs(f.updatedAt),feedbackDateMs(f.submittedAt));
+}
 function renderFeedback(){
   const data=feedbackFiltered();const list=document.getElementById('feedbackList');
-  const openRows=data.filter(f=>!adminConversationIsClosed(f));
-  const closedRows=data.filter(adminConversationIsClosed);
+  const openRows=data.filter(f=>!adminConversationIsClosed(f)).sort((a,b)=>feedbackLastActivityMs(b)-feedbackLastActivityMs(a));
+  const closedRows=data.filter(adminConversationIsClosed).sort((a,b)=>feedbackClosedMs(b)-feedbackClosedMs(a));
   const selectedStatus=String(document.getElementById('feedbackStatusFilter')?.value||'');
   const forceOpen=selectedStatus==='Resolved'||selectedStatus==='Closed';
   const openHtml=openRows.map(feedbackCardHtml).join('');
