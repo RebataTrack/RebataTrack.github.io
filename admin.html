@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>RebataTrack Admin Portal</title>
 <link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=112" rel="apple-touch-icon"/><link href="favicon-32.png?v=112" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=112" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=223.0" rel="stylesheet"/>
+<link href="styles.css?v=226.0" rel="stylesheet"/>
 </head>
 <body class="admin-body">
 <div class="admin-loading-screen" id="adminLoading">
@@ -201,7 +201,7 @@
 <div class="admin-table-card admin-testers-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Current status</th><th>Next action</th><th>Progress</th><th>Participation</th><th>Access</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
 </section>
 <section class="admin-view" data-admin-panel="tasks">
-<div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Missed required deadlines are surfaced in Review Testers on the Testers page. Beta access is never disabled automatically.</p></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
+<div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Routine Beta participation email is unified per tester so setup, task, missed-deadline, retest, and inactivity notices do not generate overlapping emails.</p><div class="admin-automation-health" id="taskAutomationHealth">Reminder automation: Checking…</div></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
 <div class="admin-task-metrics">
 <article><span>Open Tasks</span><strong id="taskMetricOpen">0</strong><small>Task campaigns still active</small></article>
 <article><span>Pending Responses</span><strong id="taskMetricPending">0</strong><small>Tester assignments not completed</small></article>
@@ -241,7 +241,7 @@
 <div class="beta-field admin-task-span"><label for="taskInstructions">Tester instructions</label><textarea id="taskInstructions" maxlength="5000" placeholder="Give the tester clear steps and tell them what to report back."></textarea></div>
 <div class="beta-field"><label for="taskResponseType">Required response</label><select id="taskResponseType"><option>Acknowledgement</option><option>Short Answer</option><option>Long Answer</option><option>Yes / No</option></select></div>
 <div class="beta-field"><label for="taskDueAt">Required by</label><input id="taskDueAt" type="datetime-local"/></div>
-<div class="admin-task-span"><label class="admin-task-toggle"><input checked="" id="taskAutoReminders" type="checkbox"/><span><strong>Automatic deadline reminders</strong><small>Email pending testers about 24 hours and again about 4 hours before the deadline.</small></span></label></div>
+<div class="admin-task-span"><label class="admin-task-toggle"><input checked="" id="taskAutoReminders" type="checkbox"/><span><strong>Automatic deadline reminders</strong><small>Include due-soon tasks in the tester’s unified Beta update around 24 hours and 4 hours before the deadline, without sending overlapping reminder emails.</small></span></label></div>
 </div>
 <div class="admin-task-recipient-header"><div><strong>Recipients</strong><span id="taskRecipientSummary">0 selected</span><small class="admin-task-recipient-eligibility">Only testers with active Beta access, completed Testing Setup, and a matched Production account are included.</small></div><div><button class="admin-text-button" id="taskSelectAll" type="button">Select all</button><button class="admin-text-button" id="taskSelectIOS" type="button">Select iOS</button><button class="admin-text-button" id="taskSelectAndroid" type="button">Select Android</button><button class="admin-text-button" id="taskClearAll" type="button">Clear</button></div></div>
 <div class="admin-task-recipient-list" id="taskRecipientList"><div class="admin-empty-inline">Loading task-eligible testers…</div></div>
@@ -458,7 +458,7 @@ setTimeout(function(){
   }
 }, 12000);
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=222.4"></script><script src="production-admin.js?v=223.0"></script>
-<footer data-rebatatrack-website-build="222" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#66758b;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 222</footer>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="admin-firebase.js?v=226.0"></script><script src="production-admin.js?v=223.0"></script>
+<footer data-rebatatrack-website-build="226" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#66758b;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build 226</footer>
 </body>
 </html>
