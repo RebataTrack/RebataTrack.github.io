@@ -1964,7 +1964,7 @@ async function createAnnouncement(){
   let emailSent=0,emailSkipped=0,emailFailed=0;const emailErrors=[];
   if(emailTesters){
     for(const t of testers){
-      try{const result=await callWorkerAdminAction('portal-announcement',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').toLowerCase(),name:t.name||'Tester',platform:t.platform||'',announcementTitle:title,announcementMessage:message,important,requiresAcknowledgement});if(result?.sent===false)emailSkipped++;else emailSent++;}
+      try{const result=await callWorkerAdminAction('portal-announcement',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').toLowerCase(),name:t.name||'Tester',platform:t.platform||'',announcementTitle:title,announcementMessage:message,important,requiresAcknowledgement,batchId:taskRef.id,assignmentId:taskRef.id+'_'+t.uid});if(result?.queued)emailSent++;else emailSkipped++;}
       catch(err){emailFailed++;emailErrors.push(String(err&&err.message||'Email delivery failed.'));}
     }
   }
@@ -2054,7 +2054,7 @@ async function assignExistingTaskToTesters(t,testers){
   const batch=writeBatch(db);
   for(const x of targets){
     const ref=doc(db,'betaTaskAssignments',t.id+'_'+x.uid);
-    batch.set(ref,{recordType:'Task',taskId:t.id,taskTitle:t.title||'Required Beta Program Task',taskObjective:t.objective||'',taskInstructions:t.instructions||'',responseType:t.responseType||'Acknowledgement',templateKey:t.templateKey||'custom',testerUid:x.uid,applicationId:x.applicationId||'',name:x.name||'',email:String(x.email||'').toLowerCase(),platform:x.platform||'',status:'Pending',response:'',assignedAt:serverTimestamp(),dueAt:Timestamp.fromDate(due),dueLabel:'',autoReminders:t.autoReminders!==false,completedAt:null,removedAt:null,emailStatus:'Sending',lastReminderSentAt:null,reminder24hSentAt:null,reminder4hSentAt:null,updatedAt:serverTimestamp()});
+    batch.set(ref,{recordType:'Task',taskId:t.id,taskTitle:t.title||'Required Beta Program Task',taskObjective:t.objective||'',taskInstructions:t.instructions||'',responseType:t.responseType||'Acknowledgement',templateKey:t.templateKey||'custom',testerUid:x.uid,applicationId:x.applicationId||'',name:x.name||'',email:String(x.email||'').toLowerCase(),platform:x.platform||'',status:'Pending',response:'',assignedAt:serverTimestamp(),dueAt:Timestamp.fromDate(due),dueLabel:'',autoReminders:t.autoReminders!==false,completedAt:null,removedAt:null,emailStatus:'Queued in email outbox',lastReminderSentAt:null,reminder24hSentAt:null,reminder4hSentAt:null,updatedAt:serverTimestamp()});
   }
   const newTotal=taskAssignmentStats(t.id).total+targets.length;
   batch.update(doc(db,'betaTasks',t.id),{status:'Active',recipientCount:newTotal,updatedAt:serverTimestamp()});
@@ -2065,9 +2065,9 @@ async function assignExistingTaskToTesters(t,testers){
     const ref=doc(db,'betaTaskAssignments',t.id+'_'+x.uid);
     try{
       await updateDoc(ref,{dueLabel,updatedAt:serverTimestamp()});
-      const digest=await callWorkerAdminAction('admin-unified-tester-digest',{testerUid:x.uid||'',applicationId:x.applicationId||'',email:String(x.email||'').toLowerCase(),name:x.name||'',platform:x.platform||'',source:'task-assigned',includeAllPending:true});
-      if(digest?.sent){await updateDoc(ref,{emailStatus:'Sent in unified update',emailError:deleteField(),emailSentAt:serverTimestamp(),updatedAt:serverTimestamp()});sent++;}
-      else{await updateDoc(ref,{emailStatus:digest?.skipped==='cooldown'?'Queued — recent unified update':'No email needed',emailError:deleteField(),updatedAt:serverTimestamp()});}
+      const digest=await callWorkerAdminAction('task-assigned',{testerUid:x.uid||'',applicationId:x.applicationId||'',email:String(x.email||'').toLowerCase(),name:x.name||'',platform:x.platform||'',batchId:t.id,assignmentId:t.id+'_'+x.uid});
+      if(digest?.queued){await updateDoc(ref,{emailStatus:'Queued in email outbox',emailQueueBatchId:digest.batchId||'',emailError:deleteField(),updatedAt:serverTimestamp()});sent++;}
+      else{await updateDoc(ref,{emailStatus:'No email needed',emailError:deleteField(),updatedAt:serverTimestamp()});}
     }catch(err){const message=String(err&&err.message||'Email delivery failed.').slice(0,500);errors.push(message);await updateDoc(ref,{emailStatus:'Error',emailError:message,updatedAt:serverTimestamp()}).catch(()=>{});failed++;}
   }
   state.loaded.tasks=false;await loadTasks(true);renderTasks();
@@ -2100,7 +2100,7 @@ async function createRequiredTask(){
   batch.set(taskRef,{recordType:'Task',title,objective,instructions,responseType,dueAt:Timestamp.fromDate(due),status:'Active',recipientCount:testers.length,templateKey:templateKey||'custom',templateLabel:template?template.label:'Custom task',autoReminders,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),createdBy:adminEmail});
   for(const t of testers){
     const assignmentRef=doc(db,'betaTaskAssignments',taskRef.id+'_'+t.uid);
-    batch.set(assignmentRef,{recordType:'Task',taskId:taskRef.id,taskTitle:title,taskObjective:objective,taskInstructions:instructions,responseType,templateKey:templateKey||'custom',testerUid:t.uid,applicationId:t.applicationId||'',name:t.name||'',email:String(t.email||'').toLowerCase(),platform:t.platform||'',status:'Pending',response:'',assignedAt:serverTimestamp(),dueAt:Timestamp.fromDate(due),dueLabel:'',autoReminders,completedAt:null,removedAt:null,emailStatus:'Sending',lastReminderSentAt:null,reminder24hSentAt:null,reminder4hSentAt:null,updatedAt:serverTimestamp()});
+    batch.set(assignmentRef,{recordType:'Task',taskId:taskRef.id,taskTitle:title,taskObjective:objective,taskInstructions:instructions,responseType,templateKey:templateKey||'custom',testerUid:t.uid,applicationId:t.applicationId||'',name:t.name||'',email:String(t.email||'').toLowerCase(),platform:t.platform||'',status:'Pending',response:'',assignedAt:serverTimestamp(),dueAt:Timestamp.fromDate(due),dueLabel:'',autoReminders,completedAt:null,removedAt:null,emailStatus:'Queued in email outbox',lastReminderSentAt:null,reminder24hSentAt:null,reminder4hSentAt:null,updatedAt:serverTimestamp()});
   }
   await batch.commit();
   let sent=0,failed=0;const errors=[];
@@ -2109,9 +2109,9 @@ async function createRequiredTask(){
     const ref=doc(db,'betaTaskAssignments',taskRef.id+'_'+t.uid);
     try{
       await updateDoc(ref,{dueLabel,updatedAt:serverTimestamp()});
-      const digest=await callWorkerAdminAction('admin-unified-tester-digest',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').toLowerCase(),name:t.name||'',platform:t.platform||'',source:'task-assigned',includeAllPending:true});
-      if(digest?.sent){await updateDoc(ref,{emailStatus:'Sent in unified update',emailError:deleteField(),emailSentAt:serverTimestamp(),updatedAt:serverTimestamp()});sent++;}
-      else{await updateDoc(ref,{emailStatus:digest?.skipped==='cooldown'?'Queued — recent unified update':'No email needed',emailError:deleteField(),updatedAt:serverTimestamp()});}
+      const digest=await callWorkerAdminAction('task-assigned',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').toLowerCase(),name:t.name||'',platform:t.platform||'',batchId:taskRef.id,assignmentId:taskRef.id+'_'+t.uid});
+      if(digest?.queued){await updateDoc(ref,{emailStatus:'Queued in email outbox',emailQueueBatchId:digest.batchId||'',emailError:deleteField(),updatedAt:serverTimestamp()});sent++;}
+      else{await updateDoc(ref,{emailStatus:'No email needed',emailError:deleteField(),updatedAt:serverTimestamp()});}
     }catch(err){const message=String(err&&err.message||'Email delivery failed.').slice(0,500);errors.push(message);await updateDoc(ref,{emailStatus:'Error',emailError:message,updatedAt:serverTimestamp()}).catch(()=>{});failed++;}
   }
   state.loaded.tasks=false;
@@ -3333,7 +3333,7 @@ if(announcementTestButton)announcementTestButton.addEventListener('click',()=>{i
 if(announcementTestCancel)announcementTestCancel.addEventListener('click',()=>{if(announcementTestPanel)announcementTestPanel.hidden=true;setAnnouncementTestMessage('');});
 if(announcementTestEmail)announcementTestEmail.addEventListener('input',()=>{updateAnnouncementTestSendState();setAnnouncementTestMessage('');});
 if(announcementTestSend)announcementTestSend.addEventListener('click',async()=>{const recipient=String(announcementTestEmail?.value||'').trim();const original=announcementTestSend.textContent;announcementTestSend.disabled=true;announcementTestSend.textContent='Sending…';setAnnouncementTestMessage('');try{await sendAnnouncementTestEmail();setAnnouncementTestMessage(`Test announcement sent successfully to ${recipient}`,'success');showToast(`Test announcement sent successfully to ${recipient}`,'success');}catch(err){setAnnouncementTestMessage(friendlyFirebaseError(err),'error');showToast(friendlyFirebaseError(err),'error');}finally{announcementTestSend.textContent=original;updateAnnouncementTestSendState();}});
-const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?(result.emailFailed?` ${result.emailSent} email${result.emailSent===1?'':'s'} sent; ${result.emailSkipped||0} skipped; ${result.emailFailed} failed.`:` Email sent to ${result.emailSent} tester${result.emailSent===1?'':'s'}${result.emailSkipped?`; ${result.emailSkipped} opted out/skipped`:''}.`):'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
+const announcementPublishButton=document.getElementById('announcementPublishButton');if(announcementPublishButton)announcementPublishButton.addEventListener('click',async()=>{const original=announcementPublishButton.innerHTML;announcementPublishButton.disabled=true;announcementPublishButton.innerHTML='Publishing…';try{const result=await createAnnouncement();const emailNote=result.emailTesters?` ${result.emailSent} email notification${result.emailSent===1?'':'s'} queued for the five-minute review window; ${result.emailFailed||0} failed.`:'';showToast(`Announcement published to ${result.count} tester${result.count===1?'':'s'}.${emailNote}`,result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{announcementPublishButton.disabled=false;announcementPublishButton.innerHTML=original;}});
 ['applicationSearch','applicationStatusFilter','applicationPlatformFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderApplications));
 document.addEventListener('click',async event=>{
   const correct=event.target.closest('[data-correct-production-email]');
@@ -3389,9 +3389,33 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
     retryActivity();
   }
 });
+// Build 234: Admin review and cancellation of five-minute email batches.
+async function refreshBetaEmailOutbox(){
+  const pane=document.getElementById('betaOutboxBatches');if(!pane)return;
+  pane.textContent='Loading queued email batches…';
+  try{
+    const data=await callWorkerAdminAction('admin-outbox-list',{});
+    const batches=(data.batches||[]).filter(b=>b.queued||b.sending).slice(0,50);
+    pane.innerHTML=batches.length?batches.map(b=>`<div style="padding:12px 0;border-bottom:1px solid #e5ebf4"><div><strong>${esc(b.kind||'Beta update')}</strong> · ${esc(b.id)}</div><small>${b.queued} queued · ${b.sending||0} sending · ${b.sent||0} sent · ${b.canceled||0} canceled · Earliest dispatch: ${esc(formatDate(b.scheduledAfter))}</small><div style="margin-top:8px"><button type="button" class="admin-secondary-button" data-outbox-cancel="${esc(b.id)}" ${b.queued?'':'disabled'}>Cancel unsent batch</button></div></div>`).join(''):'<p>No unsent email batches.</p>';
+  }catch(error){pane.textContent='Could not load email queue: '+friendlyFirebaseError(error);}
+}
+const outboxRefresh=document.getElementById('betaOutboxRefresh');
+if(outboxRefresh)outboxRefresh.addEventListener('click',refreshBetaEmailOutbox);
+const outboxBatches=document.getElementById('betaOutboxBatches');
+if(outboxBatches)outboxBatches.addEventListener('click',async e=>{
+  const button=e.target.closest('[data-outbox-cancel]');if(!button)return;
+  const batchId=button.dataset.outboxCancel;
+  if(!confirm('Cancel all unsent email notifications in this batch? Already sent emails cannot be recalled.'))return;
+  button.disabled=true;
+  try{const result=await callWorkerAdminAction('admin-outbox-cancel',{batchId});showToast(`${result.canceled} queued email notifications canceled; ${result.tooLate} already processing or delivered.`,'success');await refreshBetaEmailOutbox();}
+  catch(error){showToast(friendlyFirebaseError(error),'error');button.disabled=false;}
+});
+
+
 })().catch(function(error){
   console.error('RebataTrack page runtime failed:',error);
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
+
 
 // Website Build 222 cache/deployment stamp.
