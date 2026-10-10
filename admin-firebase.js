@@ -1030,12 +1030,36 @@ async function reconcilePendingTasksForInactiveTesters(){
 }
 
 function setNavBadge(id,v){const el=document.getElementById(id);if(!el)return;const count=Number(v||0);el.textContent=count;el.hidden=count<1;}
+// The aggregate Pending count includes expired/closed campaigns, so it must never
+// own the navigation badge. A focused one-time query makes the count accurate even
+// before an administrator opens Tasks. The full task workspace remains lazy-loaded.
+let navTaskCountLoading=null;
+async function refreshActiveTaskNavBadge(){
+  if(state.loaded.tasks){
+    setNavBadge('navTaskCount',regularAssignments().filter(a=>a.status==='Pending'&&assignmentBelongsToActiveCampaign(a)).length);
+    return;
+  }
+  if(navTaskCountLoading)return navTaskCountLoading;
+  navTaskCountLoading=(async()=>{
+    const [taskSnap,assignmentSnap]=await Promise.all([
+      getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100)),'navigation: campaigns (up to 100)'),
+      getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)),'navigation: pending assignments (up to 500)')
+    ]);
+    // Do not overwrite a newer, fully-loaded workspace while requests were pending.
+    if(state.loaded.tasks){renderTaskDashboard();return;}
+    const activeIds=new Set(taskSnap.docs.map(normalizeDoc).filter(t=>!isAnnouncementTask(t)&&taskCampaignIsActive(t)).map(t=>String(t.id)));
+    const count=assignmentSnap.docs.map(normalizeDoc).filter(a=>!isAnnouncementAssignment(a)&&activeIds.has(String(a.taskId||''))).length;
+    setNavBadge('navTaskCount',count);
+  })().catch(error=>{console.warn('Could not refresh active Tasks badge:',error);}).finally(()=>{navTaskCountLoading=null;});
+  return navTaskCountLoading;
+}
+
 function renderMetrics(){
   const m=state.metrics||{};
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v==null?0:v;};
   set('metricApplicationsReceived',m.total);set('metricAcceptedTesters',m.accepted);set('metricFullySetUp',m.fullySetUp);set('metricFullySetUpIOS',m.fullySetUpIOS);set('metricFullySetUpAndroid',m.fullySetUpAndroid);set('metricFeedback',m.newFeedback);
   set('metricApplied',m.applied);set('metricWaitlist',m.waitlist);set('metricDeclined',m.declined);set('metricInactive',m.inactive);set('iosCount',m.ios);set('androidCount',m.android);
-  setNavBadge('navPendingCount',m.applied);setNavBadge('navTesterActionCount',m.readyForYou);setNavBadge('navTaskCount',m.activeTasks);setNavBadge('navFeedbackCount',m.newFeedback);
+  setNavBadge('navPendingCount',m.applied);setNavBadge('navTesterActionCount',m.readyForYou);/* Tasks badge has one canonical owner: active-campaign pending assignments. */setNavBadge('navFeedbackCount',m.newFeedback);
   const total=Number(m.total||0);set('platformTotal',total+' applicant'+(total===1?'':'s'));
   document.getElementById('iosBar').style.width=(total?Math.round(Number(m.ios||0)/total*100):0)+'%';
   document.getElementById('androidBar').style.width=(total?Math.round(Number(m.android||0)/total*100):0)+'%';
@@ -3090,6 +3114,8 @@ async function init(user){
     await loadQuickReplies().catch(()=>{});
   await loadBetaProgramSettings();
     await withTimeout(loadOverview(), 12000, 'Dashboard data');
+    // Accurate initial navigation badge without eagerly loading all task details.
+    refreshActiveTaskNavBadge().catch(()=>{});
     setBetaConnectionUI(true);
   }catch(error){
     const detail = error && error.code === 'rebatify/timeout'
