@@ -540,7 +540,7 @@ async function completeRequiredTask(){
   if(!response){setTaskMessage(activeTask.responseType==='Acknowledgement'?'Confirm that you completed or reviewed this task before continuing.':'A response is required before you can continue.','error');return;}
   const original=taskSubmit.innerHTML;taskSubmit.disabled=true;taskSubmit.innerHTML='Saving…';setTaskMessage('');
   try{
-    await updateDoc(doc(db,'betaTaskAssignments',activeTask.id),{status:'Completed',response,completedAt:serverTimestamp(),updatedAt:serverTimestamp()});
+    await updateDoc(doc(db,'betaTaskAssignments',activeTask.id),{status:'Completed',response,completedAt:serverTimestamp(),emailStatus:(activeTask.emailSentAt?'Sent in unified update':'Skipped — task completed'),updatedAt:serverTimestamp()});
     const completedId=activeTask.id;requiredTasks=requiredTasks.filter(t=>t.id!==completedId);const allRow=allTaskAssignments.find(t=>t.id===completedId);if(allRow)allRow.status='Completed';renderPortalTaskSummary();renderRequiredTask();
   }catch(error){setTaskMessage('We could not complete this task. '+friendlyFirebaseError(error),'error');}
   finally{taskSubmit.disabled=false;taskSubmit.innerHTML=original;}
