@@ -2789,3 +2789,17 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-announcement-selected-list .admin-user-picker-copy small{display:block;font-size:.7rem;line-height:1.45;color:var(--admin-muted);white-space:normal;overflow-wrap:anywhere;margin-top:3px}
 .admin-announcement-selected-list .admin-platform-pill{min-width:0;max-width:105px;white-space:normal;text-align:center}
 @media(max-width:480px){.admin-announcement-selected-list .admin-user-picker-row{grid-template-columns:22px minmax(0,1fr);gap:9px}.admin-announcement-selected-list .admin-platform-pill{grid-column:2;justify-self:start}}
+
+/* Build 242 — read-only engagement email visibility in tester drawer */
+.admin-engagement-email-panel{padding:18px;border:1px solid #d8e3f2;border-radius:16px;background:linear-gradient(135deg,#f6f9ff,#ffffff);display:grid;gap:12px}
+.admin-engagement-email-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.admin-engagement-email-heading>strong{font-size:16px;color:#142a47}
+.admin-engagement-email-panel>p{margin:0;font-size:13px;line-height:1.6;color:#50657c}
+.admin-engagement-email-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.admin-engagement-email-cell{background:#fff;border:1px solid #e4ebf5;border-radius:11px;padding:11px;min-width:0;display:flex;flex-direction:column;gap:5px}
+.admin-engagement-email-cell small{font-size:11px;color:#6a7c91}
+.admin-engagement-email-cell strong{font-size:13px;color:#18304f;overflow-wrap:anywhere}
+.admin-engagement-email-reasons{display:flex;flex-direction:column;gap:5px;border-top:1px solid #e4ebf5;padding-top:10px}
+.admin-engagement-email-reasons strong{font-size:12px;color:#142a47}
+.admin-engagement-email-reasons small,.admin-engagement-email-footnote{font-size:11px;line-height:1.55;color:#64778d}
+@media(max-width:560px){.admin-engagement-email-grid{grid-template-columns:1fr}}
