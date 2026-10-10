@@ -239,7 +239,7 @@ const ADMIN_FEEDBACK_REALTIME_LIMIT=20;
 const feedbackRealtimeSignatures=new Map();
 function scheduleAdminMetricsRefresh(){
   clearTimeout(adminMetricsRefreshTimer);
-  adminMetricsRefreshTimer=setTimeout(()=>{loadMetrics(false).then(()=>{renderMetrics();if(activeView==='overview')renderOverview();}).catch(()=>{});},5000);
+  adminMetricsRefreshTimer=setTimeout(()=>{if(document.hidden)return;loadMetrics(false).then(()=>{renderMetrics();if(activeView==='overview')renderOverview();}).catch(()=>{});},5000);
 }
 function startApplicationsRealtimeAdmin(){
   if(applicationRealtimeUnsubscribe)return;
@@ -785,7 +785,10 @@ async function loadMetricsLegacy(){
   const accepted=Number(approved||0)+Number(active||0)+Number(inactive||0);
   return {total,applied,approved,active,accepted,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
 }
+let metricsLoadInFlight=null;
 async function loadMetrics(force=false){
+  if(metricsLoadInFlight)return metricsLoadInFlight;
+  const request=(async()=>{
   if(!force&&lastMetricsLoadedAt&&Date.now()-lastMetricsLoadedAt<ADMIN_METRICS_CACHE_TTL_MS)return state.metrics;
   let result=null;
   try{result=await loadMetricsAggregated();}
@@ -798,6 +801,9 @@ async function loadMetrics(force=false){
   if(result)state.metrics=result;
   lastMetricsLoadedAt=Date.now();
   return state.metrics;
+  })();
+  metricsLoadInFlight=request;
+  try{return await request;}finally{if(metricsLoadInFlight===request)metricsLoadInFlight=null;}
 }
 async function loadRecent(){
   // The dedicated realtime listeners already own the Overview previews. Avoid issuing

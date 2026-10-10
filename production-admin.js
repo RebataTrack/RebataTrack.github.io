@@ -80,20 +80,32 @@ function setConnectionUI(connected, label=''){
   }
 }
 
+// Build 248: share concurrent, identical read-only Admin requests. No response persistence:
+// permission, access, trial, and entitlement decisions still come from the Worker.
+const productionReadInFlight = new Map();
+const productionReadActions = new Set(['health','overview','users-list','devices-list','identity-list','access-list','audit-list','messages-list','client-policy-get','user-detail','user-by-email']);
 async function callProduction(action, payload={}){
   const url=endpoint();
   if(!url) throw new Error('Connect the Production Admin Worker in Production → Settings first.');
   const user=auth.currentUser;
   if(!user||!isAdminUser(user)) throw new Error('Administrator authentication is required.');
-  const token=await user.getIdToken();
-  const response=await fetch(url,{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
-    body:JSON.stringify({action,...payload})
-  });
-  const data=await response.json().catch(()=>({}));
-  if(!response.ok||data.ok===false) throw new Error(data.error||data.message||`Production Admin request failed (${response.status}).`);
-  return data;
+  const readOnly=productionReadActions.has(action);
+  const key=readOnly?JSON.stringify([user.uid,url,action,payload]):null;
+  if(key&&productionReadInFlight.has(key)) return productionReadInFlight.get(key);
+  const job=(async()=>{
+    const token=await user.getIdToken();
+    const response=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+      body:JSON.stringify({action,...payload})
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok||data.ok===false) throw new Error(data.error||data.message||`Production Admin request failed (${response.status}).`);
+    return data;
+  })();
+  if(key) productionReadInFlight.set(key,job);
+  try{return await job;}
+  finally{if(key&&productionReadInFlight.get(key)===job)productionReadInFlight.delete(key);}
 }
 
 function showProdToast(message,type='success'){
