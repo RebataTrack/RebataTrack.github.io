@@ -2803,3 +2803,10 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-engagement-email-reasons strong{font-size:12px;color:#142a47}
 .admin-engagement-email-reasons small,.admin-engagement-email-footnote{font-size:11px;line-height:1.55;color:#64778d}
 @media(max-width:560px){.admin-engagement-email-grid{grid-template-columns:1fr}}
+
+/* Build 250: canonical, consistent RebataTrack+ presentation */
+.rebatify-plus-text{color:#3B9E4A!important;font-weight:900!important;text-shadow:none!important}
+.compare-row.premium-row,.compare-row.premium-row:hover{background:rgba(59,158,74,.13)!important}
+.compare-row.premium-row{border-bottom-color:rgba(59,158,74,.20)!important}
+.compare-row.premium-row:first-of-type{border-top:2px solid rgba(59,158,74,.32)}
+@media(max-width:760px){.compare-row.premium-row,.compare-row.premium-row:hover{background:rgba(59,158,74,.13)!important}}

@@ -10,7 +10,7 @@
 <meta content="Apply to become a RebataTrack beta tester. Limited beta access is available for active iOS and Android testers willing to use RebataTrack and provide honest feedback." name="description"/>
 <title>RebataTrack Beta Program — Apply for Beta Access</title>
 <link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=97" rel="apple-touch-icon"/><link href="favicon-32.png?v=97" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=97" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=242.0" rel="stylesheet"/>
+<link href="styles.css?v=250.0" rel="stylesheet"/>
 </head>
 <body>
 <header><div class="wrap nav">
@@ -55,7 +55,7 @@
 <label class="beta-os-option"><input name="platform" required="" type="radio" value="iOS"/><span class="beta-os-card"><strong>iOS</strong><small>iPhone</small></span></label>
 <label class="beta-os-option"><input name="platform" required="" type="radio" value="Android"/><span class="beta-os-card"><strong>Android</strong><small>Android phone</small></span></label>
 </div>
-<div class="beta-ios-enrollment-note" id="betaIosEnrollmentNote" hidden>
+<div class="beta-ios-enrollment-note" hidden="" id="betaIosEnrollmentNote">
 <strong>Testing on iPhone or iPad?</strong>
 <span>Use the email tied to the Apple Account you will use in the App Store and TestFlight on your testing device. If approved, you will need TestFlight installed and this same Apple Account signed in before you can complete Testing Setup.</span>
 </div>
@@ -63,10 +63,10 @@
 <fieldset class="beta-fieldset">
 <legend>What level of rebater are you?</legend>
 <div class="beta-rebater-level-options">
-<label class="beta-level-option"><input name="rebaterLevel" required type="radio" value="Low Volume"/><span><strong>Low Volume</strong><small>Occasional rebate activity</small></span></label>
-<label class="beta-level-option"><input name="rebaterLevel" required type="radio" value="Medium Volume"/><span><strong>Medium Volume</strong><small>Regular rebate activity</small></span></label>
-<label class="beta-level-option"><input name="rebaterLevel" required type="radio" value="High Volume"/><span><strong>High Volume</strong><small>Frequent rebate activity</small></span></label>
-<label class="beta-level-option"><input name="rebaterLevel" required type="radio" value="Power User"/><span><strong>Power User</strong><small>Very high-volume or advanced rebate activity</small></span></label>
+<label class="beta-level-option"><input name="rebaterLevel" required="" type="radio" value="Low Volume"/><span><strong>Low Volume</strong><small>Occasional rebate activity</small></span></label>
+<label class="beta-level-option"><input name="rebaterLevel" required="" type="radio" value="Medium Volume"/><span><strong>Medium Volume</strong><small>Regular rebate activity</small></span></label>
+<label class="beta-level-option"><input name="rebaterLevel" required="" type="radio" value="High Volume"/><span><strong>High Volume</strong><small>Frequent rebate activity</small></span></label>
+<label class="beta-level-option"><input name="rebaterLevel" required="" type="radio" value="Power User"/><span><strong>Power User</strong><small>Very high-volume or advanced rebate activity</small></span></label>
 </div>
 </fieldset>
 <div aria-hidden="true" class="beta-honeypot"><label for="website">Website</label><input autocomplete="off" id="website" name="website" tabindex="-1" type="text"/></div>
@@ -74,7 +74,7 @@
 <input id="betaTerms" name="termsAccepted" required="" type="checkbox" value="yes"/>
 <span>I have read and agree to the <a href="#expectations">RebataTrack Beta Program Rewards &amp; Expectations</a> and the <a href="terms.html">Terms of Service</a>, and I acknowledge the <a href="privacy.html">Privacy Policy</a>. I confirm that I am at least 18 years old or the age of majority where I live, and understand that beta access requires reasonable participation and may be removed for inactivity or missed required tasks.</span>
 </label>
-<div class="beta-email-delivery-note" role="note" aria-label="RebataTrack beta email delivery reminder">
+<div aria-label="RebataTrack beta email delivery reminder" class="beta-email-delivery-note" role="note">
 <strong>Watch for RebataTrack emails after you apply.</strong>
 <span>Look for messages from <a href="mailto:support.rebatatrack@gmail.com">support.rebatatrack@gmail.com</a>. Be sure to check your <strong>Spam</strong> or <strong>Junk</strong> folder too. If a RebataTrack email appears there, mark it as <strong>Not Spam</strong> so future updates reach your inbox.</span>
 </div>
@@ -96,14 +96,8 @@
 </div>
 </section>
 <section class="section beta-expectations-section" id="expectations"><div class="wrap">
-<div class="beta-video-card" aria-label="RebataTrack Beta Program video">
-<iframe
-  src="https://www.youtube-nocookie.com/embed/fueAy8dlwiw?rel=0&modestbranding=1"
-  title="RebataTrack Beta Program video"
-  loading="lazy"
-  referrerpolicy="strict-origin-when-cross-origin"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-  allowfullscreen>
+<div aria-label="RebataTrack Beta Program video" class="beta-video-card">
+<iframe allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen="" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" src="https://www.youtube-nocookie.com/embed/fueAy8dlwiw?rel=0&amp;modestbranding=1" title="RebataTrack Beta Program video">
 </iframe>
 </div>
 <div class="beta-section-heading">
@@ -158,7 +152,7 @@
 </main>
 <footer><div class="wrap foot"><div>© 2026 RebataTrack. All rights reserved.</div><div class="foot-links"><a href="index.html">Home</a><a href="support.html">Support</a><a href="privacy.html">Privacy Policy</a><a href="terms.html">Terms of Service</a></div></div></footer>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script><script src="firebase-config.js?v=143"></script><script src="firebase-runtime.js?v=143"></script><script src="beta-firebase.js?v=144"></script>
-<footer data-rebatatrack-website-build="" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#66758b;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build</footer>
-<script src="website-version.js" defer></script>
+<footer aria-label="Website build" data-rebatatrack-website-build="" style="text-align:center;padding:18px 12px 20px;color:#66758b;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build</footer>
+<script defer="" src="website-version.js"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
 <meta content="noindex,nofollow,noarchive,nosnippet" name="googlebot"/>
 <title>Sign in to the RebataTrack Beta Portal</title>
 <link href="app-icon.png?v=128" rel="icon"/><link href="apple-touch-icon.png?v=97" rel="apple-touch-icon"/><link href="favicon-32.png?v=97" rel="icon" sizes="32x32"/><link href="favicon-16.png?v=97" rel="icon" sizes="16x16"/>
-<link href="styles.css?v=242.0" rel="stylesheet"/>
+<link href="styles.css?v=250.0" rel="stylesheet"/>
 </head>
 <body class="portal-body">
 <main class="portal-auth-shell">
@@ -18,7 +18,7 @@
 <div class="portal-kicker">RebataTrack Beta Portal</div>
 <h1>Sign in to the RebataTrack Beta Portal</h1>
 <p class="portal-auth-lead">Use the same email address that was approved for the RebataTrack Beta Program. We will email you a 6-digit verification code. There is no separate Beta Program password to remember.</p><p class="portal-auth-security-note">For security, Beta Portal sessions automatically end after 6 hours of inactivity.</p>
-<div class="portal-alert success portal-approved-login-notice" hidden id="portalApprovedLoginNotice"></div>
+<div class="portal-alert success portal-approved-login-notice" hidden="" id="portalApprovedLoginNotice"></div>
 <div class="portal-alert error" hidden="" id="portalLoginError"></div>
 <div class="portal-alert warning" hidden="" id="portalNotConnected">The tester portal has not been connected to the beta backend yet.</div>
 <form class="portal-login-form" id="portalLoginForm">
@@ -39,15 +39,15 @@
 </form>
 <div class="portal-login-support">
 <button class="admin-text-button portal-login-support-toggle" id="portalSupportToggle" type="button">Need help signing in?</button>
-<div class="portal-login-support-panel" id="portalSupportPanel" hidden>
+<div class="portal-login-support-panel" hidden="" id="portalSupportPanel">
 <div class="portal-login-support-heading"><strong>Account &amp; Access Help</strong><span>Use this only for Beta Portal access, verification, invitation, or account-email problems. Bugs and testing feedback belong in Help &amp; Feedback after you sign in.</span></div>
-<div class="portal-required-legend" aria-label="Required field legend"><span aria-hidden="true">*</span> Required Field</div><form class="portal-login-form" id="portalSupportForm">
-<div class="beta-field"><label for="portalSupportEmail">Approved beta email <span class="portal-required-asterisk" aria-hidden="true">*</span></label><input aria-required="true" autocapitalize="none" autocomplete="email" autocorrect="off" id="portalSupportEmail" name="email" placeholder="you@example.com" required spellcheck="false" type="email"/></div>
-<div class="beta-field"><label for="portalSupportIssue">What do you need help with? <span class="portal-required-asterisk" aria-hidden="true">*</span></label><select aria-required="true" id="portalSupportIssue" name="issue" required><option value="">Choose one</option><option>Can't sign in or receive a code</option><option>My beta account email is wrong</option><option>My beta access is disabled</option><option>Invitation or activation problem</option><option>Other account/access problem</option></select></div>
-<div class="beta-field"><label for="portalSupportDetails">Tell us what is happening <span class="portal-required-asterisk" aria-hidden="true">*</span></label><textarea aria-required="true" autocapitalize="sentences" autocorrect="on" id="portalSupportDetails" maxlength="5000" minlength="2" name="details" placeholder="Include enough detail for us to identify and fix the access problem." required spellcheck="true"></textarea></div>
+<div aria-label="Required field legend" class="portal-required-legend"><span aria-hidden="true">*</span> Required Field</div><form class="portal-login-form" id="portalSupportForm">
+<div class="beta-field"><label for="portalSupportEmail">Approved beta email <span aria-hidden="true" class="portal-required-asterisk">*</span></label><input aria-required="true" autocapitalize="none" autocomplete="email" autocorrect="off" id="portalSupportEmail" name="email" placeholder="you@example.com" required="" spellcheck="false" type="email"/></div>
+<div class="beta-field"><label for="portalSupportIssue">What do you need help with? <span aria-hidden="true" class="portal-required-asterisk">*</span></label><select aria-required="true" id="portalSupportIssue" name="issue" required=""><option value="">Choose one</option><option>Can't sign in or receive a code</option><option>My beta account email is wrong</option><option>My beta access is disabled</option><option>Invitation or activation problem</option><option>Other account/access problem</option></select></div>
+<div class="beta-field"><label for="portalSupportDetails">Tell us what is happening <span aria-hidden="true" class="portal-required-asterisk">*</span></label><textarea aria-required="true" autocapitalize="sentences" autocorrect="on" id="portalSupportDetails" maxlength="5000" minlength="2" name="details" placeholder="Include enough detail for us to identify and fix the access problem." required="" spellcheck="true"></textarea></div>
 <button class="beta-submit" id="portalSupportSubmit" type="submit">Send Support Request <span aria-hidden="true">→</span></button>
 </form>
-<div class="portal-device-message" id="portalSupportMessage" aria-live="polite"></div>
+<div aria-live="polite" class="portal-device-message" id="portalSupportMessage"></div>
 </div>
 </div>
 <div class="portal-auth-footer">
@@ -221,7 +221,7 @@
   });
 })();
 </script>
-<footer data-rebatatrack-website-build="" aria-label="Website build" style="text-align:center;padding:18px 12px 20px;color:#66758b;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build</footer>
-<script src="website-version.js" defer></script>
+<footer aria-label="Website build" data-rebatatrack-website-build="" style="text-align:center;padding:18px 12px 20px;color:#66758b;font:700 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em;">Website Build</footer>
+<script defer="" src="website-version.js"></script>
 </body>
 </html>
