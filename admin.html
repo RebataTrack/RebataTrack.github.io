@@ -131,15 +131,8 @@
 <div class="admin-tester-review-list" id="testerReviewList"><div class="admin-empty-inline">No testers currently need Admin review.</div></div>
 </div>
 </article>
-<article class="admin-panel admin-email-center" id="automaticEmailCenter">
- <div class="admin-panel-heading"><div><span class="admin-section-kicker">Beta automation</span><h3>Automatic Email Center</h3><p>Recipient-specific forecasts from the email worker. Each email is rebuilt and eligibility rechecked at send time—completed actions are removed and new eligible tasks included.</p></div><button class="admin-secondary-button" id="emailCenterRefresh" type="button">Recheck eligibility</button></div>
- <div class="admin-email-center-summary" id="emailCenterSummary" aria-live="polite">Waiting for tester data…</div>
- <div class="admin-email-center-controls"><label for="emailCenterFilter">Show</label><select id="emailCenterFilter"><option value="all">All enabled testers</option><option value="scheduled">Upcoming / eligible</option><option value="not-due">Not yet due / cooldown</option><option value="blocked">Suppressed / review needed</option><option value="error">Preview unavailable</option></select><small id="emailCenterRefreshed">Not checked yet</small></div>
- <div id="emailCenterRecipients" class="admin-email-center-recipients" aria-live="polite"><p>Select Recheck eligibility to load the latest schedule.</p></div>
- <small>These times are estimates, not pre-queued emails. The worker checks current account, task, activity and cooldown data again immediately before sending. An accepted email is not proof of inbox delivery.</small>
-</article>
 <article class="admin-panel admin-tester-action-center">
-<div class="admin-panel-heading"><div><span class="admin-section-kicker">Action Center</span><h3>What needs to happen next?</h3><p>Tester-owned steps are shown below. Use the Automatic Email Center to see who will receive an update, what it will include, and when the tester next becomes eligible.</p></div><button class="admin-text-button" id="testerNextStepShowAll" type="button">Show all testers</button></div>
+<div class="admin-panel-heading"><div><span class="admin-section-kicker">Action Center</span><h3>What needs to happen next?</h3><p>Tester-owned steps are shown below. Select a tester below to send an individual setup reminder manually.</p></div><button class="admin-text-button" id="testerNextStepShowAll" type="button">Show all testers</button></div>
 <div class="admin-tester-action-grid">
 <button class="admin-tester-action-card waiting" data-next-step-filter="portalSignIn" type="button"><span>Portal sign-in</span><strong id="testerNeedPortalCount">0</strong><small>View testers awaiting portal sign-in</small></button>
 <button class="admin-tester-action-card waiting" data-next-step-filter="testingSetup" type="button"><span>Testing Setup</span><strong id="testerNeedSetupCount">0</strong><small>View testers awaiting Testing Setup</small></button>
@@ -200,7 +193,7 @@
 <div class="admin-table-card admin-testers-card"><div class="admin-table-scroll"><table class="admin-table admin-testers-table"><thead><tr><th class="admin-select-col"><span class="sr-only">Select</span></th><th>Tester</th><th>Current status</th><th>Next action</th><th>Progress</th><th>Participation</th><th>Access</th><th></th></tr></thead><tbody id="testersTableBody"></tbody></table></div><div class="admin-empty" hidden="" id="testersEmpty">No testers match these filters.</div></div>
 </section>
 <section class="admin-view" data-admin-panel="tasks">
-<div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. Routine Beta participation email is unified per tester so setup, task, missed-deadline, retest, and inactivity notices do not generate overlapping emails.</p><div class="admin-automation-health" id="taskAutomationHealth">Reminder automation: Checking…</div></div><button class="admin-secondary-button" id="taskRunDeadlineCheck" type="button">Run Deadline Check Now</button></div>
+<div class="admin-page-heading"><div><div class="admin-section-kicker">Participation Tasks</div><h2>Required feature-testing tasks</h2><p>Use premade RebataTrack testing objectives or create your own. Assign them to everyone or selected testers, track completion, and send reminders. New tasks send their own email immediately. Existing tasks can be reminded manually. No scheduled engagement emails.</p></div></div>
 <div class="admin-task-metrics">
 <article><span>Open Tasks</span><strong id="taskMetricOpen">0</strong><small>Task campaigns still active</small></article>
 <article><span>Pending Responses</span><strong id="taskMetricPending">0</strong><small>Tester assignments not completed</small></article>
@@ -240,7 +233,7 @@
 <div class="beta-field admin-task-span"><label for="taskInstructions">Tester instructions</label><textarea id="taskInstructions" maxlength="5000" placeholder="Give the tester clear steps and tell them what to report back."></textarea></div>
 <div class="beta-field"><label for="taskResponseType">Required response</label><select id="taskResponseType"><option>Acknowledgement</option><option>Short Answer</option><option>Long Answer</option><option>Yes / No</option></select></div>
 <div class="beta-field"><label for="taskDueAt">Required by</label><input id="taskDueAt" type="datetime-local"/></div>
-<div class="admin-task-span"><label class="admin-task-toggle"><input checked="" id="taskAutoReminders" type="checkbox"/><span><strong>Automatic deadline reminders</strong><small>Include due-soon tasks in the tester’s unified Beta update around 24 hours and 4 hours before the deadline, without sending overlapping reminder emails.</small></span></label></div>
+<div class="admin-task-span"><input id="taskAutoReminders" type="checkbox" hidden disabled/><p class="portal-field-help">Deadline reminder emails are manual only. New task assignment emails still send when the task is created.</p></div>
 </div>
 <div class="admin-task-recipient-header"><div><strong>Recipients</strong><span id="taskRecipientSummary">0 selected</span><small class="admin-task-recipient-eligibility">Only testers with active Beta access, completed Testing Setup, and a matched Production account are included.</small></div><div><button class="admin-text-button" id="taskSelectAll" type="button">Select all</button><button class="admin-text-button" id="taskSelectIOS" type="button">Select iOS</button><button class="admin-text-button" id="taskSelectAndroid" type="button">Select Android</button><button class="admin-text-button" id="taskClearAll" type="button">Clear</button></div></div>
 <div class="admin-task-recipient-list" id="taskRecipientList"><div class="admin-empty-inline">Loading task-eligible testers…</div></div>
