@@ -1334,7 +1334,17 @@ async function sendTesterNextStepReminder(t){
   const result=await callWorkerAdminAction('admin-unified-tester-digest',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',reminderType:n.reminderType,source:'manual',includeAllPending:true});
   if(!result?.sent){if(result?.skipped==='cooldown')throw new Error('A unified tester update was already sent within the last 48 hours.');throw new Error('There are no outstanding tester items to email right now.');}
   const nextCount=currentSetupReminderCount(t)+1;const sentAt=result.sentAt?new Date(result.sentAt):new Date();
-  await updateDoc(doc(db,'betaUsers',t.uid),{lastSetupReminderAt:serverTimestamp(),lastSetupReminderType:n.reminderType,setupReminderCount:nextCount,updatedAt:serverTimestamp()});
+  // The worker is authoritative for successful delivery and identity repair.
+  // A legacy approved application may have no betaUsers row until the worker
+  // reconciles its Firebase Auth UID. Do not mark an accepted send as failed
+  // merely because this browser's cached tester UID is blank or obsolete.
+  const resolvedUid=String(result.testerUid||'').trim();
+  if(resolvedUid){
+    t.uid=resolvedUid;
+    try{
+      await updateDoc(doc(db,'betaUsers',resolvedUid),{lastSetupReminderAt:serverTimestamp(),lastSetupReminderType:n.reminderType,setupReminderCount:nextCount,updatedAt:serverTimestamp()});
+    }catch(error){console.warn('Reminder was sent, but local reminder marker could not be updated',error);}
+  }
   t.lastTesterContactAt=sentAt;t.lastTesterContactSource='Unified participation update';t.lastTesterContactType='unified-digest';t.lastSetupReminderAt=sentAt;t.lastSetupReminderType=n.reminderType;t.setupReminderCount=nextCount;
   renderTesters();return {...n,issueCount:result.issueCount||0};
 }
