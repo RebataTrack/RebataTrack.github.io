@@ -1240,11 +1240,69 @@ function testerContactButtonState(t){
   if(!h.recent)return {disabled:false,label:'',title:''};
   return {disabled:true,label:'Emailed Recently',title:`A ${h.latest.source.toLowerCase()} was sent ${relativeDate(h.latest.at)}. Another routine reminder is available after 48 hours.`};
 }
+// The Email Center is informational: there is no persistent email queue and no send action here.
+let emailCenterSnapshot=[];
+let emailCenterLoading=false;
+let emailCenterLastCheck=0;
+let emailCenterGeneration=0;
+const EMAIL_CENTER_MIN_REFRESH_MS=5*60*1000;
+function emailCenterCategory(p){
+ const reason=String(p.reason||'');
+ if(reason==='unavailable'||reason==='activity-unavailable')return 'error';
+ if(['program-ended','tester-inactive','review-needed','review-pending','awaiting-app-access'].includes(reason))return 'blocked';
+ if(['cooldown','not-due','not-initialized'].includes(reason))return 'not-due';
+ if(reason==='eligible-next-run'||reason==='scheduled')return 'scheduled';
+ return 'blocked';
+}
+function renderAutomaticEmailCenter(){
+ const box=document.getElementById('emailCenterRecipients');if(!box)return;
+ const enabled=state.testers.filter(t=>t.accessStatus==='Enabled'&&isEnabledStatus(t.status));
+ const filter=document.getElementById('emailCenterFilter')?.value||'all';
+ const eligible=emailCenterSnapshot.filter(p=>emailCenterCategory(p)==='scheduled').length;
+ const suppressed=emailCenterSnapshot.filter(p=>emailCenterCategory(p)==='blocked').length;
+ const errors=emailCenterSnapshot.filter(p=>emailCenterCategory(p)==='error').length;
+ const summary=document.getElementById('emailCenterSummary');
+ if(summary)summary.innerHTML=`<span><strong>${emailCenterSnapshot.length}</strong> of ${enabled.length} checked</span><span><strong>${eligible}</strong> upcoming / eligible</span><span><strong>${suppressed}</strong> suppressed / no action</span><span><strong>${errors}</strong> unavailable</span>`;
+ const rows=emailCenterSnapshot.filter(p=>filter==='all'||emailCenterCategory(p)===filter);
+ box.innerHTML=rows.map(p=>{
+  const tester=state.testers.find(t=>t.uid===p.testerUid);
+  const name=p.name||tester?.name||p.email||'Tester';
+  const issues=(Array.isArray(p.items)?p.items:[]);
+  const when=p.estimatedEligibleAt?new Date(p.estimatedEligibleAt):null;
+  const category=emailCenterCategory(p);
+  const reason=String(p.reason||'unavailable').replaceAll('-',' ');
+  const whenText=category==='error'?'Preview unavailable':category==='blocked'?'No automatic email scheduled':p.reason==='not-initialized'?'Awaiting tracking initialization':when&&!Number.isNaN(when.getTime())?when.toLocaleString():'Not yet confirmed';
+  const error=p.error?`<p class="admin-email-center-warning">Preview unavailable: ${esc(p.error)}</p>`:'';
+  return `<details class="admin-email-center-row"><summary><span><strong>${esc(name)}</strong><small>${esc(p.email||tester?.email||'')}</small></span><span><b>${esc(whenText)}</b><small>${esc(reason)}</small></span><span>${issues.length} item${issues.length===1?'':'s'}</span></summary><div class="admin-email-center-detail"><p><strong>Proposed subject:</strong> ${esc(p.subject||'No email scheduled')}</p><p><strong>Send status:</strong> ${esc(reason)}${p.lastContactAt?' · Last contact '+esc(new Date(p.lastContactAt).toLocaleString()):''}</p>${error}<strong>Current email contents / outstanding actions</strong>${issues.length?`<ul>${issues.map(x=>`<li><strong>${esc(x.title||'Task')}</strong> — ${esc(x.detail||'')}</li>`).join('')}</ul>`:'<p>No actionable content currently identified.</p>'}<small>Refreshed from current worker data; will be rechecked at actual send time.</small></div></details>`;
+ }).join('')||'<p>No testers match the selected status. Recheck eligibility if status recently changed.</p>';
+ const stamp=document.getElementById('emailCenterRefreshed');if(stamp&&emailCenterLastCheck)stamp.textContent='Checked '+new Date(emailCenterLastCheck).toLocaleTimeString();
+}
+async function refreshAutomaticEmailCenter(force=false){
+ const holder=document.getElementById('emailCenterRecipients');if(!holder||emailCenterLoading||document.hidden)return;
+ if(!force&&Date.now()-emailCenterLastCheck<EMAIL_CENTER_MIN_REFRESH_MS)return;
+ const testers=state.testers.filter(t=>t.accessStatus==='Enabled'&&isEnabledStatus(t.status));
+ emailCenterLoading=true;const generation=++emailCenterGeneration;
+ const button=document.getElementById('emailCenterRefresh');if(button)button.disabled=true;
+ emailCenterSnapshot=[];renderAutomaticEmailCenter();
+ if(!testers.length){emailCenterLastCheck=Date.now();emailCenterLoading=false;if(button)button.disabled=false;return;}
+ try{
+  for(let i=0;i<testers.length;i+=3){
+   if(document.hidden||generation!==emailCenterGeneration)break;
+   const chunk=testers.slice(i,i+3);
+   const group=await Promise.all(chunk.map(async t=>{
+    try{return await callWorkerAdminAction('admin-preview-engagement-email',{testerUid:t.uid,email:t.email||''});}
+    catch(e){return {testerUid:t.uid,name:t.name||t.email,email:t.email,reason:'unavailable',error:e.message,items:[]};}
+   }));
+   emailCenterSnapshot.push(...group);renderAutomaticEmailCenter();
+  }
+  if(emailCenterSnapshot.length===testers.length)emailCenterLastCheck=Date.now();
+ }finally{emailCenterLoading=false;if(button)button.disabled=false;renderAutomaticEmailCenter();}
+}
 function testerNextStepHtml(t){
   const n=testerNextStep(t);
   const count=currentSetupReminderCount(t);const contactText=testerContactText(t);const contactState=testerContactButtonState(t);
   const countText=count?`${count} setup reminder${count===1?'':'s'} sent`:'';
-  const button=n.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${contactState.disabled?'disabled':''} ${contactState.title?`title="${esc(contactState.title)}"`:''}>${esc(contactState.disabled?contactState.label:'Send Action Reminder')}</button>`:'';
+  const button=n.reminderType?`<button hidden class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${contactState.disabled?'disabled':''} ${contactState.title?`title="${esc(contactState.title)}"`:''}>${esc(contactState.disabled?contactState.label:'Send Action Reminder')}</button>`:'';
   return `<div class="admin-next-step-cell next-step-${esc(n.key)}"><strong>${esc(n.label)}</strong><small>${esc(n.detail)}</small>${contactText?`<small class="admin-next-step-last">${esc(contactText)}</small>`:''}${countText?`<small class="admin-next-step-last">${esc(countText)}</small>`:''}${button}</div>`;
 }
 function testerReminderCandidates(){
@@ -1258,6 +1316,7 @@ function renderTesterNextStepSummary(){
   set('testerNeedPortalCount',counts.portalSignIn);set('testerNeedSetupCount',counts.testingSetup);set('testerNeedAppAccountCount',counts.appAccount);set('testerAdminSendCount',counts.adminSend);set('testerSetupCompleteCount',counts.complete);
   const nav=document.getElementById('navTesterActionCount');if(nav){nav.textContent=String(counts.adminSend);nav.hidden=counts.adminSend<1;}
   if(state.metrics)state.metrics.readyForYou=counts.adminSend;
+  if(state.testers.length&&document.getElementById('automaticEmailCenter'))refreshAutomaticEmailCenter(false);
   const bulk=document.getElementById('testerSendPendingReminders');if(bulk)bulk.disabled=testerReminderCandidates().length===0;
 }
 function applyTesterNextStepFilter(key=''){
@@ -1397,7 +1456,7 @@ function testerActionHtml(t){
     const actionLabel=t.platform==='Android'?'Send Android Link':t.platform==='iOS'?'Send TestFlight':'Send Access';
     return `<div class="admin-tester-action-cell action-owner-admin"><span class="admin-owner-label">Your action</span><strong>${esc(next.label)}</strong><small>${esc(next.detail)}</small><button class="admin-readiness-action" type="button" data-send-ready-access="${esc(t.uid)}">${esc(actionLabel)}</button></div>`;
   }
-  const reminderCount=currentSetupReminderCount(t);const reminderLabel=contactState.disabled?contactState.label:(reminderCount>=2?'Send Action Reminder':reminderCount===1?'Send Action Reminder':'Send Action Reminder');const button=next.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${contactState.disabled?'disabled':''} ${contactState.title?`title="${esc(contactState.title)}"`:''}>${esc(reminderLabel)}</button>`:'';
+  const reminderCount=currentSetupReminderCount(t);const reminderLabel=contactState.disabled?contactState.label:(reminderCount>=2?'Send Action Reminder':reminderCount===1?'Send Action Reminder':'Send Action Reminder');const button=next.reminderType?`<button hidden class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${contactState.disabled?'disabled':''} ${contactState.title?`title="${esc(contactState.title)}"`:''}>${esc(reminderLabel)}</button>`:'';
   const owner=next.reminderType?'Tester action':next.key==='complete'?'Complete':'Status';
   const labelHtml=next.key==='complete'
     ? `<span class="admin-progress-state complete admin-action-chip">${esc(next.label)}</span>`
@@ -2108,12 +2167,12 @@ function openTaskRecord(t){
   const coverage=taskRecipientCoverage(t);
   const due=timestampToDate(t.dueAt);
   const deadlineOpen=taskCampaignIsActive(t);
-  const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminderCount=Number(a.reminderCount||0);const reminderLabel=a.emailStatus==='Error'?'Send Unified Update':'Send Unified Update';const reminder=a.status==='Pending'?`<button class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${reminderLabel}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const support=a.response?`<button class="admin-task-remind-button" data-task-support-contact="${esc(a.id)}" type="button">Reach Out via Support</button>`:'';const reviewActions='';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><span class="admin-person-name-with-star"><strong>${esc(a.name||'Tester')}</strong>${meaningfulTesterStarHtml(meaningfulLinkedTester(a)||a)}</span><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Unified email: ${esc((a.status==='Completed'&&!a.emailSentAt&&/Queued|Pending|Sending/i.test(a.emailStatus||'')?'Skipped — task completed':a.emailStatus||'Unknown'))}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> This tester is listed in Review Testers on the Testers page for the access decision.</div>':''}<div class="admin-task-assignment-actions">${support}${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
+  const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminderCount=Number(a.reminderCount||0);const reminderLabel=a.emailStatus==='Error'?'Send Unified Update':'Send Unified Update';const reminder=a.status==='Pending'?`<button hidden class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${reminderLabel}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const support=a.response?`<button class="admin-task-remind-button" data-task-support-contact="${esc(a.id)}" type="button">Reach Out via Support</button>`:'';const reviewActions='';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><span class="admin-person-name-with-star"><strong>${esc(a.name||'Tester')}</strong>${meaningfulTesterStarHtml(meaningfulLinkedTester(a)||a)}</span><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Unified email: ${esc((a.status==='Completed'&&!a.emailSentAt&&/Queued|Pending|Sending/i.test(a.emailStatus||'')?'Skipped — task completed':a.emailStatus||'Unknown'))}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> This tester is listed in Review Testers on the Testers page for the access decision.</div>':''}<div class="admin-task-assignment-actions">${support}${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
   const newRows=coverage.notAssigned.length?coverage.notAssigned.map(x=>`<div class="admin-task-assignment admin-task-unassigned"><div class="admin-task-assignment-top"><div><strong>${esc(x.name||'Tester')}</strong><small>${esc(x.email||'')} · ${esc(x.platform||'')}</small></div><span class="admin-status-pill status-pending">Not sent</span></div><div class="admin-task-assignment-reminder">This tester is fully set up and eligible, but has never received this task.</div>${deadlineOpen?`<div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-assign-existing-task="${esc(t.id)}" data-task-tester="${esc(x.uid)}" type="button">Send Task</button></div>`:''}</div>`).join(''):'<div class="admin-empty-inline">Every currently eligible tester has already received this task.</div>';
   const addNew=coverage.notAssigned.length&&deadlineOpen?`<button class="admin-action-button approve" data-task-action="assign-new-eligible" data-task-id="${esc(t.id)}" type="button">Send to Newly Eligible (${coverage.notAssigned.length})</button>`:'';
   const deadlineNote=coverage.notAssigned.length&&!deadlineOpen?'<div class="admin-task-coverage-note is-warning"><strong>New eligible testers detected</strong><span>The original task deadline has passed or the task was cancelled, so it cannot be sent to them without creating a new task.</span></div>':'';
   const cancel=(taskCampaignIsActive(t)&&stats.pending>0)?`<button class="admin-action-button danger-soft" data-task-action="cancel" data-task-id="${esc(t.id)}" type="button">Cancel Task</button>`:'';
-  const remind=(taskCampaignIsActive(t)&&stats.pending>0)?`<button class="admin-action-button approve" data-task-action="remind-pending" data-task-id="${esc(t.id)}" type="button">Remind Pending Testers (${stats.pending})</button>`:'';
+  const remind=(taskCampaignIsActive(t)&&stats.pending>0)?`<button hidden class="admin-action-button approve" data-task-action="remind-pending" data-task-id="${esc(t.id)}" type="button">Remind Pending Testers (${stats.pending})</button>`:'';
   const deleteTask=`<button class="admin-action-button danger" data-task-action="delete-task" data-task-id="${esc(t.id)}" type="button">Delete Task from All Testers</button>`;
   openDrawer('Beta Program Task',t.title||'Required Task',`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-status-pill ${statusClass(taskDisplayStatus(t,stats))}">${esc(taskDisplayStatus(t,stats))}</span><span class="admin-subtle-chip">Due ${esc(formatDate(t.dueAt))}</span></div>${t.objective?`<div class="admin-feedback-detail"><span>Testing Objective</span><p>${esc(t.objective)}</p></div>`:''}<div class="admin-feedback-detail"><span>Instructions</span><p>${esc(t.instructions||'')}</p></div><div class="admin-task-coverage"><div><span>Already received</span><strong>${coverage.assigned}</strong></div><div><span>Currently eligible</span><strong>${coverage.eligible}</strong></div><div class="${coverage.notAssigned.length?'needs-send':''}"><span>Eligible · not sent</span><strong>${coverage.notAssigned.length}</strong></div></div>${deadlineNote}<div class="admin-detail-grid"><div><span>Template</span><strong>${esc(t.templateLabel||'Custom')}</strong></div><div><span>Response Type</span><strong>${esc(t.responseType||'Acknowledgement')}</strong></div><div><span>Recipients</span><strong>${stats.total}</strong></div><div><span>Completed</span><strong>${stats.completed}</strong></div><div><span>Pending</span><strong>${taskCampaignIsActive(t)?stats.pending:0}</strong></div><div><span>Review Required</span><strong>${stats.reviewRequired}</strong></div><div><span>Reminded</span><strong>${stats.reminded}</strong></div><div><span>Removed from Task</span><strong>${stats.removedByAdmin}</strong></div><div><span>Missed · Kept Active</span><strong>${stats.reviewedKept}</strong></div><div><span>Closed After Tester Removal</span><strong>${stats.accessEnded}</strong></div><div><span>Automatic Reminders</span><strong>${t.autoReminders===false?'Off':'On'}</strong></div></div><div><label class="admin-detail-label">Newly eligible — not yet sent</label><div class="admin-task-response-list">${newRows}</div></div><div><label class="admin-detail-label">Assignment history</label><div class="admin-task-response-list">${rows}</div></div><div class="admin-drawer-actions">${addNew}${remind}${cancel}${deleteTask}</div></div>`);
 }
@@ -2487,13 +2546,13 @@ function openTesterRecord(t){
   const a=state.applications.find(x=>x.testerUid===t.uid||String(x.email||'').trim().toLowerCase()===normalizedEmail);
   const pending=pendingAssignmentsForTester(t);const activity=testerActivityInfo(t);const score=testerScore(t);const build=testerBuild(t);const device=testerDeviceSummary(t);
   const feedbackRows=testerFeedbackRows(t);const lastFeedback=score.lastFeedback;
-  const pendingHtml=pending.length?pending.map(x=>`<div class="admin-task-assignment"><div class="admin-task-assignment-top"><div><strong>${esc(x.taskTitle||'Required task')}</strong><small>Due ${esc(formatDate(x.dueAt))}</small></div><span class="admin-status-pill status-pending">Pending</span></div><div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-remind-assignment="${esc(x.id)}" type="button">Send Unified Update</button><button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(x.id)}" type="button">Remove Task</button></div></div>`).join(''):'<div class="admin-empty-inline">No required tasks are pending for this tester.</div>';
+  const pendingHtml=pending.length?pending.map(x=>`<div class="admin-task-assignment"><div class="admin-task-assignment-top"><div><strong>${esc(x.taskTitle||'Required task')}</strong><small>Due ${esc(formatDate(x.dueAt))}</small></div><span class="admin-status-pill status-pending">Pending</span></div><div class="admin-task-assignment-actions"><button hidden class="admin-task-remind-button" data-remind-assignment="${esc(x.id)}" type="button">Send Unified Update</button><button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(x.id)}" type="button">Remove Task</button></div></div>`).join(''):'<div class="admin-empty-inline">No required tasks are pending for this tester.</div>';
   const emailAction=a?`<button class="admin-action-button" data-app-action="change-email" data-row="${esc(a.id)}" type="button">Change Beta Email</button>`:'';
   const accessAction=a?(t.accessStatus==='Enabled'?`<button class="admin-action-button danger-soft" data-disable-beta="${esc(a.id)}" type="button">Disable Access</button>`:`<button class="admin-action-button approve" data-app-action="active" data-row="${esc(a.id)}" type="button">Enable Access</button>`):'';
   const deleteAction=a?`<button class="admin-action-button danger-soft" data-app-action="delete" data-row="${esc(a.id)}" type="button">Delete Application & Tester</button>`:`<button class="admin-action-button danger-soft" data-tester-action="delete" data-tester-uid="${esc(t.uid)}" type="button">Delete Tester</button>`;
   const nextStep=testerNextStep(t);
   const drawerContactState=testerContactButtonState(t);
-  const reminderAction=nextStep.reminderType?`<button class="admin-action-button reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${drawerContactState.disabled?'disabled':''} ${drawerContactState.title?`title="${esc(drawerContactState.title)}"`:''}>${esc(drawerContactState.disabled?drawerContactState.label:`Send Action Reminder`)}</button>`:'';
+  const reminderAction=nextStep.reminderType?`<button hidden class="admin-action-button reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${drawerContactState.disabled?'disabled':''} ${drawerContactState.title?`title="${esc(drawerContactState.title)}"`:''}>${esc(drawerContactState.disabled?drawerContactState.label:`Send Action Reminder`)}</button>`:'';
   const actions=[reminderAction,emailAction,accessAction,deleteAction].filter(Boolean).join('');
   const nextIndex=Math.min(TIMELINE_STAGES.length-1,timelineStageRank(timelineStage)+1);const canAdvance=timelineStage!=='activeTesting'&&t.accessStatus==='Enabled';
   const lastActive=activity.anchor?formatDate(activity.anchor):'Never';
@@ -2996,7 +3055,7 @@ function updateSupportInboxAutoSync(){
   // path; this one-minute foreground sync makes the queue feel live without permanent polling.
   supportInboxSyncTimer=setInterval(()=>{
     if(activeView==='feedback'&&!document.hidden)syncSupportInboxNow({silent:true});
-  },60000);
+  },300000);
 }
 
 async function refreshApplicationAdminData(options={}){
@@ -3575,3 +3634,9 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
 
 
 // Website Build 222 cache/deployment stamp.
+
+// Forecasts are read-only and never send mail. Recalculate when visible; worker always rechecks at send-time.
+document.getElementById('emailCenterRefresh')?.addEventListener('click',()=>refreshAutomaticEmailCenter(true));
+document.getElementById('emailCenterFilter')?.addEventListener('change',renderAutomaticEmailCenter);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshAutomaticEmailCenter(false);});
+setInterval(()=>{if(!document.hidden&&document.getElementById('automaticEmailCenter'))refreshAutomaticEmailCenter(false);},300000);
