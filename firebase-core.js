@@ -3,7 +3,7 @@ import { initializeApp, getApps } from './firebase-compat-shim.js?v=127';
 import {
   getAuth,
   setPersistence,
-  browserSessionPersistence
+  browserLocalPersistence
 } from './firebase-compat-shim.js?v=127';
 import { getFirestore } from './firebase-compat-shim.js?v=127';
 
@@ -30,7 +30,7 @@ let authPersistenceReady = Promise.resolve();
 if (firebaseConfigured) {
   app = getApps().find(a => a.name === '[DEFAULT]') || initializeApp(config);
   auth = getAuth(app);
-  authPersistenceReady = setPersistence(auth, browserSessionPersistence).catch(() => {});
+  authPersistenceReady = setPersistence(auth, browserLocalPersistence).catch(() => {});
   db = getFirestore(app);
 }
 

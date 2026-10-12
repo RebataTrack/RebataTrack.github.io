@@ -24,6 +24,7 @@ export function getAuth(app) {
   return fb().auth();
 }
 
+export const browserLocalPersistence = window.firebase?.auth?.Auth?.Persistence?.LOCAL || 'local';
 export const browserSessionPersistence = window.firebase?.auth?.Auth?.Persistence?.SESSION || 'session';
 
 export function setPersistence(auth, persistence) {

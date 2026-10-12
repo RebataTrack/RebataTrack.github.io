@@ -31,7 +31,7 @@ let profileUnsubscribe = null;
 let conversationMessagesUnsubscribe = null;
 let conversationMessageCount = 0;
 let lastFirestoreActivityWrite = 0;
-const PORTAL_ACTIVITY_WRITE_MS = 15 * 60 * 1000;
+const PORTAL_ACTIVITY_WRITE_MS = 60 * 60 * 1000;
 const taskBackdrop = document.getElementById('portalTaskBackdrop');
 const taskSubmit = document.getElementById('portalTaskSubmit');
 const workerUrl = String(window.REBATIFY_BETA_SETTINGS?.emailWorkerUrl || '').trim().replace(/\/+$/, '');
@@ -170,7 +170,7 @@ function formatPortalDate(value){const d=timestampToDate(value);return d?d.toLoc
 
 function scheduleInactivityLogout() {
   clearTimeout(inactivityTimer);
-  const last = Number(sessionStorage.getItem(PORTAL_ACTIVITY_KEY) || Date.now());
+  const last = Number(localStorage.getItem(PORTAL_ACTIVITY_KEY) || Date.now());
   const remaining = PORTAL_INACTIVITY_MS - (Date.now() - last);
   if (remaining <= 0) {
     endInactiveSession();
@@ -183,7 +183,7 @@ function recordPortalActivity() {
   const now = Date.now();
   if (now - lastActivityWrite < 750) return;
   lastActivityWrite = now;
-  sessionStorage.setItem(PORTAL_ACTIVITY_KEY, String(now));
+  localStorage.setItem(PORTAL_ACTIVITY_KEY, String(now));
   scheduleInactivityLogout();
   writePortalActivity(false).catch(()=>{});
 }
@@ -191,26 +191,26 @@ async function endInactiveSession() {
   if (sessionEnding) return;
   sessionEnding = true;
   clearTimeout(inactivityTimer);
-  sessionStorage.removeItem(PORTAL_ACTIVITY_KEY);
+  localStorage.removeItem(PORTAL_ACTIVITY_KEY);
   try { await signOut(auth); } catch (_) {}
   location.replace('beta-login.html?error=inactive');
 }
 function startInactivityWatcher() {
   if (inactivityStarted) return;
   inactivityStarted = true;
-  sessionStorage.setItem(PORTAL_ACTIVITY_KEY, String(Date.now()));
-  writePortalActivity(true).catch(()=>{});
+  if (!Number(localStorage.getItem(PORTAL_ACTIVITY_KEY) || 0)) localStorage.setItem(PORTAL_ACTIVITY_KEY, String(Date.now()));
+  writePortalActivity(false).catch(()=>{});
   ['pointerdown','keydown','touchstart','scroll'].forEach(eventName => {
     window.addEventListener(eventName, recordPortalActivity, { passive: true });
   });
   window.addEventListener('focus', () => {
-    const last = Number(sessionStorage.getItem(PORTAL_ACTIVITY_KEY) || 0);
+    const last = Number(localStorage.getItem(PORTAL_ACTIVITY_KEY) || 0);
     if (last && Date.now() - last >= PORTAL_INACTIVITY_MS) endInactiveSession();
     else recordPortalActivity();
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      const last = Number(sessionStorage.getItem(PORTAL_ACTIVITY_KEY) || 0);
+      const last = Number(localStorage.getItem(PORTAL_ACTIVITY_KEY) || 0);
       if (last && Date.now() - last >= PORTAL_INACTIVITY_MS) endInactiveSession();
       else scheduleInactivityLogout();
     }
@@ -223,7 +223,7 @@ function endEmailChangedSession(newEmail='') {
   sessionEnding = true;
   clearTimeout(inactivityTimer);
   if (profileUnsubscribe) { profileUnsubscribe(); profileUnsubscribe = null; }
-  sessionStorage.removeItem(PORTAL_ACTIVITY_KEY);
+  localStorage.removeItem(PORTAL_ACTIVITY_KEY);
   const target = String(newEmail || '').trim().toLowerCase();
   signOut(auth).catch(() => {}).finally(() => {
     const params = new URLSearchParams();
@@ -827,7 +827,10 @@ if (!firebaseConfigured) {
       },err=>console.warn('Beta profile realtime listener failed:',err));
       startInactivityWatcher();
     } catch (error) {
-      fail(error && error.message === 'access' ? 'access' : 'session');
+      if (error && error.message === 'access') { fail('access'); return; }
+      console.error('Beta profile temporarily unavailable:', error);
+      initialized = false;
+      if (loading) loading.innerHTML = '<div class="portal-alert warning">The Beta Portal cannot load your account right now. Your sign-in has been preserved. Please try reloading shortly.</div>';
       return;
     }
     // Portal add-ons must never invalidate an otherwise valid authenticated session.
@@ -849,7 +852,7 @@ if (logout) {
     sessionEnding = true;
     clearTimeout(inactivityTimer);
     if(profileUnsubscribe){profileUnsubscribe();profileUnsubscribe=null;}
-    sessionStorage.removeItem(PORTAL_ACTIVITY_KEY);
+    localStorage.removeItem(PORTAL_ACTIVITY_KEY);
     try { await signOut(auth); } catch (_) {}
     location.replace('beta-login.html');
   });

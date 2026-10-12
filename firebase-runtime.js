@@ -20,6 +20,7 @@
     function getApps(){ return firebase.apps || []; }
     function getAuth(app){ return app && typeof app.auth === 'function' ? app.auth() : firebase.auth(); }
     var browserSessionPersistence = firebase.auth.Auth.Persistence.SESSION;
+    var browserLocalPersistence = firebase.auth.Auth.Persistence.LOCAL;
     function setPersistence(auth,persistence){ return auth.setPersistence(persistence); }
     function onAuthStateChanged(auth,next,error,complete){ return auth.onAuthStateChanged(next,error,complete); }
     function signOut(auth){ return auth.signOut(); }
@@ -76,7 +77,7 @@
       return ref.onSnapshot(next,error,complete);
     }
 
-    window.RebataTrackFirebaseCompat={initializeApp,getApps,getAuth,browserSessionPersistence,setPersistence,onAuthStateChanged,signOut,signInWithEmailAndPassword,signInWithCustomToken,sendPasswordResetEmail,getFirestore,doc,collection,getDoc,getDocs,setDoc,updateDoc,deleteDoc,addDoc,serverTimestamp,deleteField,Timestamp,writeBatch,where,orderBy,limit,query,getCountFromServer,onSnapshot};
+    window.RebataTrackFirebaseCompat={initializeApp,getApps,getAuth,browserSessionPersistence,browserLocalPersistence,setPersistence,onAuthStateChanged,signOut,signInWithEmailAndPassword,signInWithCustomToken,sendPasswordResetEmail,getFirestore,doc,collection,getDoc,getDocs,setDoc,updateDoc,deleteDoc,addDoc,serverTimestamp,deleteField,Timestamp,writeBatch,where,orderBy,limit,query,getCountFromServer,onSnapshot};
 
     var config=window.REBATIFY_FIREBASE_CONFIG||{};
     var settings=window.REBATIFY_BETA_SETTINGS||{};
@@ -91,7 +92,7 @@
     if(firebaseConfigured){
       app=getApps().find(function(a){return a.name==='[DEFAULT]';})||initializeApp(config);
       auth=getAuth(app);
-      authPersistenceReady=setPersistence(auth,browserSessionPersistence).catch(function(){});
+      authPersistenceReady=setPersistence(auth,browserLocalPersistence).catch(function(){});
       db=getFirestore(app);
     }
     function isAdminUser(user){ return !!user && adminEmails.indexOf(String(user.email||'').trim().toLowerCase())!==-1; }

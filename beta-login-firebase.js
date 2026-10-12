@@ -5,7 +5,7 @@ var Core=window.RebataTrackFirebaseCore;
 var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth}=Core;
-const {onAuthStateChanged,signInWithCustomToken,signOut,setPersistence,browserSessionPersistence}=Compat;
+const {onAuthStateChanged,signInWithCustomToken,signOut,setPersistence,browserLocalPersistence}=Compat;
 window.__REBATRACK_BETA_LOGIN_MODULE_READY = true;
 
 const form = document.getElementById('portalLoginForm');
@@ -130,7 +130,7 @@ if (codeForm) {
       try { await signOut(auth); } catch (_) {}
       // Explicitly establish tab-scoped persistence before signing in so the
       // authenticated tester survives the navigation to beta-portal.html.
-      await setPersistence(auth, browserSessionPersistence);
+      await setPersistence(auth, browserLocalPersistence);
       const credential = await signInWithCustomToken(auth, result.customToken);
       // Force the authenticated session/token to be fully available before redirecting.
       await credential.user.getIdToken(true);
