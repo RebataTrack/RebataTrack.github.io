@@ -1,4 +1,4 @@
-// RebataTrack Website Build 228 dependency sync.
+// RebataTrack Website Build 256 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 228
+// RebataTrack Admin Portal — Website Build 256
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1283,6 +1283,10 @@ function renderAutomaticEmailCenter(){
 }
 async function refreshAutomaticEmailCenter(force=false){
  const holder=document.getElementById('emailCenterRecipients');if(!holder||emailCenterLoading||document.hidden)return;
+ // Website Build 256 Firestore optimization: the Automatic Email Center belongs only to the Testers workspace.
+ // It previously ran from tester renders even while Admin was working in Help & Feedback because the hidden DOM node
+ // still existed. Each preview calls the Beta Worker, so that invisible refresh amplified task/feedback reads.
+ if(!force&&activeView!=='testers')return;
  if(!force&&Date.now()-emailCenterLastCheck<EMAIL_CENTER_MIN_REFRESH_MS)return;
  const testers=state.testers.filter(t=>t.accessStatus==='Enabled'&&isEnabledStatus(t.status));
  emailCenterLoading=true;const generation=++emailCenterGeneration;
@@ -1320,7 +1324,7 @@ function renderTesterNextStepSummary(){
   set('testerNeedPortalCount',counts.portalSignIn);set('testerNeedSetupCount',counts.testingSetup);set('testerNeedAppAccountCount',counts.appAccount);set('testerAdminSendCount',counts.adminSend);set('testerSetupCompleteCount',counts.complete);
   const nav=document.getElementById('navTesterActionCount');if(nav){nav.textContent=String(counts.adminSend);nav.hidden=counts.adminSend<1;}
   if(state.metrics)state.metrics.readyForYou=counts.adminSend;
-  if(state.testers.length&&document.getElementById('automaticEmailCenter'))refreshAutomaticEmailCenter(false);
+  if(activeView==='testers'&&!document.hidden&&state.testers.length&&document.getElementById('automaticEmailCenter'))refreshAutomaticEmailCenter(false);
   const bulk=document.getElementById('testerSendPendingReminders');if(bulk)bulk.disabled=testerReminderCandidates().length===0;
 }
 function applyTesterNextStepFilter(key=''){
@@ -3051,8 +3055,10 @@ async function syncSupportInboxNow(options={}){
     // Only force the 100-ticket workspace query when Gmail actually imported something.
     // Idle syncs therefore do not create a Firestore ticket-list read in the browser.
     if(Number(result?.imported||0)>0){
-      state.loaded.feedback=false;
-      await loadFeedback(true);
+      // Website Build 256: imported/new support tickets update `updatedAt`, so the existing narrow realtime listener
+      // receives them immediately. Do not reread the entire feedback workspace after every successful Gmail import.
+      // If the full workspace has never been opened, its normal on-demand loader still runs when the admin opens it.
+      if(activeView==='feedback'&&!state.loaded.feedback) await loadFeedback(false);
     }
     return result;
   })().catch(error=>{
@@ -3351,7 +3357,7 @@ document.addEventListener('click',async e=>{
   }
 
   const noteBtn=e.target.closest('[data-save-app-notes]');if(noteBtn){const a=await ensureApplicationLoaded(noteBtn.dataset.saveAppNotes);if(!a)return;const notes=document.getElementById('drawerApplicantNotes').value;try{await updateDoc(doc(db,'betaApplications',a.id),{notes,lastUpdated:serverTimestamp()});a.notes=notes;a.lastUpdated=new Date();showToast('Private notes saved.');}catch(err){showToast(friendlyFirebaseError(err),'error');}return;}
-  const reopenFeedbackBtn=e.target.closest('[data-reopen-feedback]');if(reopenFeedbackBtn){const f=await ensureFeedbackLoaded(reopenFeedbackBtn.dataset.reopenFeedback);if(!f)return;const status='In Progress';reopenFeedbackBtn.disabled=true;const original=reopenFeedbackBtn.textContent;reopenFeedbackBtn.textContent='Reopening…';try{await updateDoc(doc(db,'betaFeedback',f.id),{status,autoClosedAt:null,autoClosedReason:'',autoCloseReason:'',updatedAt:serverTimestamp()});f.status=status;f.autoClosedAt=null;f.autoClosedReason='';f.autoCloseReason='';f.updatedAt=new Date();state.loaded.feedback=false;await loadFeedback(true);renderFeedback();const fresh=state.feedback.find(x=>x.id===f.id)||f;openFeedbackRecord(fresh);showToast('Conversation reopened. Messaging is available again.');}catch(err){showToast(friendlyFirebaseError(err),'error');reopenFeedbackBtn.disabled=false;reopenFeedbackBtn.textContent=original;}return;}
+  const reopenFeedbackBtn=e.target.closest('[data-reopen-feedback]');if(reopenFeedbackBtn){const f=await ensureFeedbackLoaded(reopenFeedbackBtn.dataset.reopenFeedback);if(!f)return;const status='In Progress';reopenFeedbackBtn.disabled=true;const original=reopenFeedbackBtn.textContent;reopenFeedbackBtn.textContent='Reopening…';try{await updateDoc(doc(db,'betaFeedback',f.id),{status,autoClosedAt:null,autoClosedReason:'',autoCloseReason:'',updatedAt:serverTimestamp()});f.status=status;f.autoClosedAt=null;f.autoClosedReason='';f.autoCloseReason='';f.updatedAt=new Date();renderFeedback();syncOpenAdminFeedbackState(f);openFeedbackRecord(f);scheduleAdminMetricsRefresh();showToast('Conversation reopened. Messaging is available again.');}catch(err){showToast(friendlyFirebaseError(err),'error');reopenFeedbackBtn.disabled=false;reopenFeedbackBtn.textContent=original;}return;}
   const deleteFeedbackBtn=e.target.closest('[data-delete-feedback]');if(deleteFeedbackBtn){const f=await ensureFeedbackLoaded(deleteFeedbackBtn.dataset.deleteFeedback);if(!f)return;const label=isSupportConversation(f)?'support conversation':'feedback conversation';const deleteNote=isEmailSupportConversation(f)?'The original Gmail thread and attachments will remain in Gmail.':'The tester account and beta application will remain.';if(!(await confirmAction(`Permanently delete this ${label}? All portal replies and private admin notes will also be deleted. ${deleteNote} This cannot be undone.`,'danger')))return;deleteFeedbackBtn.disabled=true;const original=deleteFeedbackBtn.textContent;deleteFeedbackBtn.textContent='Deleting…';try{await deleteFeedbackConversation(f);closeDrawer();showToast('Conversation deleted.');}catch(err){showToast(friendlyFirebaseError(err),'error');deleteFeedbackBtn.disabled=false;deleteFeedbackBtn.textContent=original;}return;}
   const supportPreset=e.target.closest('[data-support-reply-preset]');if(supportPreset){setSupportReplyPreset(supportPreset.dataset.supportReplyPreset);return;}
   const productionUserButton=e.target.closest('[data-open-production-user]');if(productionUserButton){const uid=String(productionUserButton.dataset.openProductionUser||'').trim();if(!uid)return;const bridge=window.RebataTrackProductionAdminBridge;if(!bridge||typeof bridge.openUser!=='function'){showToast('Connect the Production Admin service first.','error');return;}try{await bridge.openUser(uid);}catch(err){showToast(err.message||'Production user could not be opened.','error');}return;}
@@ -3652,5 +3658,5 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
 // Forecasts are read-only and never send mail. Recalculate when visible; worker always rechecks at send-time.
 document.getElementById('emailCenterRefresh')?.addEventListener('click',()=>refreshAutomaticEmailCenter(true));
 document.getElementById('emailCenterFilter')?.addEventListener('change',renderAutomaticEmailCenter);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshAutomaticEmailCenter(false);});
-setInterval(()=>{if(!document.hidden&&document.getElementById('automaticEmailCenter'))refreshAutomaticEmailCenter(false);},300000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&activeView==='testers')refreshAutomaticEmailCenter(false);});
+setInterval(()=>{if(!document.hidden&&activeView==='testers'&&document.getElementById('automaticEmailCenter'))refreshAutomaticEmailCenter(false);},300000);
