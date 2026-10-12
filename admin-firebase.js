@@ -1040,12 +1040,15 @@ function setNavBadge(id,v){const el=document.getElementById(id);if(!el)return;co
 // own the navigation badge. A focused one-time query makes the count accurate even
 // before an administrator opens Tasks. The full task workspace remains lazy-loaded.
 let navTaskCountLoading=null;
+let navTaskCountLastFetchedAt=0;
+const NAV_TASK_BADGE_CACHE_MS=10*60*1000;
 async function refreshActiveTaskNavBadge(){
   if(state.loaded.tasks){
     setNavBadge('navTaskCount',regularAssignments().filter(a=>a.status==='Pending'&&assignmentBelongsToActiveCampaign(a)).length);
     return;
   }
   if(navTaskCountLoading)return navTaskCountLoading;
+  if(Date.now()-navTaskCountLastFetchedAt<NAV_TASK_BADGE_CACHE_MS)return;
   navTaskCountLoading=(async()=>{
     const [taskSnap,assignmentSnap]=await Promise.all([
       getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100)),'navigation: campaigns (up to 100)'),
@@ -1056,6 +1059,7 @@ async function refreshActiveTaskNavBadge(){
     const activeIds=new Set(taskSnap.docs.map(normalizeDoc).filter(t=>!isAnnouncementTask(t)&&taskCampaignIsActive(t)).map(t=>String(t.id)));
     const count=assignmentSnap.docs.map(normalizeDoc).filter(a=>!isAnnouncementAssignment(a)&&activeIds.has(String(a.taskId||''))).length;
     setNavBadge('navTaskCount',count);
+    navTaskCountLastFetchedAt=Date.now();
   })().catch(error=>{console.warn('Could not refresh active Tasks badge:',error);}).finally(()=>{navTaskCountLoading=null;});
   return navTaskCountLoading;
 }
