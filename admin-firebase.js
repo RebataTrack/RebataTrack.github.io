@@ -1,4 +1,4 @@
-// RebataTrack Website Build 256 dependency sync.
+// RebataTrack Website Build 259 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 256
+// RebataTrack Admin Portal — Website Build 259
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -234,7 +234,7 @@ async function requestAdminNotificationPermission(){
 }
 let adminMetricsRefreshTimer=null;
 let lastMetricsLoadedAt=0;
-const ADMIN_METRICS_CACHE_TTL_MS=60*1000;
+const ADMIN_METRICS_CACHE_TTL_MS=5*60*1000;
 const ADMIN_FEEDBACK_REALTIME_LIMIT=20;
 const feedbackRealtimeSignatures=new Map();
 function scheduleAdminMetricsRefresh(){
@@ -796,7 +796,9 @@ async function loadMetrics(force=false){
     // If server-side counting is unavailable (for example Security Rules deny the aggregation request), the dashboard keeps working,
     // but the expensive full-read fallback is rate-limited so it can never turn into a read storm.
     console.warn('Server-side metrics counts were unavailable:',error);
-    if(Date.now()-lastLegacyMetricsAt>=ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS){lastLegacyMetricsAt=Date.now();result=await loadMetricsLegacy();}
+    // Never fall back to reading entire collections to compute dashboard counts.
+    // Keep the last known metrics and retry aggregations after the normal cache window.
+    console.warn('Keeping cached metrics; collection-scan fallback is disabled.');
   }
   if(result)state.metrics=result;
   lastMetricsLoadedAt=Date.now();
@@ -3015,7 +3017,7 @@ async function syncSupportInboxNow(options={}){
     // Only force the 100-ticket workspace query when Gmail actually imported something.
     // Idle syncs therefore do not create a Firestore ticket-list read in the browser.
     if(Number(result?.imported||0)>0){
-      // Website Build 256: imported/new support tickets update `updatedAt`, so the existing narrow realtime listener
+      // Website Build 259: imported/new support tickets update `updatedAt`, so the existing narrow realtime listener
       // receives them immediately. Do not reread the entire feedback workspace after every successful Gmail import.
       // If the full workspace has never been opened, its normal on-demand loader still runs when the admin opens it.
       if(activeView==='feedback'&&!state.loaded.feedback) await loadFeedback(false);
@@ -3038,21 +3040,37 @@ function updateSupportInboxAutoSync(){
   },300000);
 }
 
+// Application decisions normally change one application and one tester. Refresh only
+// their exact documents, preserving loaded workspaces and existing realtime feeds.
+// Deletion is exceptional: it can cascade to assignments and needs a bounded reload.
 async function refreshApplicationAdminData(options={}){
-  // Build 180: only the 'delete' action cascades into task assignments on the server. Every other action changes just the
-  // application and tester records, so the cached assignments (up to 500 reads) stay valid.
-  const assignmentsChanged=options.assignmentsChanged!==false;
-  state.loaded.applications=false;
-  state.loaded.testers=false;
-  if(assignmentsChanged)state.loaded.tasks=false;
-  const previousSuppress=suppressBetaProductionAutoRefresh;
-  if(options.skipBetaMapping)suppressBetaProductionAutoRefresh=true;
-  try{
-    const refreshes=[loadApplications(true),loadTesters(true)];
-    if(assignmentsChanged&&['testers','tasks','announcements'].includes(activeView))refreshes.push(loadTasks(true));
-    await Promise.all(refreshes);
-  }finally{suppressBetaProductionAutoRefresh=previousSuppress;}
-  await loadOverview(true);
+  const applicationId=String(options.applicationId||'');
+  if(options.assignmentsChanged){
+    state.loaded.applications=false;state.loaded.testers=false;state.loaded.tasks=false;
+    const previousSuppress=suppressBetaProductionAutoRefresh;
+    if(options.skipBetaMapping)suppressBetaProductionAutoRefresh=true;
+    try{await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);}
+    finally{suppressBetaProductionAutoRefresh=previousSuppress;}
+  }else if(applicationId){
+    const snapshot=await getDoc(doc(db,'betaApplications',applicationId),'mutation: changed application (1)');
+    const next=snapshot.exists()?normalizeDoc(snapshot):null;
+    const prior=state.applications.find(a=>a.id===applicationId);
+    if(state.loaded.applications){
+      state.applications=state.applications.filter(a=>a.id!==applicationId);
+      if(next)state.applications.unshift(next);
+    }
+    // The associated tester is resolved only from this exact application, never
+    // from a new collection query. Other testers remain cached unchanged.
+    const uid=String(next?.testerUid||prior?.testerUid||'');
+    if(uid&&state.loaded.testers){
+      const testerSnap=await getDoc(doc(db,'betaUsers',uid),'mutation: changed tester (1)');
+      state.testers=state.testers.filter(t=>t.id!==uid&&t.uid!==uid);
+      if(testerSnap.exists())state.testers.unshift(normalizeDoc(testerSnap));
+    }
+  }
+  // A normal metrics refresh is cached/coalesced. Live feeds independently
+  // refresh the visible overview, so no force-refresh is needed after mutations.
+  await loadOverview(false);
   if(activeView==='applications')renderApplications();
   if(activeView==='testers')renderTesters();
   if(activeView==='tasks')renderTasks();
@@ -3062,7 +3080,7 @@ async function refreshApplicationAdminData(options={}){
 async function runApplicationAdminAction(a,action){
   const result=await callWorkerAdminAction('admin-application-action',{applicationId:a.id,action});
   const changesEligibility=['approve','waitlist','decline','inactive','active','delete'].includes(action);
-  await refreshApplicationAdminData({skipBetaMapping:changesEligibility,assignmentsChanged:action==='delete'});
+  await refreshApplicationAdminData({applicationId:a.id,skipBetaMapping:changesEligibility,assignmentsChanged:action==='delete'});
   if(changesEligibility){
     const betaSync=await syncBetaProgramAfterTesterMutation();
     if(betaSync&&betaSync.error)result.betaSyncError=betaSync.error;
