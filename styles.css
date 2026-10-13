@@ -2822,3 +2822,15 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-email-center-recipients{display:grid;gap:8px;max-height:610px;overflow:auto}.admin-email-center-row{background:white;border:1px solid #dce6f2;border-radius:13px;padding:0 14px}.admin-email-center-row>summary{display:grid;grid-template-columns:minmax(130px,2fr) minmax(130px,1.4fr) auto;gap:12px;align-items:center;padding:13px 5px;cursor:pointer}.admin-email-center-row>summary span{display:grid;gap:4px;min-width:0}.admin-email-center-row>summary small{font-size:.76rem;font-weight:normal;color:#65758c;overflow-wrap:anywhere}.admin-email-center-row>summary b{font-size:.84rem;color:#233b5b}.admin-email-center-detail{border-top:1px solid #e1e8f1;padding:14px 5px;color:#374d66}.admin-email-center-detail ul{margin:9px 0;padding-left:22px}.admin-email-center-detail li{margin:7px 0}.admin-email-center-warning{color:#b52f36}
 @media(max-width:690px){.admin-email-center-row>summary{grid-template-columns:1fr;gap:5px}}
 .admin-next-step-reminder[hidden],.admin-task-remind-button[hidden],.admin-action-button[hidden]{display:none!important}
+
+/* Build 258: separate filter and reminder actions on each Action Center card. */
+.admin-tester-action-card[data-action-card]{cursor:default;transition:none;gap:7px}
+.admin-tester-action-card[data-action-card]:hover{transform:none;box-shadow:none}
+.admin-action-card-filter{appearance:none;border:0;background:none;color:inherit;padding:0;display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:4px;cursor:pointer;width:100%;font:inherit}
+.admin-action-card-filter>span{font-size:.64rem;font-weight:950;letter-spacing:.045em;text-transform:uppercase;color:#72849a}
+.admin-action-card-filter>strong{font-size:1.62rem;line-height:1;color:#b02c37}
+.admin-action-card-filter>small{font-size:.66rem;line-height:1.38;color:#7a8ba0}
+.admin-action-card-send{appearance:none;border:1px solid #efb6bc;background:#fff;color:#ad2f3b;border-radius:11px;padding:9px 12px;font-size:.75rem;font-weight:800;cursor:pointer;align-self:stretch;margin-top:auto}
+.admin-action-card-send:disabled{opacity:.5;cursor:not-allowed}
+.admin-tester-action-bulk{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:14px 0}
+.admin-tester-action-bulk small{color:#72849a;font-size:.74rem}

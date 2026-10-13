@@ -1267,8 +1267,31 @@ function testerNextStepHtml(t){
   const button=n.reminderType?`<button class="admin-next-step-reminder" data-send-tester-reminder="${esc(t.uid)}" type="button" ${contactState.disabled?'disabled':''} ${contactState.title?`title="${esc(contactState.title)}"`:''}>${esc(contactState.disabled?contactState.label:'Send Action Reminder')}</button>`:'';
   return `<div class="admin-next-step-cell next-step-${esc(n.key)}"><strong>${esc(n.label)}</strong><small>${esc(n.detail)}</small>${contactText?`<small class="admin-next-step-last">${esc(contactText)}</small>`:''}${countText?`<small class="admin-next-step-last">${esc(countText)}</small>`:''}${button}</div>`;
 }
-function testerReminderCandidates(){
-  return state.testers.filter(t=>!!testerNextStep(t).reminderType&&!testerContactHistory(t).recent);
+const TESTER_REMINDER_KEYS = Object.freeze(['portalSignIn','testingSetup','appAccount']);
+const TESTER_REMINDER_TYPES = Object.freeze({portalSignIn:'portal-signin',testingSetup:'testing-setup',appAccount:'app-account'});
+let testerBulkRemindersInProgress=false;
+function testerOutstandingReminderTypes(t){
+  if(!t||t.accessStatus!=='Enabled'||!['Approved','Active'].includes(t.status))return [];
+  const portalSeen=!!timestampToDate(t.lastLogin)||!!timestampToDate(t.lastPortalActivity);
+  const setupDone=testerSetupCompleteForInvite(t);
+  const types=[];
+  if(!portalSeen)types.push('portal-signin');
+  if(!setupDone)types.push('testing-setup');
+  const accessSent=timelineStageRank(normalizeTimelineStage(t.timelineStage))>=timelineStageRank('inviteSent')||(t.platform==='Android'&&!!timestampToDate(t.androidTestingInviteSentAt));
+  const mapping=betaProductionMapping.get(String(t.email||'').trim().toLowerCase());
+  if(accessSent&&(!mapping||mapping.matched!==true))types.push('app-account');
+  return types;
+}
+function testerReminderCandidates(stepKey=''){
+  const desired=TESTER_REMINDER_TYPES[stepKey]||'';
+  const seen=new Set();
+  return state.testers.filter(t=>{
+    const key=String(t.email||'').trim().toLowerCase();
+    if(!key||seen.has(key)||testerContactHistory(t).recent)return false;
+    const types=testerOutstandingReminderTypes(t);
+    if(!types.length||(desired&&!types.includes(desired)))return false;
+    seen.add(key);return true;
+  });
 }
 
 function renderTesterNextStepSummary(){
@@ -1279,7 +1302,8 @@ function renderTesterNextStepSummary(){
   const nav=document.getElementById('navTesterActionCount');if(nav){nav.textContent=String(counts.adminSend);nav.hidden=counts.adminSend<1;}
   if(state.metrics)state.metrics.readyForYou=counts.adminSend;
   if(activeView==='testers'&&!document.hidden&&state.testers.length&&document.getElementById('automaticEmailCenter'))/* automated email forecast removed */;
-  const bulk=document.getElementById('testerSendPendingReminders');if(bulk)bulk.disabled=testerReminderCandidates().length===0;
+  const bulk=document.getElementById('testerSendPendingReminders');if(bulk)bulk.disabled=testerBulkRemindersInProgress||testerReminderCandidates().length===0;
+  document.querySelectorAll('[data-send-reminder-group]').forEach(btn=>{btn.disabled=testerBulkRemindersInProgress||testerReminderCandidates(btn.dataset.sendReminderGroup).length===0;});
 }
 function applyTesterNextStepFilter(key=''){
   const el=document.getElementById('testerNextStepFilter');if(el)el.value=key;renderTesters();
@@ -1289,50 +1313,42 @@ function clearTesterFilters(){
   renderTesters();
 }
 async function sendTesterNextStepReminder(t){
-  const n=testerNextStep(t);
-  if(!n.reminderType)throw new Error('This tester does not currently have a tester-owned setup step to remind them about.');
+  const types=testerOutstandingReminderTypes(t);
+  if(!types.length)throw new Error('No outstanding tester setup actions remain.');
   const contact=testerContactHistory(t);
-  if(contact.recent)throw new Error(`A tester update was already sent ${relativeDate(contact.latest.at)}. Wait 48 hours before sending another participation email.`);
-  const result=await callWorkerAdminAction('tester-next-step-reminder',{testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),name:t.name||'Tester',platform:t.platform||'',reminderType:n.reminderType});
+  if(contact.recent)throw new Error('A tester update was sent within the past 48 hours.');
+  const result=await callWorkerAdminAction('tester-combined-setup-reminder',{
+    testerUid:t.uid||'',applicationId:t.applicationId||'',email:String(t.email||'').trim().toLowerCase(),
+    reminderTypes:types
+  });
   if(!result?.sent)throw new Error(result?.error||'Reminder was not accepted by the email service.');
-  const nextCount=currentSetupReminderCount(t)+1;const sentAt=result.sentAt?new Date(result.sentAt):new Date();
-  // The worker is authoritative for successful delivery and identity repair.
-  // A legacy approved application may have no betaUsers row until the worker
-  // reconciles its Firebase Auth UID. Do not mark an accepted send as failed
-  // merely because this browser's cached tester UID is blank or obsolete.
-  const resolvedUid=String(result.testerUid||'').trim();
-  if(resolvedUid){
-    t.uid=resolvedUid;
-    try{
-      await updateDoc(doc(db,'betaUsers',resolvedUid),{lastSetupReminderAt:serverTimestamp(),lastSetupReminderType:n.reminderType,setupReminderCount:nextCount,updatedAt:serverTimestamp()});
-    }catch(error){console.warn('Reminder was sent, but local reminder marker could not be updated',error);}
-  }
-  t.lastTesterContactAt=sentAt;t.lastTesterContactSource='Setup reminder';t.lastTesterContactType=n.reminderType;t.lastSetupReminderAt=sentAt;t.lastSetupReminderType=n.reminderType;t.setupReminderCount=nextCount;
-  renderTesters();return {...n,issueCount:result.issueCount||0};
+  const at=result.sentAt?new Date(result.sentAt):new Date();
+  if(result.testerUid)t.uid=result.testerUid;
+  t.lastTesterContactAt=at;t.lastTesterContactSource='Setup reminder';t.lastTesterContactType='combined-setup';
+  t.lastSetupReminderAt=at;t.lastSetupReminderType='combined-setup';t.setupReminderCount=Number(result.reminderCount||0);
+  // Worker owns the sole reminder-history write. Never duplicate it from this browser.
+  renderTesters();return {types};
 }
-async function sendAllPendingTesterReminders(){
-  const recipients=testerReminderCandidates();
-  if(!recipients.length)throw new Error('There are no testers currently waiting on a tester-owned setup step.');
-  if(!(await confirmAction(`Send a personalized next-step reminder to ${recipients.length} tester${recipients.length===1?'':'s'}? Each email will match the exact step they still need to complete.`,'')))return {cancelled:true,sent:0,failed:0};
+async function sendTesterReminderBatch(stepKey=''){
+  if(testerBulkRemindersInProgress)throw new Error('Reminder sending is already in progress.');
+  const labels={portalSignIn:'Portal sign-in',testingSetup:'Testing Setup',appAccount:'App login'};
+  const recipients=testerReminderCandidates(stepKey);
+  if(!recipients.length)throw new Error('There are no eligible testers awaiting those steps who can be contacted now.');
+  const breakdown=recipients.map(t=>testerOutstandingReminderTypes(t)).flat().reduce((counts,type)=>(counts[type]=(counts[type]||0)+1,counts),{});
+  const summary=Object.entries(breakdown).map(([type,count])=>`${count} ${type==='portal-signin'?'Portal sign-in':type==='testing-setup'?'Testing Setup':'App login'}`).join(' · ');
+  if(!(await confirmAction(`Send ${stepKey?(labels[stepKey]+' reminders'):'all outstanding reminders'} to ${recipients.length} unique eligible tester${recipients.length===1?'':'s'}? Each receives ONE email combining all of their outstanding setup steps.`,`${summary}. Testers contacted in the previous 48 hours are excluded.`)))return {cancelled:true,sent:0,failed:0};
+  testerBulkRemindersInProgress=true;renderTesterNextStepSummary();
   let sent=0,failed=0;const errors=[];
-  for(const t of recipients){
-    try{await sendTesterNextStepReminder(t);sent++;}
-    catch(error){failed++;errors.push(`${t.name||t.email||'Tester'}: ${friendlyFirebaseError(error)}`);}
-  }
+  try{
+    for(const t of recipients){
+      try{await sendTesterNextStepReminder(t);sent++;}
+      catch(error){failed++;errors.push(`${t.name||t.email||'Tester'}: ${friendlyFirebaseError(error)}`);}
+    }
+  }finally{testerBulkRemindersInProgress=false;renderTesterNextStepSummary();}
   return {cancelled:false,sent,failed,errors};
 }
-async function sendTesterReminderGroup(stepKey){
-  const labels={portalSignIn:'Beta Portal sign-in',testingSetup:'Testing Setup',appAccount:'RebataTrack app login'};
-  const recipients=state.testers.filter(t=>testerNextStep(t).key===stepKey&&!!testerNextStep(t).reminderType&&!testerContactHistory(t).recent);
-  if(!recipients.length)throw new Error(`There are no testers currently waiting on ${labels[stepKey]||'that step'}.`);
-  if(!(await confirmAction(`Send a friendly ${labels[stepKey]||'next-step'} reminder to ${recipients.length} tester${recipients.length===1?'':'s'}?`, '')))return {cancelled:true,sent:0,failed:0};
-  let sent=0,failed=0;const errors=[];
-  for(const t of recipients){
-    try{await sendTesterNextStepReminder(t);sent++;}
-    catch(error){failed++;errors.push(`${t.name||t.email||'Tester'}: ${friendlyFirebaseError(error)}`);}
-  }
-  return {cancelled:false,sent,failed,errors};
-}
+async function sendAllPendingTesterReminders(){return sendTesterReminderBatch();}
+async function sendTesterReminderGroup(stepKey){return sendTesterReminderBatch(stepKey);}
 
 async function productionUsersForResolution(){
   const bridge=window.RebataTrackProductionAdminBridge;
@@ -3553,7 +3569,7 @@ document.addEventListener('click',async event=>{
   document.getElementById('testerReadinessShowAll')?.addEventListener('click',()=>applyTesterReadinessQuickFilter('',''));
   document.querySelectorAll('[data-next-step-filter]').forEach(btn=>btn.addEventListener('click',()=>applyTesterNextStepFilter(btn.dataset.nextStepFilter||'')));
 document.querySelectorAll('[data-access-filter]').forEach(btn=>btn.addEventListener('click',()=>{const el=document.getElementById('testerAccessFilter');if(el)el.value=btn.dataset.accessFilter||'';renderTesters();}));
-document.querySelectorAll('[data-send-reminder-group]').forEach(btn=>btn.addEventListener('click',async()=>{const key=btn.dataset.sendReminderGroup||'';const original=btn.innerHTML;btn.disabled=true;try{const result=await sendTesterReminderGroup(key);if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Friendly reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;renderTesterNextStepSummary();}}));
+document.querySelectorAll('[data-send-reminder-group]').forEach(btn=>btn.addEventListener('click',async()=>{const key=btn.dataset.sendReminderGroup||'';const original=btn.innerHTML;btn.disabled=true;try{const result=await sendTesterReminderGroup(key);if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Friendly reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{renderTesterNextStepSummary();}}));
   document.getElementById('testerNextStepShowAll')?.addEventListener('click',clearTesterFilters);
   document.getElementById('testerSendPendingReminders')?.addEventListener('click',async()=>{const btn=document.getElementById('testerSendPendingReminders');const original=btn.textContent;btn.disabled=true;btn.textContent='Sending Reminders…';try{const result=await sendAllPendingTesterReminders();if(!result.cancelled)showToast(result.failed?`${result.sent} reminder${result.sent===1?'':'s'} sent; ${result.failed} failed.${result.errors[0]?' '+result.errors[0]:''}`:`Personalized reminders sent to ${result.sent} tester${result.sent===1?'':'s'}.`,result.failed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.textContent=original;renderTesterNextStepSummary();}});
 document.getElementById('quickReplySave')?.addEventListener('click',async()=>{const btn=document.getElementById('quickReplySave');btn.disabled=true;try{await saveQuickReplyFromEditor();showToast('Quick Reply saved.');}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;}});
