@@ -71,7 +71,7 @@
         return current;
       },base);
     }
-    async function getCountFromServer(ref){ var snapshot=await ref.get(); return {data:function(){return {count:snapshot.size};}}; }
+    async function getCountFromServer(ref){ if(!ref || typeof ref.count!=="function") throw new Error("Firestore count aggregation is unavailable"); var snapshot=await ref.count().get(); return {data:function(){return {count:Number(snapshot.data().count||0)};}}; }
     function onSnapshot(ref,next,error,complete){
       if(isDocumentReference(ref)) return ref.onSnapshot(function(snapshot){ next(wrapDocumentSnapshot(snapshot)); },error,complete);
       return ref.onSnapshot(next,error,complete);

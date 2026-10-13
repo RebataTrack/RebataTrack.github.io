@@ -1,4 +1,4 @@
-// RebataTrack Website Build 259 dependency sync.
+// RebataTrack Website Build 260 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 259
+// RebataTrack Admin Portal — Website Build 260
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -36,7 +36,7 @@ const readMeter=(function(){
 function docCount(snap){return snap&&snap.docs?snap.docs.length:(snap&&typeof snap.size==='number'?snap.size:0);}
 async function getDocs(ref,label='getDocs (unlabeled)'){const snap=await rawGetDocs(ref);readMeter.add(label,docCount(snap));return snap;}
 async function getDoc(ref,label='getDoc'){const snap=await rawGetDoc(ref);readMeter.add(label,1);return snap;}
-async function getCountFromServer(ref){const snap=await rawGetCountFromServer(ref);readMeter.add('count via FULL document read (legacy fallback)',snap.data().count||0);return snap;}
+async function getCountFromServer(ref){const snap=await rawGetCountFromServer(ref);readMeter.add('server count aggregation (estimated minimum)',1);return snap;}
 
 window.__REBATIFY_ADMIN_BOOT = window.__REBATIFY_ADMIN_BOOT || {};
 window.__REBATIFY_ADMIN_BOOT.moduleLoaded = true;
@@ -113,6 +113,9 @@ let feedbackRealtimeUnsubscribe = null;
 let adminConversationUnsubscribe = null;
 let activeDrawerFeedbackId = null;
 let adminConversationMessageCount = 0;
+let adminConversationHistoryExpanded = false;
+let adminConversationOlderRows = [];
+const ADMIN_CONVERSATION_LIVE_LIMIT = 60;
 let emailChangeApplicationId = null;
 let applicationRealtimeUnsubscribe = null;
 let applicationsRealtimeReady = false;
@@ -756,10 +759,7 @@ async function loadMetricsLegacy(){
     countQuery(query(apps,where('platform','==','iOS'))),
     countQuery(query(apps,where('platform','==','Android'))),
     Promise.all([countQuery(query(feedback,where('status','==','New'))),countQuery(query(feedback,where('status','==','Waiting for RebataTrack')))]).then(([a,b])=>a+b),
-    countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),where('recordType','==','Task'))).catch(async()=>{
-      const fallback=await getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)),'metrics fallback: pending assignments');
-      return fallback.docs.filter(d=>d.data().recordType!=='Announcement').length;
-    })
+    countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),where('recordType','==','Task'))).catch(()=>0)
   ]);
   const fullySetUpCounts=await Promise.all([
     Promise.all([
@@ -2360,7 +2360,7 @@ async function switchView(view){
   updateSupportInboxAutoSync();
 }
 function openDrawer(kicker,title,html){document.getElementById('drawerKicker').textContent=kicker;document.getElementById('drawerTitle').textContent=title;document.getElementById('adminDrawerContent').innerHTML=html;document.getElementById('adminDrawerBackdrop').hidden=false;document.getElementById('adminDrawer').classList.add('is-open');document.getElementById('adminDrawer').setAttribute('aria-hidden','false');}
-function closeDrawer(){if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}adminConversationMessageCount=0;activeDrawerFeedbackId=null;const drawer=document.getElementById('adminDrawer');if(drawer){delete drawer.dataset.testerUid;drawer.classList.remove('is-open');drawer.setAttribute('aria-hidden','true');}document.getElementById('adminDrawerBackdrop').hidden=true;}
+function closeDrawer(){if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}adminConversationMessageCount=0;adminConversationHistoryExpanded=false;adminConversationOlderRows=[];activeDrawerFeedbackId=null;const drawer=document.getElementById('adminDrawer');if(drawer){delete drawer.dataset.testerUid;drawer.classList.remove('is-open');drawer.setAttribute('aria-hidden','true');}document.getElementById('adminDrawerBackdrop').hidden=true;}
 function findApp(id){return state.applications.find(a=>a.id===id)||state.recentApplications.find(a=>a.id===id);}
 function findFeedback(id){return state.feedback.find(f=>f.id===id)||state.recentFeedback.find(f=>f.id===id);}
 function findTester(uid){return state.testers.find(t=>t.uid===uid);}
@@ -2585,21 +2585,51 @@ function adminInitialConversationMessageHtml(f){
 function subscribeAdminConversationMessages(feedback){
   const feedbackId=feedback?.id;
   if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}
-  const list=document.getElementById('drawerConversationThread');if(!list)return;
+  adminConversationHistoryExpanded=false;
+  adminConversationOlderRows=[];
+  const list=document.getElementById('drawerConversationThread');if(!list||!feedbackId)return;
   list.innerHTML='<div class="admin-empty-inline">Connecting live conversation…</div>';
   adminConversationMessageCount=0;
-  adminConversationUnsubscribe=onSnapshot(query(collection(db,'betaFeedback',feedbackId,'messages'),orderBy('createdAt','asc')),snap=>{
-    readMeter.add('live: open conversation messages',snap.docChanges().length);
+  // Only the most recent messages remain realtime. Historic messages load on explicit request.
+  const messagesRef=collection(db,'betaFeedback',feedbackId,'messages');
+  const liveQuery=query(messagesRef,orderBy('createdAt','desc'),limit(ADMIN_CONVERSATION_LIVE_LIMIT));
+  let latestRows=[];
+  function renderConversation(){
     if(activeDrawerFeedbackId!==feedbackId)return;
-    const rows=snap.docs.map(normalizeDoc);
+    const merged=new Map([...adminConversationOlderRows,...latestRows].map(row=>[row.id,row]));
+    const rows=[...merged.values()].sort((a,b)=>{
+      const x=timestampToDate(a.createdAt)?.getTime()||0, y=timestampToDate(b.createdAt)?.getTime()||0;
+      return x-y;
+    });
     const animate=adminConversationMessageCount>0&&rows.length>adminConversationMessageCount;
     adminConversationMessageCount=rows.length;
     const initial=adminInitialConversationMessageHtml(feedback);
-    list.innerHTML=initial+rows.map(adminConversationMessageHtml).join('');
+    const olderButton=!adminConversationHistoryExpanded&&latestRows.length>=ADMIN_CONVERSATION_LIVE_LIMIT
+      ?'<button class="admin-secondary-button" type="button" id="loadOlderAdminConversationMessages">Load earlier messages</button>':'';
+    list.innerHTML=olderButton+initial+rows.map(adminConversationMessageHtml).join('');
+    const olderEl=document.getElementById('loadOlderAdminConversationMessages');
+    if(olderEl)olderEl.addEventListener('click',async()=>{
+      if(olderEl.disabled)return;
+      olderEl.disabled=true;olderEl.textContent='Loading earlier messages…';
+      try{
+        // Explicit history request; no permanent unbounded listener.
+        const snap=await getDocs(query(messagesRef,orderBy('createdAt','asc')),'on-demand: full conversation history');
+        if(activeDrawerFeedbackId!==feedbackId)return;
+        adminConversationOlderRows=snap.docs.map(normalizeDoc);
+        adminConversationHistoryExpanded=true;
+        renderConversation();
+      }catch(error){console.warn('Could not load earlier conversation messages:',error);if(olderEl.isConnected){olderEl.disabled=false;olderEl.textContent='Retry loading earlier messages';}}
+    });
     const replyBox=document.getElementById('drawerConversationReply');
     const hasAdminReply=feedback?.adminInitiated===true||rows.some(row=>String(row.authorRole||'').toLowerCase()==='admin');
     if(replyBox&&replyBox.dataset.supportInitialGreeting==='1'&&!hasAdminReply&&!String(replyBox.value||'').trim())replyBox.value=SUPPORT_REPLY_GREETING;
     requestAnimationFrame(()=>list.scrollTo({top:list.scrollHeight,behavior:animate?'smooth':'auto'}));
+  }
+  adminConversationUnsubscribe=onSnapshot(liveQuery,snap=>{
+    readMeter.add('live: recent conversation messages',snap.docChanges().length);
+    if(activeDrawerFeedbackId!==feedbackId)return;
+    latestRows=snap.docs.map(normalizeDoc);
+    renderConversation();
   },error=>{console.error('Realtime admin conversation listener failed:',error);if(activeDrawerFeedbackId===feedbackId)list.innerHTML='<div class="admin-empty-inline">Live conversation could not be loaded right now.</div>';});
 }
 const supportProductionLookupAttempted=new Set();
@@ -3017,7 +3047,7 @@ async function syncSupportInboxNow(options={}){
     // Only force the 100-ticket workspace query when Gmail actually imported something.
     // Idle syncs therefore do not create a Firestore ticket-list read in the browser.
     if(Number(result?.imported||0)>0){
-      // Website Build 259: imported/new support tickets update `updatedAt`, so the existing narrow realtime listener
+      // Website Build 260: imported/new support tickets update `updatedAt`, so the existing narrow realtime listener
       // receives them immediately. Do not reread the entire feedback workspace after every successful Gmail import.
       // If the full workspace has never been opened, its normal on-demand loader still runs when the admin opens it.
       if(activeView==='feedback'&&!state.loaded.feedback) await loadFeedback(false);
