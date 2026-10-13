@@ -2,7 +2,7 @@
 // For every future website release, change only WEBSITE_BUILD here.
 (() => {
   'use strict';
-  const WEBSITE_BUILD = 261;
+  const WEBSITE_BUILD = 262;
   const label = `Website Build ${WEBSITE_BUILD}`;
   document.querySelectorAll('[data-rebatatrack-website-build]').forEach((element) => {
     element.setAttribute('data-rebatatrack-website-build', String(WEBSITE_BUILD));

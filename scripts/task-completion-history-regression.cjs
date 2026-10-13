@@ -1,0 +1,10 @@
+const fs=require('fs'),assert=require('assert');
+const s=fs.readFileSync(require('path').join(__dirname,'..','admin-firebase.js'),'utf8');
+assert(s.includes("where('templateKey','==',key)"),'must query history by template');
+assert(s.includes('await ensureCompletedTemplateHistory(templateKey);'),'must verify before sending');
+assert(s.includes('completedTemplateCache'),'must cache history');
+assert(s.includes('testerCompletedTemplate(t,history)'),'must match UID or email');
+assert(s.includes('!!a.completedAt'),'must include completed records from closed campaigns');
+assert(s.includes('if(snap.docs.length>=COMPLETION_HISTORY_LIMIT)throw'),'must fail closed on history overflow');
+assert(!s.includes('const duplicateSelections=selected.filter(uid=>templateHistory.has(String(uid)))'),'old incomplete lookup is prohibited');
+console.log('Task completion history regression checks passed');
