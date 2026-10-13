@@ -1890,11 +1890,13 @@ function taskTemplateHistoryTesterIds(templateKey){
   const key=String(templateKey||'').trim();
   if(!key||key==='custom')return new Set();
   const taskIds=new Set(state.tasks.filter(t=>String(t.templateKey||'')===key).map(t=>t.id));
-  return new Set(state.taskAssignments.filter(a=>String(a.templateKey||'')===key||taskIds.has(a.taskId)).map(a=>String(a.testerUid||'')).filter(Boolean));
+  // Historical unfinished campaigns must not prevent another assignment of the same template.
+  // Completed is the only cross-campaign exclusion; each campaign separately blocks repeat assignments.
+  return new Set(state.taskAssignments.filter(a=>(String(a.templateKey||'')===key||taskIds.has(a.taskId))&&String(a.status||'')==='Completed').map(a=>String(a.testerUid||'')).filter(Boolean));
 }
 function taskReceiptHistoryTesterIds(t){
   const key=String(t?.templateKey||'').trim();
-  return key&&key!=='custom'?taskTemplateHistoryTesterIds(key):taskAssignmentTesterIds(t?.id||'');
+  return taskAssignmentTesterIds(t?.id||''); // Never duplicate an assignment in the SAME campaign.
 }
 function selectTaskRecipients(platform='All'){
   document.querySelectorAll('[data-task-recipient]').forEach(el=>{const p=el.dataset.platform||'';el.checked=!el.disabled&&(platform==='All'||p===platform);});
@@ -1912,7 +1914,7 @@ function applyTaskTemplate(key){
   renderTaskRecipientPicker();
   if(tpl.platform&&tpl.platform!=='All')selectTaskRecipients(tpl.platform);
   const already=taskTemplateHistoryTesterIds(key).size;
-  if(meta)meta.textContent=`Recommended recipients: ${tpl.platform==='All'?'all active testers':tpl.platform+' testers'} · Suggested deadline: ${tpl.suggestedHours} hours.${already?` ${already} tester${already===1?' has':'s have'} already received this task and cannot be selected again.`:''}${tpl.adminNote?' '+tpl.adminNote:''}`;
+  if(meta)meta.textContent=`Recommended recipients: ${tpl.platform==='All'?'all active testers':tpl.platform+' testers'} · Suggested deadline: ${tpl.suggestedHours} hours.${already?` ${already} tester${already===1?' has':'s have'} already completed this template and cannot be selected again.`:''}${tpl.adminNote?' '+tpl.adminNote:''}`;
 }
 function approvedBetaApplicationForTester(t){
   if(!t)return null;
@@ -1959,7 +1961,7 @@ function renderTaskRecipientPicker(){
   if(!testers.length){list.innerHTML='<div class="admin-empty-inline" style="padding:14px">No task-eligible testers are available. A tester must have active Beta access, completed Testing Setup, and a matched Production account.</div>';updateTaskRecipientSummary();return;}
   const templateKey=selectedTaskTemplateKey();
   const received=taskTemplateHistoryTesterIds(templateKey);
-  list.innerHTML=testers.map(t=>{const prior=received.has(String(t.uid||''));return `<label class="admin-task-recipient${prior?' already-received':''}"><input type="checkbox" data-task-recipient="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${prior?' disabled':''}><span class="admin-task-recipient-copy"><strong>${esc(t.name||'Tester')}${meaningfulTesterStarIndicatorHtml(t)}</strong><span>${esc(t.email||'')}</span></span>${prior?'<span class="admin-task-received-chip">Already received</span>':`<span class="admin-platform-pill">${esc(t.platform||'')}</span>`}</label>`;}).join('');
+  list.innerHTML=testers.map(t=>{const prior=received.has(String(t.uid||''));return `<label class="admin-task-recipient${prior?' already-received':''}"><input type="checkbox" data-task-recipient="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${prior?' disabled':''}><span class="admin-task-recipient-copy"><strong>${esc(t.name||'Tester')}${meaningfulTesterStarIndicatorHtml(t)}</strong><span>${esc(t.email||'')}</span></span>${prior?'<span class="admin-task-received-chip">Completed previously</span>':`<span class="admin-platform-pill">${esc(t.platform||'')}</span>`}</label>`;}).join('');
   updateTaskRecipientSummary();
 }
 function taskAssignmentStats(taskId){
@@ -2158,7 +2160,7 @@ function openTaskRecord(t){
   const due=timestampToDate(t.dueAt);
   const deadlineOpen=taskCampaignIsActive(t);
   const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminderCount=Number(a.reminderCount||0);const reminderLabel=a.emailStatus==='Error'?'Send Unified Update':'Send Unified Update';const reminder=a.status==='Pending'?`<button hidden class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${reminderLabel}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const support=a.response?`<button class="admin-task-remind-button" data-task-support-contact="${esc(a.id)}" type="button">Reach Out via Support</button>`:'';const reviewActions='';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><span class="admin-person-name-with-star"><strong>${esc(a.name||'Tester')}</strong>${meaningfulTesterStarHtml(meaningfulLinkedTester(a)||a)}</span><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Unified email: ${esc((a.status==='Completed'&&!a.emailSentAt&&/Queued|Pending|Sending/i.test(a.emailStatus||'')?'Skipped — task completed':a.emailStatus||'Unknown'))}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> This tester is listed in Review Testers on the Testers page for the access decision.</div>':''}<div class="admin-task-assignment-actions">${support}${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
-  const newRows=coverage.notAssigned.length?coverage.notAssigned.map(x=>`<div class="admin-task-assignment admin-task-unassigned"><div class="admin-task-assignment-top"><div><strong>${esc(x.name||'Tester')}</strong><small>${esc(x.email||'')} · ${esc(x.platform||'')}</small></div><span class="admin-status-pill status-pending">Not sent</span></div><div class="admin-task-assignment-reminder">This tester is fully set up and eligible, but has never received this task.</div>${deadlineOpen?`<div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-assign-existing-task="${esc(t.id)}" data-task-tester="${esc(x.uid)}" type="button">Send Task</button></div>`:''}</div>`).join(''):'<div class="admin-empty-inline">Every currently eligible tester has already received this task.</div>';
+  const newRows=coverage.notAssigned.length?coverage.notAssigned.map(x=>`<div class="admin-task-assignment admin-task-unassigned"><div class="admin-task-assignment-top"><div><strong>${esc(x.name||'Tester')}</strong><small>${esc(x.email||'')} · ${esc(x.platform||'')}</small></div><span class="admin-status-pill status-pending">Not sent</span></div><div class="admin-task-assignment-reminder">This tester is eligible and has not been assigned this campaign. Unfinished assignments in older campaigns do not prevent a new assignment.</div>${deadlineOpen?`<div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-assign-existing-task="${esc(t.id)}" data-task-tester="${esc(x.uid)}" type="button">Send Task</button></div>`:''}</div>`).join(''):'<div class="admin-empty-inline">Every currently eligible tester has an assignment in this campaign.</div>';
   const addNew=coverage.notAssigned.length&&deadlineOpen?`<button class="admin-action-button approve" data-task-action="assign-new-eligible" data-task-id="${esc(t.id)}" type="button">Send to Newly Eligible (${coverage.notAssigned.length})</button>`:'';
   const deadlineNote=coverage.notAssigned.length&&!deadlineOpen?'<div class="admin-task-coverage-note is-warning"><strong>New eligible testers detected</strong><span>The original task deadline has passed or the task was cancelled, so it cannot be sent to them without creating a new task.</span></div>':'';
   const cancel=(taskCampaignIsActive(t)&&stats.pending>0)?`<button class="admin-action-button danger-soft" data-task-action="cancel" data-task-id="${esc(t.id)}" type="button">Cancel Task</button>`:'';
@@ -2175,7 +2177,7 @@ async function assignExistingTaskToTesters(t,testers){
   const assigned=taskReceiptHistoryTesterIds(t);
   const eligibleByUid=new Map(activeTaskTesters().map(x=>[String(x.uid),x]));
   const targets=(testers||[]).map(x=>eligibleByUid.get(String(x.uid||x))).filter(Boolean).filter(x=>!assigned.has(String(x.uid)));
-  if(!targets.length)throw new Error('There are no newly eligible testers who still need this task.');
+  if(!targets.length)throw new Error('There are no eligible testers without an assignment in this campaign.');
   const batch=writeBatch(db);
   for(const x of targets){
     const ref=doc(db,'betaTaskAssignments',t.id+'_'+x.uid);
@@ -2217,9 +2219,9 @@ async function createRequiredTask(){
   if(!emailWorkerEndpoint)throw new Error('Connect the Cloudflare email service before sending a required task.');
   const templateHistory=taskTemplateHistoryTesterIds(templateKey);
   const duplicateSelections=selected.filter(uid=>templateHistory.has(String(uid)));
-  if(duplicateSelections.length)throw new Error(`${duplicateSelections.length} selected tester${duplicateSelections.length===1?' has':'s have'} already received this task. Refresh the recipient list and send only to testers marked as available.`);
+  if(duplicateSelections.length)throw new Error(`${duplicateSelections.length} selected tester${duplicateSelections.length===1?' has':'s have'} already completed this task template. Refresh the recipient list and choose testers who have not completed it.`);
   const testers=activeTaskTesters().filter(t=>selected.includes(t.uid)&&!templateHistory.has(String(t.uid)));
-  if(!testers.length)throw new Error(templateKey&&templateKey!=='custom'?'Every selected eligible tester has already received this task. Choose only testers who have not received it yet.':'None of the selected testers are currently eligible. Required tasks can only be sent to testers with active Beta access, completed Testing Setup, and a matched Production account.');
+  if(!testers.length)throw new Error(templateKey&&templateKey!=='custom'?'Every selected eligible tester has completed this task template already. Choose testers who have not completed it.':'None of the selected testers are currently eligible. Required tasks can only be sent to testers with active Beta access, completed Testing Setup, and a matched Production account.');
   const taskRef=doc(collection(db,'betaTasks'));
   const batch=writeBatch(db);
   batch.set(taskRef,{recordType:'Task',title,objective,instructions,responseType,dueAt:Timestamp.fromDate(due),status:'Active',recipientCount:testers.length,templateKey:templateKey||'custom',templateLabel:template?template.label:'Custom task',autoReminders,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),createdBy:adminEmail});
@@ -3431,7 +3433,7 @@ document.addEventListener('click',async e=>{
     const t=findTask(taskActionBtn.dataset.taskId);
     if(t&&taskActionBtn.dataset.taskAction==='assign-new-eligible'){
       const newcomers=newlyEligibleTaskTesters(t);
-      if(!newcomers.length){showToast('Every currently eligible tester has already received this task.','success');openTaskRecord(t);return;}
+      if(!newcomers.length){showToast('Every currently eligible tester has an assignment in this campaign.','success');openTaskRecord(t);return;}
       if(!(await confirmAction(`Send this task to ${newcomers.length} newly eligible tester${newcomers.length===1?'':'s'} who have never received it? Existing recipients will not be duplicated.`,'')))return;
       taskActionBtn.disabled=true;const original=taskActionBtn.textContent;taskActionBtn.textContent='Sending…';
       try{const result=await assignExistingTaskToTesters(t,newcomers);const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} newly eligible testers. ${result.failed} email${result.failed===1?'':'s'} failed.${firstError}`:`Task sent to ${result.total} newly eligible tester${result.total===1?'':'s'}.`,result.failed?'error':'success');openTaskRecord(findTask(t.id)||t);}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{taskActionBtn.disabled=false;taskActionBtn.textContent=original;}
