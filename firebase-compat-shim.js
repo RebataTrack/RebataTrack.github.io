@@ -144,8 +144,9 @@ export function query(base, ...constraints) {
 }
 
 export async function getCountFromServer(ref) {
-  const snapshot = await ref.get();
-  return { data: () => ({ count: snapshot.size }) };
+  if (!ref || typeof ref.count !== 'function') throw new Error('Native Firestore count aggregation is unavailable.');
+  const snapshot = await ref.count().get();
+  return { data: () => ({ count: Number(snapshot.data().count || 0) }) };
 }
 
 export function onSnapshot(ref, next, error, complete) {

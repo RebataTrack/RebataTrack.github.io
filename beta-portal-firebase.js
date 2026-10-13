@@ -30,6 +30,15 @@ let feedbackHistoryUnsubscribe = null;
 let profileUnsubscribe = null;
 let conversationMessagesUnsubscribe = null;
 let conversationMessageCount = 0;
+// Only recent messages are kept in the live listener. Earlier messages are
+// downloaded in bounded pages after the tester explicitly requests them.
+const PORTAL_CONVERSATION_PAGE_SIZE=60;
+let conversationLiveRows=[];
+let conversationOlderRows=[];
+let conversationLiveCursor=null;
+let conversationOlderCursor=null;
+let conversationHistoryComplete=false;
+let preserveConversationScrollOnce=false;
 let lastFirestoreActivityWrite = 0;
 const PORTAL_ACTIVITY_WRITE_MS = 60 * 60 * 1000;
 const taskBackdrop = document.getElementById('portalTaskBackdrop');
@@ -454,21 +463,58 @@ function renderOpenConversationThread(messages=[]){
   const nextCount=messages.length+(legacyRequest?1:0)+(legacySubmission?1:0)+1;
   const animate=conversationMessageCount>0&&nextCount>conversationMessageCount;
   conversationMessageCount=nextCount;
-  thread.innerHTML=original+replies+legacyRequest+legacySubmission;
-  scrollConversationToLatest(animate?'smooth':'auto');
+  const canLoadOlder=!conversationHistoryComplete&&conversationLiveRows.length>=PORTAL_CONVERSATION_PAGE_SIZE;
+  const olderButton=canLoadOlder?'<button class="portal-conversation-open" id="portalLoadEarlierMessages" type="button">Load earlier messages</button>':'';
+  const beforeHeight=thread.scrollHeight;
+  const beforeScroll=thread.scrollTop;
+  thread.innerHTML=olderButton+original+replies+legacyRequest+legacySubmission;
+  const older=document.getElementById('portalLoadEarlierMessages');
+  if(older)older.addEventListener('click',async()=>{
+    if(older.disabled||!activeConversation)return;
+    older.disabled=true;older.textContent='Loading earlier messages…';
+    const id=activeConversation.id;
+    const cursor=conversationOlderCursor||conversationLiveCursor;
+    if(!cursor){conversationHistoryComplete=true;renderOpenConversationThread(messages);return;}
+    try{
+      const ref=collection(db,'betaFeedback',id,'messages');
+      const snap=await getDocs(query(ref,orderBy('createdAt','desc')).startAfter(cursor).limit(PORTAL_CONVERSATION_PAGE_SIZE));
+      if(!activeConversation||activeConversation.id!==id)return;
+      conversationOlderRows=[...conversationOlderRows,...snap.docs.map(d=>({id:d.id,...d.data()}))];
+      conversationOlderCursor=snap.docs.at(-1)||cursor;
+      conversationHistoryComplete=snap.docs.length<PORTAL_CONVERSATION_PAGE_SIZE;
+      preserveConversationScrollOnce=true;
+      renderOpenConversationThread(mergedPortalConversationMessages());
+    }catch(error){console.warn('Could not load earlier tester conversation messages:',error);if(older.isConnected){older.disabled=false;older.textContent='Retry earlier messages';}}
+  });
+  if(preserveConversationScrollOnce){
+    preserveConversationScrollOnce=false;
+    requestAnimationFrame(()=>{thread.scrollTop=Math.max(0,beforeScroll+(thread.scrollHeight-beforeHeight));});
+  }else scrollConversationToLatest(animate?'smooth':'auto');
+}
+function mergedPortalConversationMessages(){
+  const byId=new Map([...conversationOlderRows,...conversationLiveRows].map(row=>[row.id,row]));
+  return [...byId.values()].sort((a,b)=>{
+    const x=timestampToDate(a.createdAt)?.getTime()||0,y=timestampToDate(b.createdAt)?.getTime()||0;
+    return x-y;
+  });
 }
 function subscribeConversationMessages(feedbackId){
   if(conversationMessagesUnsubscribe){conversationMessagesUnsubscribe();conversationMessagesUnsubscribe=null;}
+  conversationLiveRows=[];conversationOlderRows=[];conversationLiveCursor=null;conversationOlderCursor=null;
+  conversationHistoryComplete=false;
   const thread=document.getElementById('portalConversationThread');if(thread)thread.insertAdjacentHTML('beforeend','<div class="portal-chat-loading">Connecting live conversation…</div>');
-  conversationMessagesUnsubscribe=onSnapshot(query(collection(db,'betaFeedback',feedbackId,'messages'),orderBy('createdAt','asc')),snap=>{
+  const q=query(collection(db,'betaFeedback',feedbackId,'messages'),orderBy('createdAt','desc')).limit(PORTAL_CONVERSATION_PAGE_SIZE);
+  conversationMessagesUnsubscribe=onSnapshot(q,snap=>{
     if(!activeConversation||activeConversation.id!==feedbackId)return;
-    const messages=snap.docs.map(d=>({id:d.id,...d.data()}));
-    renderOpenConversationThread(messages);
+    conversationLiveRows=snap.docs.map(d=>({id:d.id,...d.data()}));
+    conversationLiveCursor=snap.docs.at(-1)||null;
+    renderOpenConversationThread(mergedPortalConversationMessages());
   },error=>{
     console.error('Realtime conversation listener failed:',error);
     const loading=document.querySelector('#portalConversationThread .portal-chat-loading');if(loading)loading.textContent='Live replies could not be loaded right now.';
   });
 }
+
 function openConversation(id){
   const f=feedbackHistory.find(x=>x.id===id);if(!f)return;activeConversation=f;setSupportLauncherOpen(false);
   const back=document.getElementById('portalConversationBackdrop');
@@ -484,7 +530,7 @@ function openConversation(id){
 }
 function closeConversation(){
   if(conversationMessagesUnsubscribe){conversationMessagesUnsubscribe();conversationMessagesUnsubscribe=null;}
-  conversationMessageCount=0;activeConversation=null;const back=document.getElementById('portalConversationBackdrop');if(back)back.hidden=true;document.body.classList.remove('portal-conversation-active');
+  conversationMessageCount=0;conversationLiveRows=[];conversationOlderRows=[];conversationLiveCursor=null;conversationOlderCursor=null;conversationHistoryComplete=false;activeConversation=null;const back=document.getElementById('portalConversationBackdrop');if(back)back.hidden=true;document.body.classList.remove('portal-conversation-active');
 }
 async function sendConversationReply(){
   if(!activeConversation||!auth.currentUser)return;const wasClosed=conversationIsClosed(activeConversation);const input=document.getElementById('portalConversationReply');const body=String(input.value||'').trim();const message=document.getElementById('portalConversationMessage');

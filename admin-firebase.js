@@ -1,4 +1,4 @@
-// RebataTrack Website Build 262 dependency sync.
+// RebataTrack Website Build 263 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 262
+// RebataTrack Admin Portal — Website Build 263
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -27,7 +27,8 @@ const readMeter=(function(){
     total(){return sessionTotal;},
     reset(){totals.clear();sessionTotal=0;paint();},
     rows(){return [...totals.entries()].map(([source,r])=>({source,calls:r.calls,reads:r.reads})).sort((a,b)=>b.reads-a.reads);},
-    report(){const rows=api.rows();console.table(rows);console.log('Beta Firestore reads this session:',sessionTotal);return rows;}
+    summary(){return {estimatedDocumentReads:sessionTotal,operations:api.rows(),activeListeners:{applications:!!applicationRealtimeUnsubscribe,feedback:!!feedbackRealtimeUnsubscribe,openConversation:!!adminConversationUnsubscribe},loadedWorkspaces:{...state.loaded},activeView};},
+    report(){const summary=api.summary();console.table(summary.operations);console.info('RebataTrack Beta Admin read diagnostics (estimated; Worker reads excluded):',summary);return summary;}
   };
   window.RebataTrackReadMeter=api;
   if(enabled)(document.body?paint():document.addEventListener('DOMContentLoaded',paint));
@@ -82,7 +83,7 @@ const TESTER_CONTACT_COOLDOWN_MS = 48 * 60 * 60 * 1000;
 // when RebataTrack sent the last message and the tester/customer has not replied.
 // Needs Retest is intentionally excluded because it remains a required action until submitted.
 const FEEDBACK_AUTO_CLOSE_MS = 72 * 60 * 60 * 1000;
-let feedbackAutoCloseTimer = null;
+// Browser-side support auto-close removed. Cloudflare Worker owns closure.
 // Build 183: the Beta/Production status check reads every Production user, so it is cached for a short time, never run twice at once,
 // and the reason a trial was not granted is remembered so the tester card can show it.
 let betaGrantReasons = new Map();
@@ -115,6 +116,8 @@ let activeDrawerFeedbackId = null;
 let adminConversationMessageCount = 0;
 let adminConversationHistoryExpanded = false;
 let adminConversationOlderRows = [];
+let adminConversationOlderCursor=null;
+let adminConversationLiveCursor=null;
 const ADMIN_CONVERSATION_LIVE_LIMIT = 60;
 let emailChangeApplicationId = null;
 let applicationRealtimeUnsubscribe = null;
@@ -122,6 +125,27 @@ let applicationsRealtimeReady = false;
 let feedbackRealtimeReady = false;
 let supportInboxSyncTimer = null;
 let supportInboxSyncInFlight = null;
+let supportInboxLastSyncAt=0;
+const SUPPORT_INBOX_SYNC_MIN_MS=5*60*1000;
+const workspaceReadInFlight=new Map();
+function coalesceWorkspaceRead(key, read){
+  if(workspaceReadInFlight.has(key))return workspaceReadInFlight.get(key);
+  const job=Promise.resolve().then(read);
+  workspaceReadInFlight.set(key,job);
+  job.finally(()=>{if(workspaceReadInFlight.get(key)===job)workspaceReadInFlight.delete(key);}).catch(()=>{});
+  return job;
+}
+let feedbackUpdatedCursor=null;
+let feedbackSubmittedCursor=null;
+let feedbackUpdatedHasMore=false;
+let feedbackSubmittedHasMore=false;
+let feedbackOlderInFlight=null;
+let androidInviteRepairAttempted=false;
+const FEEDBACK_RECENT_PAGE_SIZE=40;
+const FEEDBACK_ACTION_REQUIRED_SIZE=30;
+const FEEDBACK_RETEST_SIZE=15;
+const FEEDBACK_LEGACY_SIZE=15;
+
 
 const SUPPORT_REPLY_GREETING='Hello, and thank you for contacting RebataTrack Support!';
 const SUPPORT_REPLY_PRESETS=Object.freeze({
@@ -237,13 +261,21 @@ async function requestAdminNotificationPermission(){
 }
 let adminMetricsRefreshTimer=null;
 let lastMetricsLoadedAt=0;
-const ADMIN_METRICS_CACHE_TTL_MS=5*60*1000;
+const ADMIN_METRICS_CACHE_TTL_MS=15*60*1000;
 const ADMIN_FEEDBACK_REALTIME_LIMIT=20;
 const feedbackRealtimeSignatures=new Map();
 function scheduleAdminMetricsRefresh(){
+  // A background Tasks/Support/Tester workspace must never trigger dozens of
+  // dashboard count aggregations merely because a narrow notification listener updated.
   clearTimeout(adminMetricsRefreshTimer);
-  adminMetricsRefreshTimer=setTimeout(()=>{if(document.hidden)return;loadMetrics(false).then(()=>{renderMetrics();if(activeView==='overview')renderOverview();}).catch(()=>{});},5000);
+  adminMetricsRefreshTimer=null;
+  if(activeView!=='overview'||document.hidden)return;
+  adminMetricsRefreshTimer=setTimeout(()=>{
+    if(activeView!=='overview'||document.hidden)return;
+    loadMetrics(false).then(()=>{renderMetrics();renderOverview();}).catch(()=>{});
+  },5000);
 }
+
 function startApplicationsRealtimeAdmin(){
   if(applicationRealtimeUnsubscribe)return;
   // Build 170 Firestore efficiency: this listener exists only to surface newly submitted
@@ -539,32 +571,9 @@ function feedbackEligibleForAutoClose(f,nowMs=Date.now()){
   const last=timestampToDate(f.lastMessageAt||f.updatedAt||f.submittedAt);
   return !!last&&!Number.isNaN(last.getTime())&&(nowMs-last.getTime()>=FEEDBACK_AUTO_CLOSE_MS);
 }
-async function autoCloseExpiredFeedbackConversations(){
-  if(!state.loaded.feedback||!state.feedback.length)return 0;
-  const nowMs=Date.now();
-  const expired=state.feedback.filter(f=>feedbackEligibleForAutoClose(f,nowMs));
-  if(!expired.length)return 0;
-  const batch=writeBatch(db);
-  expired.forEach(f=>batch.update(doc(db,'betaFeedback',f.id),{
-    status:'Closed',
-    autoClosedAt:serverTimestamp(),
-    autoCloseReason:'No tester/customer reply within 72 hours of the last RebataTrack response',
-    updatedAt:serverTimestamp()
-  }));
-  await batch.commit();
-  const closedAt=new Date();
-  const ids=new Set(expired.map(f=>f.id));
-  state.feedback.forEach(f=>{if(ids.has(f.id)){f.status='Closed';f.autoClosedAt=closedAt;f.autoCloseReason='No tester/customer reply within 72 hours of the last RebataTrack response';f.updatedAt=closedAt;}});
-  state.recentFeedback.forEach(f=>{if(ids.has(f.id)){f.status='Closed';f.autoClosedAt=closedAt;f.autoCloseReason='No tester/customer reply within 72 hours of the last RebataTrack response';f.updatedAt=closedAt;}});
-  renderFeedback();
-  if(activeView==='overview')renderOverview();
-  if(activeDrawerFeedbackId&&ids.has(activeDrawerFeedbackId)){const active=state.feedback.find(f=>f.id===activeDrawerFeedbackId);if(active)syncOpenAdminFeedbackState(active);}
-  return expired.length;
-}
-function startFeedbackAutoCloseMaintenance(){
-  if(feedbackAutoCloseTimer)return;
-  feedbackAutoCloseTimer=setInterval(()=>{autoCloseExpiredFeedbackConversations().catch(error=>console.warn('Help & Feedback 72-hour auto-close failed:',error));},5*60*1000);
-}
+// Only the Cloudflare Beta Email Worker performs automatic ticket closure.
+// Running an additional browser-side closure loop created duplicate writes and
+// bypassed the Worker email/history safeguards.
 
 function isAnnouncementTask(t){return !!t&&t.recordType==='Announcement';}
 function isAnnouncementAssignment(a){return !!a&&a.recordType==='Announcement';}
@@ -675,9 +684,8 @@ function confirmAction(message,tone){
   });
 }
 
-// NOTE: the Firebase runtime this site ships (firebase-runtime.js / firebase-compat-shim.js) implements getCountFromServer()
-// as a FULL document read (ref.get() then snapshot.size). Every call therefore billed one read per matching document.
-// It is kept only as a throttled fallback below.
+// The bundled browser runtime uses Firestore's native server-side count aggregation.
+// Never use a .get() document scan as a fallback when count aggregation fails.
 async function countQuery(ref){const snap=await getCountFromServer(ref);return snap.data().count||0;}
 
 // Build 182: real server-side aggregation (Firestore runAggregationQuery over REST, authorised by the signed-in administrator's
@@ -819,8 +827,10 @@ async function loadRecent(){
 async function loadOverview(forceMetrics=false){await Promise.all([loadMetrics(forceMetrics),loadRecent()]);renderMetrics();renderOverview();}
 async function loadApplications(force=false){
   if(state.loaded.applications&&!force){renderApplications();return;}
-  const snap=await getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(100)),'workspace: applications (100)');
-  state.applications=snap.docs.map(normalizeDoc);state.loaded.applications=true;renderApplications();
+  return coalesceWorkspaceRead('applications',async()=>{
+    const snap=await getDocs(query(collection(db,'betaApplications'),orderBy('submittedAt','desc'),limit(100)),'workspace: applications (100)');
+    state.applications=snap.docs.map(normalizeDoc);state.loaded.applications=true;renderApplications();
+  });
 }
 async function repairMissingAndroidInviteUrls(testers=state.testers){
   const url=normalizeAndroidTestingInviteUrl(androidTestingInviteUrl);
@@ -839,65 +849,94 @@ async function repairMissingAndroidInviteUrls(testers=state.testers){
 }
 async function loadTesters(force=false){
   if(state.loaded.testers&&!force){renderTesters();return;}
-  const snap=await getDocs(query(collection(db,'betaUsers'),orderBy('createdAt','desc'),limit(100)),'workspace: testers (100)');
-  state.testers=snap.docs.map(s=>({uid:s.id,...s.data()}));state.loaded.testers=true;
-  try{await repairMissingAndroidInviteUrls(state.testers);}catch(error){console.warn('Could not repair missing Android testing links:',error);}
-  renderTesters();
-  if(!suppressBetaProductionAutoRefresh&&betaProgramEndDate&&window.RebataTrackProductionAdminBridge){
-    ensureSavedBetaProgramReconciled().catch(error=>console.warn('Could not automatically reconcile saved Beta Program access:',error));
-  }
+  return coalesceWorkspaceRead('testers',async()=>{
+    const snap=await getDocs(query(collection(db,'betaUsers'),orderBy('createdAt','desc'),limit(100)),'workspace: testers (100)');
+    state.testers=snap.docs.map(s=>({uid:s.id,...s.data()}));state.loaded.testers=true;
+    if(!androidInviteRepairAttempted){
+      androidInviteRepairAttempted=true;
+      try{await repairMissingAndroidInviteUrls(state.testers);}catch(error){console.warn('Could not repair missing Android testing links:',error);}
+    }
+    renderTesters();
+    if(!suppressBetaProductionAutoRefresh&&betaProgramEndDate&&window.RebataTrackProductionAdminBridge){
+      ensureSavedBetaProgramReconciled().catch(error=>console.warn('Could not automatically reconcile saved Beta Program access:',error));
+    }
+  });
 }
+// The default workspace is a bounded union of: recent activity, older tester
+// replies that still need action, requested retests, and legacy submittedAt-only
+// records. The entire archive stays accessible through explicit pagination.
 async function loadFeedback(force=false){
   if(state.loaded.feedback&&!force){renderFeedback();return;}
-  // Build 180 Firestore efficiency: the workspace reads only the 100 ticket documents. Private admin notes live in
-  // betaFeedbackAdmin and are fetched for ONE ticket when its drawer opens (ensureFeedbackNotesLoaded), instead of
-  // reading up to 500 note documents every time the workspace loads. Only legacy tickets that still carry a note in
-  // the tester-readable document need their private document checked (to migrate without overwriting).
-  // Merge recent submissions with recently updated conversations, so replies to old
-  // tickets are not lost outside the newest-submission window. Keep legacy tickets
-  // without updatedAt visible via the submittedAt query.
-  const [submittedSnap,updatedSnap]=await Promise.all([
-    getDocs(query(collection(db,'betaFeedback'),orderBy('submittedAt','desc'),limit(100)),'workspace: recent feedback submissions (100)'),
-    getDocs(query(collection(db,'betaFeedback'),orderBy('updatedAt','desc'),limit(100)),'workspace: recent feedback activity (100)')
-  ]);
-  const raw=[...new Map([...submittedSnap.docs,...updatedSnap.docs].map(d=>[d.id,normalizeDoc(d)])).values()];
-  const previous=new Map(state.feedback.map(f=>[f.id,f]));
-  const privateNotes=new Map();
-
-  // Build 67 privacy migration: legacy private notes are copied to the admin-only
-  // collection and the tester-readable betaFeedback.adminNotes field is cleared.
-  const legacy=raw.filter(f=>String(f.adminNotes||'').length>0);
-  if(legacy.length){
-    await Promise.all(legacy.map(async f=>{
-      const existing=await getDoc(doc(db,'betaFeedbackAdmin',f.id),'legacy note check');
-      if(existing.exists())privateNotes.set(f.id,String(existing.data().adminNotes||''));
-    }));
-    const batch=writeBatch(db);
-    legacy.forEach(f=>{
-      const legacyNote=String(f.adminNotes||'');
-      if(!privateNotes.has(f.id)){
-        batch.set(doc(db,'betaFeedbackAdmin',f.id),{
-          feedbackId:f.id,
-          adminNotes:legacyNote,
-          updatedAt:serverTimestamp(),
-          updatedBy:adminEmail
-        },{merge:true});
-        privateNotes.set(f.id,legacyNote);
-      }
-      batch.update(doc(db,'betaFeedback',f.id),{adminNotes:'',updatedAt:serverTimestamp()});
+  return coalesceWorkspaceRead('feedback',async()=>{
+    const col=collection(db,'betaFeedback');
+    const [recentSnap,replySnap,retestSnap,legacySnap]=await Promise.all([
+      getDocs(query(col,orderBy('updatedAt','desc'),limit(FEEDBACK_RECENT_PAGE_SIZE)),'feedback: recent activity (40)'),
+      getDocs(query(col,where('lastMessageBy','==','Tester'),limit(FEEDBACK_ACTION_REQUIRED_SIZE)),'feedback: tester replies (30)').catch(error=>{console.warn('Action-needed feedback feed unavailable:',error);return {docs:[]};}),
+      getDocs(query(col,where('status','==','Needs Retest'),limit(FEEDBACK_RETEST_SIZE)),'feedback: retests (15)').catch(error=>{console.warn('Retest feedback feed unavailable:',error);return {docs:[]};}),
+      getDocs(query(col,orderBy('submittedAt','desc'),limit(FEEDBACK_LEGACY_SIZE)),'feedback: legacy submissions (15)').catch(error=>{console.warn('Legacy feedback feed unavailable:',error);return {docs:[]};})
+    ]);
+    feedbackUpdatedCursor=recentSnap.docs.at(-1)||null;
+    feedbackSubmittedCursor=legacySnap.docs.at(-1)||null;
+    feedbackUpdatedHasMore=recentSnap.docs.length===FEEDBACK_RECENT_PAGE_SIZE;
+    feedbackSubmittedHasMore=legacySnap.docs.length===FEEDBACK_LEGACY_SIZE;
+    const raw=[...new Map([...recentSnap.docs,...replySnap.docs,...retestSnap.docs,...legacySnap.docs].map(d=>[d.id,normalizeDoc(d)])).values()];
+    const previous=new Map(state.feedback.map(f=>[f.id,f]));
+    const privateNotes=new Map();
+    // One-time legacy note migration remains authorized but is never a full
+    // private-note scan. Normal reads are nonmutating.
+    const legacy=raw.filter(f=>String(f.adminNotes||'').length>0);
+    if(legacy.length){
+      await Promise.all(legacy.map(async f=>{
+        const existing=await getDoc(doc(db,'betaFeedbackAdmin',f.id),'legacy note check');
+        if(existing.exists())privateNotes.set(f.id,String(existing.data().adminNotes||''));
+      }));
+      const batch=writeBatch(db);
+      legacy.forEach(f=>{
+        const note=String(f.adminNotes||'');
+        if(!privateNotes.has(f.id)){
+          batch.set(doc(db,'betaFeedbackAdmin',f.id),{feedbackId:f.id,adminNotes:note,updatedAt:serverTimestamp(),updatedBy:adminEmail},{merge:true});
+          privateNotes.set(f.id,note);
+        }
+        batch.update(doc(db,'betaFeedback',f.id),{adminNotes:'',updatedAt:serverTimestamp()});
+      });
+      await batch.commit();
+    }
+    state.feedback=raw.map(f=>{
+      const known=privateNotes.has(f.id);const prev=previous.get(f.id);const prevLoaded=!!(prev&&prev.adminNotesLoaded===true);
+      return {...f,adminNotes:known?privateNotes.get(f.id):(prevLoaded?String(prev.adminNotes||''):''),adminNotesLoaded:known||prevLoaded};
     });
-    await batch.commit();
-  }
-
-  state.feedback=raw.map(f=>{
-    const known=privateNotes.has(f.id);const prev=previous.get(f.id);const prevLoaded=!!(prev&&prev.adminNotesLoaded===true);
-    return {...f,adminNotes:known?privateNotes.get(f.id):(prevLoaded?String(prev.adminNotes||''):''),adminNotesLoaded:known||prevLoaded};
+    state.loaded.feedback=true;
+    renderFeedback();
+    startFeedbackRealtimeAdmin();
   });
-  state.loaded.feedback=true;
-  await autoCloseExpiredFeedbackConversations().catch(error=>console.warn('Help & Feedback 72-hour auto-close failed:',error));
-  renderFeedback();
-  startFeedbackRealtimeAdmin();
-  startFeedbackAutoCloseMaintenance();
+}
+function mergeFeedbackPage(documents){
+  const byId=new Map(state.feedback.map(f=>[f.id,f]));
+  for(const row of documents){
+    const fresh=normalizeDoc(row);const prior=byId.get(fresh.id)||{};
+    byId.set(fresh.id,{...prior,...fresh,adminNotes:prior.adminNotes||'',adminNotesLoaded:prior.adminNotesLoaded===true});
+  }
+  state.feedback=[...byId.values()].sort((a,b)=>feedbackLastActivityMs(b)-feedbackLastActivityMs(a));
+}
+async function loadOlderFeedback(){
+  if(feedbackOlderInFlight)return feedbackOlderInFlight;
+  if(!feedbackUpdatedHasMore&&!feedbackSubmittedHasMore)return;
+  feedbackOlderInFlight=(async()=>{
+    const col=collection(db,'betaFeedback');
+    let snap;
+    if(feedbackUpdatedHasMore&&feedbackUpdatedCursor){
+      snap=await getDocs(query(col,orderBy('updatedAt','desc'),limit(FEEDBACK_RECENT_PAGE_SIZE)).startAfter(feedbackUpdatedCursor),'feedback: older updated page (40)');
+      feedbackUpdatedCursor=snap.docs.at(-1)||null;
+      feedbackUpdatedHasMore=snap.docs.length===FEEDBACK_RECENT_PAGE_SIZE;
+    }else if(feedbackSubmittedHasMore&&feedbackSubmittedCursor){
+      snap=await getDocs(query(col,orderBy('submittedAt','desc'),limit(FEEDBACK_RECENT_PAGE_SIZE)).startAfter(feedbackSubmittedCursor),'feedback: older legacy page (40)');
+      feedbackSubmittedCursor=snap.docs.at(-1)||null;
+      feedbackSubmittedHasMore=snap.docs.length===FEEDBACK_RECENT_PAGE_SIZE;
+    }
+    if(snap)mergeFeedbackPage(snap.docs);
+    renderFeedback();
+  })().finally(()=>{feedbackOlderInFlight=null;});
+  return feedbackOlderInFlight;
 }
 
 // Fetches one ticket's private admin note (1 read) the first time it is needed. Never overwrites a note that is already known.
@@ -940,7 +979,7 @@ function startFeedbackRealtimeAdmin(){
     if(state.loaded.feedback){
       const byId=new Map(state.feedback.map(f=>[f.id,f]));
       incoming.forEach(f=>{const existing=byId.get(f.id)||{};byId.set(f.id,{...existing,...f,adminNotes:privateNotes.get(f.id)||existing.adminNotes||''});});
-      state.feedback=[...byId.values()].sort((a,b)=>feedbackLastActivityMs(b)-feedbackLastActivityMs(a)).slice(0,200);
+      state.feedback=[...byId.values()].sort((a,b)=>feedbackLastActivityMs(b)-feedbackLastActivityMs(a));
       if(activeView==='feedback')renderFeedback();
       if(activeDrawerFeedbackId){const active=state.feedback.find(f=>f.id===activeDrawerFeedbackId);if(active)syncOpenAdminFeedbackState(active);}
       if(state.loaded.testers)renderTesters();
@@ -984,17 +1023,19 @@ function startFeedbackRealtimeAdmin(){
 
 async function loadTasks(force=false){
   if(state.loaded.tasks&&!force){renderTasks();renderTaskRecipientPicker();return;}
-  const [taskSnap,assignmentSnap]=await Promise.all([
-    getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100)),'workspace: tasks (100)'),
-    getDocs(query(collection(db,'betaTaskAssignments'),limit(500)),'workspace: task assignments (up to 500)')
-  ]);
-  state.tasks=taskSnap.docs.map(normalizeDoc);
-  state.taskAssignments=assignmentSnap.docs.map(normalizeDoc);
-  completedTemplateCache.clear();
-  state.loaded.tasks=true;
-  await reconcileEmptyTaskCampaigns();
-  renderTasks();
-  renderTaskRecipientPicker();
+  return coalesceWorkspaceRead('tasks',async()=>{
+    const [taskSnap,assignmentSnap]=await Promise.all([
+      getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100)),'workspace: tasks (100)'),
+      getDocs(query(collection(db,'betaTaskAssignments'),limit(500)),'workspace: task assignments (up to 500)')
+    ]);
+    state.tasks=taskSnap.docs.map(normalizeDoc);
+    state.taskAssignments=assignmentSnap.docs.map(normalizeDoc);
+    completedTemplateCache.clear();
+    state.loaded.tasks=true;
+    // Do not silently close historical campaigns based on a 500-document
+    // truncated assignment window. Mutations must be explicit and verified.
+    renderTasks();renderTaskRecipientPicker();
+  });
 }
 
 async function reconcileEmptyTaskCampaigns(){
@@ -1039,32 +1080,11 @@ async function reconcilePendingTasksForInactiveTesters(){
 }
 
 function setNavBadge(id,v){const el=document.getElementById(id);if(!el)return;const count=Number(v||0);el.textContent=count;el.hidden=count<1;}
-// The aggregate Pending count includes expired/closed campaigns, so it must never
-// own the navigation badge. A focused one-time query makes the count accurate even
-// before an administrator opens Tasks. The full task workspace remains lazy-loaded.
-let navTaskCountLoading=null;
-let navTaskCountLastFetchedAt=0;
-const NAV_TASK_BADGE_CACHE_MS=10*60*1000;
+// Tasks badge is derived only from a fully hydrated Tasks workspace. An
+// independent 600-document speculative query on every Admin sign-in is forbidden.
 async function refreshActiveTaskNavBadge(){
-  if(state.loaded.tasks){
-    setNavBadge('navTaskCount',regularAssignments().filter(a=>a.status==='Pending'&&assignmentBelongsToActiveCampaign(a)).length);
-    return;
-  }
-  if(navTaskCountLoading)return navTaskCountLoading;
-  if(Date.now()-navTaskCountLastFetchedAt<NAV_TASK_BADGE_CACHE_MS)return;
-  navTaskCountLoading=(async()=>{
-    const [taskSnap,assignmentSnap]=await Promise.all([
-      getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100)),'navigation: campaigns (up to 100)'),
-      getDocs(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),limit(500)),'navigation: pending assignments (up to 500)')
-    ]);
-    // Do not overwrite a newer, fully-loaded workspace while requests were pending.
-    if(state.loaded.tasks){renderTaskDashboard();return;}
-    const activeIds=new Set(taskSnap.docs.map(normalizeDoc).filter(t=>!isAnnouncementTask(t)&&taskCampaignIsActive(t)).map(t=>String(t.id)));
-    const count=assignmentSnap.docs.map(normalizeDoc).filter(a=>!isAnnouncementAssignment(a)&&activeIds.has(String(a.taskId||''))).length;
-    setNavBadge('navTaskCount',count);
-    navTaskCountLastFetchedAt=Date.now();
-  })().catch(error=>{console.warn('Could not refresh active Tasks badge:',error);}).finally(()=>{navTaskCountLoading=null;});
-  return navTaskCountLoading;
+  if(!state.loaded.tasks)return;
+  setNavBadge('navTaskCount',regularAssignments().filter(a=>a.status==='Pending'&&assignmentBelongsToActiveCampaign(a)).length);
 }
 
 function renderMetrics(){
@@ -1879,7 +1899,8 @@ function renderFeedback(){
   const forceOpen=selectedStatus==='Resolved'||selectedStatus==='Closed';
   const openHtml=openRows.map(feedbackCardHtml).join('');
   const closedHtml=closedRows.length?`<details class="admin-feedback-resolved-group"${forceOpen?' open':''}><summary><span><strong>Resolved</strong><small>Closed Help &amp; Feedback conversations</small></span><span class="admin-feedback-resolved-count">${closedRows.length}</span></summary><div class="admin-feedback-resolved-list">${closedRows.map(feedbackCardHtml).join('')}</div></details>`:'';
-  list.innerHTML=openHtml+closedHtml;
+  const more=feedbackUpdatedHasMore||feedbackSubmittedHasMore;
+  list.innerHTML=openHtml+closedHtml+(more?'<div class="admin-feedback-pagination"><button type="button" class="admin-secondary-button" data-load-older-feedback="1">Load older conversations</button><small>Older conversations remain available on demand.</small></div>':'');
   document.getElementById('feedbackEmpty').hidden=data.length>0;
 }
 
@@ -2399,6 +2420,7 @@ async function switchView(view){
   document.querySelectorAll('[data-admin-panel]').forEach(p=>p.classList.toggle('is-active',p.dataset.adminPanel===view));
   const titles={overview:'Overview',applications:'Applications',testers:'Testers',tasks:'Tasks',announcements:'Announcements',feedback:'Feedback'};document.getElementById('adminViewTitle').textContent=titles[view]||'Overview';
   try{
+    if(view==='overview'){await loadOverview(false);}
     if(view==='applications')await loadApplications();
     if(view==='testers'){await Promise.all([loadApplications(),loadTesters(),loadTasks(),loadFeedback()]);await reconcilePendingTasksForInactiveTesters();renderTesters();}
     if(view==='tasks'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);await reconcilePendingTasksForInactiveTesters();await refreshTaskAutomationHealth();}
@@ -2414,7 +2436,7 @@ async function switchView(view){
   updateSupportInboxAutoSync();
 }
 function openDrawer(kicker,title,html){document.getElementById('drawerKicker').textContent=kicker;document.getElementById('drawerTitle').textContent=title;document.getElementById('adminDrawerContent').innerHTML=html;document.getElementById('adminDrawerBackdrop').hidden=false;document.getElementById('adminDrawer').classList.add('is-open');document.getElementById('adminDrawer').setAttribute('aria-hidden','false');}
-function closeDrawer(){if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}adminConversationMessageCount=0;adminConversationHistoryExpanded=false;adminConversationOlderRows=[];activeDrawerFeedbackId=null;const drawer=document.getElementById('adminDrawer');if(drawer){delete drawer.dataset.testerUid;drawer.classList.remove('is-open');drawer.setAttribute('aria-hidden','true');}document.getElementById('adminDrawerBackdrop').hidden=true;}
+function closeDrawer(){if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}adminConversationMessageCount=0;adminConversationHistoryExpanded=false;adminConversationOlderRows=[];adminConversationOlderCursor=null;adminConversationLiveCursor=null;activeDrawerFeedbackId=null;const drawer=document.getElementById('adminDrawer');if(drawer){delete drawer.dataset.testerUid;drawer.classList.remove('is-open');drawer.setAttribute('aria-hidden','true');}document.getElementById('adminDrawerBackdrop').hidden=true;}
 function findApp(id){return state.applications.find(a=>a.id===id)||state.recentApplications.find(a=>a.id===id);}
 function findFeedback(id){return state.feedback.find(f=>f.id===id)||state.recentFeedback.find(f=>f.id===id);}
 function findTester(uid){return state.testers.find(t=>t.uid===uid);}
@@ -2457,7 +2479,14 @@ async function toggleMeaningfulTester(button){
 async function ensureApplicationLoaded(id){
   let a=findApp(id);if(a)return a;await loadApplications();return findApp(id);
 }
-async function ensureFeedbackLoaded(id){let f=state.feedback.find(x=>x.id===id);if(f)return f;await loadFeedback();return state.feedback.find(x=>x.id===id)||findFeedback(id);}
+async function ensureFeedbackLoaded(id){
+  let f=findFeedback(id);if(f)return f;
+  const snap=await getDoc(doc(db,'betaFeedback',id),'open: exact feedback (1)');
+  if(!snap.exists())return null;
+  const fresh=normalizeDoc(snap);
+  state.feedback=[fresh,...state.feedback.filter(x=>x.id!==id)];
+  return fresh;
+}
 function applicationActionButtons(a){
   const status=String(a.status||'Applied');
   const buttons=[];
@@ -2641,6 +2670,7 @@ function subscribeAdminConversationMessages(feedback){
   if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}
   adminConversationHistoryExpanded=false;
   adminConversationOlderRows=[];
+  adminConversationOlderCursor=null;adminConversationLiveCursor=null;
   const list=document.getElementById('drawerConversationThread');if(!list||!feedbackId)return;
   list.innerHTML='<div class="admin-empty-inline">Connecting live conversation…</div>';
   adminConversationMessageCount=0;
@@ -2666,11 +2696,15 @@ function subscribeAdminConversationMessages(feedback){
       if(olderEl.disabled)return;
       olderEl.disabled=true;olderEl.textContent='Loading earlier messages…';
       try{
-        // Explicit history request; no permanent unbounded listener.
-        const snap=await getDocs(query(messagesRef,orderBy('createdAt','asc')),'on-demand: full conversation history');
+        // Fetch a single older page; never download the whole thread at once.
+        const cursor=adminConversationOlderCursor||adminConversationLiveCursor;
+        if(!cursor){adminConversationHistoryExpanded=true;renderConversation();return;}
+        const olderQuery=query(messagesRef,orderBy('createdAt','desc'),limit(ADMIN_CONVERSATION_LIVE_LIMIT)).startAfter(cursor);
+        const snap=await getDocs(olderQuery,'on-demand: older conversation page (60)');
         if(activeDrawerFeedbackId!==feedbackId)return;
-        adminConversationOlderRows=snap.docs.map(normalizeDoc);
-        adminConversationHistoryExpanded=true;
+        adminConversationOlderRows=[...adminConversationOlderRows,...snap.docs.map(normalizeDoc)];
+        adminConversationOlderCursor=snap.docs.at(-1)||cursor;
+        adminConversationHistoryExpanded=snap.docs.length<ADMIN_CONVERSATION_LIVE_LIMIT;
         renderConversation();
       }catch(error){console.warn('Could not load earlier conversation messages:',error);if(olderEl.isConnected){olderEl.disabled=false;olderEl.textContent='Retry loading earlier messages';}}
     });
@@ -2683,6 +2717,7 @@ function subscribeAdminConversationMessages(feedback){
     readMeter.add('live: recent conversation messages',snap.docChanges().length);
     if(activeDrawerFeedbackId!==feedbackId)return;
     latestRows=snap.docs.map(normalizeDoc);
+    adminConversationLiveCursor=snap.docs.at(-1)||null;
     renderConversation();
   },error=>{console.error('Realtime admin conversation listener failed:',error);if(activeDrawerFeedbackId===feedbackId)list.innerHTML='<div class="admin-empty-inline">Live conversation could not be loaded right now.</div>';});
 }
@@ -3083,7 +3118,7 @@ async function callWorkerAdminAction(type,payload={}){
     return {response,result};
   };
   try{
-    let attempt=await perform(true);
+    let attempt=await perform(false);
     if(attempt.response.status===401&&auth.currentUser){
       attempt=await perform(true);
     }
@@ -3096,8 +3131,10 @@ async function callWorkerAdminAction(type,payload={}){
 async function syncSupportInboxNow(options={}){
   if(!emailWorkerEndpoint||!auth.currentUser)return null;
   if(supportInboxSyncInFlight)return supportInboxSyncInFlight;
+  if(!options.force&&Date.now()-supportInboxLastSyncAt<SUPPORT_INBOX_SYNC_MIN_MS)return null;
   supportInboxSyncInFlight=(async()=>{
     const result=await callWorkerAdminAction('admin-process-support-inbox');
+    supportInboxLastSyncAt=Date.now();
     // Only force the 100-ticket workspace query when Gmail actually imported something.
     // Idle syncs therefore do not create a Firestore ticket-list read in the browser.
     if(Number(result?.imported||0)>0){
@@ -3254,14 +3291,29 @@ async function deleteApplication(a){return runApplicationAdminAction(a,'delete')
 
 async function changeBetaEmail(applicationId,newEmail){
   const result=await callWorkerAdminAction('admin-change-beta-email',{applicationId,newEmail:String(newEmail||'').trim().toLowerCase()});
-  state.loaded.applications=false;state.loaded.testers=false;state.loaded.tasks=false;state.loaded.feedback=false;
-  await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true),loadFeedback(true)]);
-  await loadOverview();
+  // The Worker has already atomically patched every linked document. Preserve
+  // the other cached records: updating one email must NOT reload 4 collections
+  // (up to 800 documents), and existing listeners still report remote changes.
+  const from=String(result.oldEmail||'').trim().toLowerCase();
+  const to=String(result.newEmail||newEmail||'').trim().toLowerCase();
+  const uid=String(result.testerUid||'').trim();
+  const updatedAt=new Date();
+  const matches=(row)=>row&&(String(row.email||'').trim().toLowerCase()===from || (uid&&String(row.testerUid||row.ownerUid||row.uid||'')===uid));
+  const rename=(rows)=>rows.map(row=>matches(row)?{...row,email:to,updatedAt,previousBetaEmail:from}:row);
+  if(state.loaded.applications)state.applications=rename(state.applications);
+  if(state.loaded.testers)state.testers=state.testers.map(row=>matches(row)?{...row,email:to,distributionAccountEmail:to,updatedAt,previousBetaEmail:from}:row);
+  if(state.loaded.tasks)state.taskAssignments=rename(state.taskAssignments);
+  if(state.loaded.feedback)state.feedback=rename(state.feedback);
+  state.recentApplications=rename(state.recentApplications);
+  state.recentFeedback=rename(state.recentFeedback);
+  // Previously cached email-only completion identities must not survive a rename.
+  completedTemplateCache.clear();
   if(activeView==='applications')renderApplications();
   if(activeView==='testers')renderTesters();
-  if(activeView==='tasks')renderTasks();
+  if(activeView==='tasks'){renderTasks();renderTaskRecipientPicker();}
   if(activeView==='announcements')renderAnnouncements();
   if(activeView==='feedback')renderFeedback();
+  if(activeView==='overview')renderOverview();
   return result;
 }
 
@@ -3305,8 +3357,8 @@ async function init(user){
     await loadQuickReplies().catch(()=>{});
   await loadBetaProgramSettings();
     await withTimeout(loadOverview(), 12000, 'Dashboard data');
-    // Accurate initial navigation badge without eagerly loading all task details.
-    refreshActiveTaskNavBadge().catch(()=>{});
+    // No speculative 600-document task assignment query on sign-in. The Tasks
+    // workspace supplies its exact active-campaign badge when explicitly opened.
     setBetaConnectionUI(true);
   }catch(error){
     const detail = error && error.code === 'rebatify/timeout'
@@ -3358,6 +3410,7 @@ document.addEventListener('click',event=>{const wrap=document.getElementById('ad
 document.getElementById('adminNotificationList')?.addEventListener('click',async event=>{const item=event.target.closest('[data-open-notification]');if(!item)return;setAdminNotificationPanelOpen(false);if(item.dataset.notificationType==='application'){await switchView('applications');const a=await ensureApplicationLoaded(item.dataset.notificationId);if(a)openApplicationRecord(a);return;}if(item.dataset.notificationType==='feedback'){await switchView('feedback');const f=await ensureFeedbackLoaded(item.dataset.notificationId);if(f)openFeedbackRecord(f);}});
 
 document.addEventListener('click',async e=>{
+  const olderFeedbackButton=e.target.closest('[data-load-older-feedback]');if(olderFeedbackButton){olderFeedbackButton.disabled=true;olderFeedbackButton.textContent='Loading…';try{await loadOlderFeedback();}catch(err){showToast('Could not load older conversations. '+friendlyFirebaseError(err),'error');olderFeedbackButton.disabled=false;olderFeedbackButton.textContent='Load older conversations';}return;}
   const meaningfulBtn=e.target.closest('[data-meaningful-tester]');if(meaningfulBtn){e.preventDefault();e.stopPropagation();meaningfulBtn.disabled=true;try{await toggleMeaningfulTester(meaningfulBtn);}catch(err){showToast(friendlyFirebaseError(err),'error');meaningfulBtn.disabled=false;}return;}
   const disableBtn=e.target.closest('[data-disable-beta]');if(disableBtn){openBetaDisableModal(disableBtn.dataset.disableBeta,disableBtn.dataset.disableBetaReason||'');return;}
   const savedReplyBtn=e.target.closest('[data-support-saved-reply]');if(savedReplyBtn){const item=savedQuickReply(savedReplyBtn.dataset.supportSavedReply);const box=document.getElementById('drawerConversationReply');if(item&&box){box.value=item.body;box.dispatchEvent(new Event('input',{bubbles:true}));box.focus();}return;}
