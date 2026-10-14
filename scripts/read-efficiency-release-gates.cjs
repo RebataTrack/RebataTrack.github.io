@@ -16,7 +16,7 @@ assert(!loads.includes('limit(100)'), 'feedback workspace must not restore 100-r
 assert(loads.includes('function loadOlderFeedback()'),'older tickets always accessible');
 const email=section('async function changeBetaEmail(applicationId,newEmail){','async function refreshActiveView(){');
 for(const label of ['loadTasks(true)','loadTesters(true)','loadApplications(true)','loadFeedback(true)'])assert(!email.includes(label),`email correction cannot refetch entire collection: ${label}`);
-assert(email.includes('completedTemplateCache.clear()'),'email identity change invalidates completed template cache');
+assert(email.includes('invalidateTaskHistoryCaches()'),'email identity change invalidates template AND campaign caches');
 const metrics=section('function scheduleAdminMetricsRefresh(){','function startApplicationsRealtimeAdmin(){');
 assert(metrics.includes("activeView!=='overview'||document.hidden"),'metrics must not refresh in other tabs or hidden windows');
 assert(!admin.includes('autoCloseExpiredFeedbackConversations('),'browser must never duplicate Worker auto-close');

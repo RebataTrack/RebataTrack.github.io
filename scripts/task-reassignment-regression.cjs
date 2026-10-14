@@ -1,12 +1,43 @@
-const fs=require('node:fs');const vm=require('node:vm');const assert=require('node:assert/strict');
-const src=fs.readFileSync(require('node:path').join(__dirname,'..','admin-firebase.js'),'utf8');
-function take(name,next){const start=src.indexOf('function '+name+'(');assert(start>=0,name+' missing');const end=src.indexOf('\nfunction '+next+'(',start);assert(end>start,name+' boundary missing');return src.slice(start,end)}
-const code=take('taskTemplateHistoryTesterIds','taskReceiptHistoryTesterIds')+'\n'+take('taskReceiptHistoryTesterIds','selectTaskRecipients');
-const state={tasks:[{id:'old',templateKey:'scan'},{id:'new',templateKey:'scan'}],taskAssignments:[{taskId:'old',templateKey:'scan',testerUid:'pending',status:'Pending'},{taskId:'old',templateKey:'scan',testerUid:'review',status:'Review Required'},{taskId:'old',templateKey:'scan',testerUid:'done',status:'Completed'},{taskId:'new',templateKey:'scan',testerUid:'already',status:'Pending'}]};
-const ctx=vm.createContext({state,completedTemplateCache:new Map(),completionIdentityKeys:(a)=>[a.testerUid?'uid:'+a.testerUid:null,a.email?'email:'+a.email.toLowerCase():null].filter(Boolean),taskAssignmentTesterIds:(id)=>new Set(state.taskAssignments.filter(a=>a.taskId===id).map(a=>a.testerUid))});vm.runInContext(code,ctx);
-const template=ctx.taskTemplateHistoryTesterIds('scan');assert(template.has('uid:done'));assert(!template.has('uid:pending'));assert(!template.has('uid:review'));assert(!template.has('uid:already'));
-const campaign=ctx.taskReceiptHistoryTesterIds({id:'new',templateKey:'scan'});assert(campaign.has('already'));assert(!campaign.has('pending'));
+'use strict';
+const fs=require('node:fs');
+const vm=require('node:vm');
+const path=require('node:path');
+const assert=require('node:assert/strict');
+const src=fs.readFileSync(path.join(__dirname,'..','admin-firebase.js'),'utf8');
+function section(first,last){
+  const start=src.indexOf(first),end=src.indexOf(last,start+first.length);
+  assert(start>=0&&end>start,`Missing source section: ${first}`);
+  return src.slice(start,end);
+}
+const helper=section('const completedTemplateCache=new Map();','function selectTaskRecipients(');
+const coverage=section('function newlyEligibleTaskTesters(t){','function openTaskSupportComposer(');
+const state={tasks:[{id:'old',templateKey:'scan'},{id:'new',templateKey:'scan'}],taskAssignments:[
+  {id:'one',taskId:'old',templateKey:'scan',testerUid:'pending',status:'Pending'},
+  {id:'two',taskId:'old',templateKey:'scan',testerUid:'review',status:'Review Required'},
+  {id:'three',taskId:'old',templateKey:'scan',testerUid:'done',email:'done@example.com',status:'Completed'},
+  {id:'four',taskId:'new',templateKey:'scan',testerUid:'already',email:'same@example.com',status:'Pending'}
+]};
+const testers=[
+ {uid:'pending',email:'pending@example.com'},
+ {uid:'review',email:'review@example.com'},
+ {uid:'done-recreated',email:'DONE@example.com'},
+ {uid:'already-renamed',email:'same@example.com'},
+ {uid:'fresh',email:'fresh@example.com'}
+];
+const ctx=vm.createContext({state,activeTaskTesters:()=>testers,taskCampaignIsActive:()=>true});
+vm.runInContext(helper+'\n'+coverage,ctx);
+const template=ctx.taskTemplateHistoryTesterIds('scan');
+assert(template.has('uid:done'));
+assert(template.has('email:done@example.com'));
+assert(!template.has('uid:pending'));
+assert(!template.has('uid:review'));
 assert.equal(ctx.taskTemplateHistoryTesterIds('custom').size,0);
-assert(src.includes("filter(x=>!assigned.has(String(x.uid)))"),'same campaign duplicate guard missing');
-assert(src.includes("filter(t=>selected.includes(t.uid)&&!testerCompletedTemplate(t,templateHistory))"),'new campaign completed exclusion missing');
-console.log('Task reassignment regression passed: completed history blocks; unfinished history allowed; same-campaign duplicates blocked.');
+const campaign=ctx.taskReceiptHistoryTesterIds({id:'new',templateKey:'scan'});
+assert(campaign.has('uid:already'));
+assert(campaign.has('email:same@example.com'));
+assert(!campaign.has('uid:pending'));
+const allowed=ctx.newlyEligibleTaskTesters({id:'new',templateKey:'scan'}).map(x=>x.uid);
+assert.deepEqual([...allowed].sort(),['fresh','pending','review']);
+assert(src.includes('function verifiedExistingTaskRecipients(t,testers){'),'existing campaign send gate must share matching logic');
+assert(src.includes('await Promise.all([ensureCompletedTemplateHistory(t.templateKey,true),ensureTaskCampaignAssignmentHistory(t,true)]);'),'send gate must reverify history');
+console.log('PASS: completed across campaigns excluded; unfinished reassignable; same campaign identity/email duplicate blocked');

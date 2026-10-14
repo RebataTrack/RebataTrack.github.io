@@ -1,4 +1,4 @@
-// RebataTrack Website Build 263 dependency sync.
+// RebataTrack Website Build 265 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 263
+// RebataTrack Admin Portal — Website Build 265
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -1030,7 +1030,7 @@ async function loadTasks(force=false){
     ]);
     state.tasks=taskSnap.docs.map(normalizeDoc);
     state.taskAssignments=assignmentSnap.docs.map(normalizeDoc);
-    completedTemplateCache.clear();
+    invalidateTaskHistoryCaches();
     state.loaded.tasks=true;
     // Do not silently close historical campaigns based on a 500-document
     // truncated assignment window. Mutations must be explicit and verified.
@@ -1911,14 +1911,29 @@ function selectedTaskTemplateKey(){return String(document.getElementById('taskTe
 // Completed template history must be checked across CLOSED and ACTIVE campaigns.
 // The general dashboard loads only 500 assignments and is NOT a reliable completion index.
 const completedTemplateCache=new Map();
+const completedTemplateLoadedAt=new Map();
 const completedTemplateInFlight=new Map();
+const campaignAssignmentCache=new Map();
+const campaignAssignmentLoadedAt=new Map();
+const campaignAssignmentInFlight=new Map();
+// No polling: only reverify when Manage is opened after a minute or on Send.
+// Every actual Send always rechecks the server, regardless of cache freshness.
+const TASK_HISTORY_PREVIEW_TTL_MS=60*1000;
+function taskHistoryFresh(cache,timestamps,key){
+  return cache.has(key)&&Date.now()-Number(timestamps.get(key)||0)<TASK_HISTORY_PREVIEW_TTL_MS;
+}
 const COMPLETION_HISTORY_LIMIT=1000;
+const CAMPAIGN_ASSIGNMENT_HISTORY_LIMIT=1000;
 function completionIdentityKeys(a){
   const keys=[];
-  if(a.testerUid)keys.push('uid:'+String(a.testerUid).trim());
-  const email=String(a.email||'').trim().toLowerCase();
+  const uid=String(a?.testerUid||a?.uid||'').trim();
+  if(uid)keys.push('uid:'+uid);
+  const email=String(a?.email||'').trim().toLowerCase();
   if(email)keys.push('email:'+email);
   return keys;
+}
+function testerMatchesTaskIdentities(t,keys){
+  return completionIdentityKeys({testerUid:t?.uid,email:t?.email}).some(key=>keys.has(key));
 }
 function taskTemplateHistoryTesterIds(templateKey){
   const key=String(templateKey||'').trim();
@@ -1933,17 +1948,14 @@ function taskTemplateHistoryTesterIds(templateKey){
   }
   return result;
 }
-function testerCompletedTemplate(t,history){
-  return history.has('uid:'+String(t.uid||'').trim()) ||
-         history.has('email:'+String(t.email||'').trim().toLowerCase());
-}
-async function ensureCompletedTemplateHistory(templateKey){
+function testerCompletedTemplate(t,history){return testerMatchesTaskIdentities(t,history);}
+async function ensureCompletedTemplateHistory(templateKey,force=false){
   const key=String(templateKey||'').trim();
-  if(!key||key==='custom'||completedTemplateCache.has(key))return;
+  if(!key||key==='custom'||(!force&&taskHistoryFresh(completedTemplateCache,completedTemplateLoadedAt,key)))return;
   if(completedTemplateInFlight.has(key))return completedTemplateInFlight.get(key);
   const pending=(async()=>{
-    // One indexed equality query for the SELECTED template, no collection-wide read,
-    // no listeners, and no repeated query for the same template this session.
+    // Query ONLY the selected template, including completed assignments from closed
+    // campaigns. This is one bounded, on-demand read, never a full collection scan.
     const snap=await getDocs(query(collection(db,'betaTaskAssignments'),where('templateKey','==',key),limit(COMPLETION_HISTORY_LIMIT)), 'task history: selected template (bounded)');
     if(snap.docs.length>=COMPLETION_HISTORY_LIMIT)throw new Error('Task completion history exceeds the safe lookup limit. Recipient selection is blocked rather than risking a completed tester receiving this task.');
     const completed=new Set();
@@ -1954,13 +1966,53 @@ async function ensureCompletedTemplateHistory(templateKey){
       }
     }
     completedTemplateCache.set(key,completed);
+    completedTemplateLoadedAt.set(key,Date.now());
   })();
   completedTemplateInFlight.set(key,pending);
   try{await pending;}finally{completedTemplateInFlight.delete(key);}
 }
+function taskCampaignAssignmentRows(t){
+  const id=String(t?.id||'');
+  return campaignAssignmentCache.get(id)||state.taskAssignments.filter(a=>String(a.taskId||'')===id);
+}
 function taskReceiptHistoryTesterIds(t){
+  // Identity, not only UID: an account recreated with the same approved email
+  // must never receive a duplicate assignment in the SAME campaign.
+  const result=new Set();
+  for(const a of taskCampaignAssignmentRows(t)){
+    for(const identity of completionIdentityKeys(a))result.add(identity);
+  }
+  return result;
+}
+async function ensureTaskCampaignAssignmentHistory(t,force=false){
+  const id=String(t?.id||'').trim();
+  if(!id)throw new Error('Cannot verify an unidentified task campaign.');
+  if(!force&&taskHistoryFresh(campaignAssignmentCache,campaignAssignmentLoadedAt,id))return;
+  if(campaignAssignmentInFlight.has(id))return campaignAssignmentInFlight.get(id);
+  const pending=(async()=>{
+    // The general Tasks workspace is capped at 500 assignments across ALL
+    // campaigns. It cannot establish whether THIS campaign already sent a task.
+    // Fetch only the selected campaign on Manage or at the actual send gate.
+    const snap=await getDocs(query(collection(db,'betaTaskAssignments'),where('taskId','==',id),limit(CAMPAIGN_ASSIGNMENT_HISTORY_LIMIT)), 'task history: selected campaign (bounded)');
+    if(snap.docs.length>=CAMPAIGN_ASSIGNMENT_HISTORY_LIMIT)throw new Error('Campaign assignment history exceeds the safe lookup limit. Sending is blocked to avoid duplicate assignments.');
+    const rows=snap.docs.map(normalizeDoc);
+    campaignAssignmentCache.set(id,rows);
+    campaignAssignmentLoadedAt.set(id,Date.now());
+    // Replace the incomplete window for this campaign in memory; other campaigns
+    // remain untouched. Avoid an additional 500-document Tasks workspace reload.
+    state.taskAssignments=state.taskAssignments.filter(a=>String(a.taskId||'')!==id).concat(rows);
+    if(state.loaded.tasks)renderTasks();
+  })();
+  campaignAssignmentInFlight.set(id,pending);
+  try{await pending;}finally{campaignAssignmentInFlight.delete(id);}
+}
+function taskManageHistoryReady(t){
   const key=String(t?.templateKey||'').trim();
-  return taskAssignmentTesterIds(t?.id||''); // Never duplicate an assignment in the SAME campaign.
+  return !!t?.id&&taskHistoryFresh(campaignAssignmentCache,campaignAssignmentLoadedAt,String(t.id))&&(!taskCampaignIsActive(t)||!key||key==='custom'||taskHistoryFresh(completedTemplateCache,completedTemplateLoadedAt,key));
+}
+function invalidateTaskHistoryCaches(){
+  completedTemplateCache.clear();completedTemplateLoadedAt.clear();
+  campaignAssignmentCache.clear();campaignAssignmentLoadedAt.clear();
 }
 function selectTaskRecipients(platform='All'){
   document.querySelectorAll('[data-task-recipient]').forEach(el=>{const p=el.dataset.platform||'';el.checked=!el.disabled&&(platform==='All'||p===platform);});
@@ -2024,7 +2076,7 @@ function renderTaskRecipientPicker(){
   const testers=activeTaskTesters();
   if(!testers.length){list.innerHTML='<div class="admin-empty-inline" style="padding:14px">No task-eligible testers are available. A tester must have active Beta access, completed Testing Setup, and a matched Production account.</div>';updateTaskRecipientSummary();return;}
   const templateKey=selectedTaskTemplateKey();
-  const historyReady=!templateKey||templateKey==='custom'||completedTemplateCache.has(templateKey);
+  const historyReady=!templateKey||templateKey==='custom'||taskHistoryFresh(completedTemplateCache,completedTemplateLoadedAt,templateKey);
   const received=taskTemplateHistoryTesterIds(templateKey);
   if(!historyReady){
     list.innerHTML='<div class="admin-empty-inline" style="padding:14px">Checking completed task history before enabling recipients…</div>';
@@ -2186,18 +2238,19 @@ async function archiveAnnouncement(t){
 
 function findTask(id){return state.tasks.find(t=>t.id===id);}
 function assignmentReminderText(a){const count=Number(a.reminderCount||0);return a.lastReminderSentAt?`Last reminder ${relativeDate(a.lastReminderSentAt)} · ${count} sent`:(count?`${count} reminder${count===1?'':'s'} sent`:'No reminder sent yet');}
-function taskAssignmentTesterIds(taskId){
-  return new Set(state.taskAssignments.filter(a=>a.taskId===taskId).map(a=>String(a.testerUid||'')).filter(Boolean));
-}
 function newlyEligibleTaskTesters(t){
-  const assigned=taskReceiptHistoryTesterIds(t);
-  return activeTaskTesters().filter(x=>!assigned.has(String(x.uid||'')));
+  return taskRecipientCoverage(t).notAssigned;
 }
 function taskRecipientCoverage(t){
   const assigned=taskReceiptHistoryTesterIds(t);
+  // A closed or expired campaign has NO newly eligible recipients. Don't show
+  // anyone under a misleading "Not sent" heading on a read-only Manage screen.
+  if(!taskCampaignIsActive(t))return {assigned:taskCampaignAssignmentRows(t).length,eligible:0,completedPreviously:0,notAssigned:[]};
+  const completed=taskTemplateHistoryTesterIds(t?.templateKey);
   const eligible=activeTaskTesters();
-  const notAssigned=eligible.filter(x=>!assigned.has(String(x.uid||'')));
-  return {assigned:assigned.size,eligible:eligible.length,notAssigned};
+  const completedPreviously=eligible.filter(x=>!testerMatchesTaskIdentities(x,assigned)&&testerCompletedTemplate(x,completed));
+  const notAssigned=eligible.filter(x=>!testerMatchesTaskIdentities(x,assigned)&&!testerCompletedTemplate(x,completed));
+  return {assigned:taskCampaignAssignmentRows(t).length,eligible:eligible.length,completedPreviously:completedPreviously.length,notAssigned};
 }
 
 function openTaskSupportComposer(a){
@@ -2224,31 +2277,68 @@ async function createTaskSupportConversation(a,subject,message){
   return {feedbackId:result.feedbackId||'',emailFailed:!!result.emailFailed,emailError:String(result.emailError||'')};
 }
 
+let taskManageOpenSequence=0;
+function taskManageDrawerIsCurrent(id,sequence){
+  const drawer=document.getElementById('adminDrawer');
+  return taskManageOpenSequence===sequence&&drawer?.dataset.taskManageId===String(id)&&drawer.getAttribute('aria-hidden')==='false';
+}
 function openTaskRecord(t){
+  if(!taskManageHistoryReady(t)){
+    const sequence=++taskManageOpenSequence;
+    openDrawer('Beta Program Task',t.title||'Required Task','<div class="admin-empty-inline" role="status" style="padding:18px">Checking past completions and existing campaign assignments before enabling recipients…</div>');
+    document.getElementById('adminDrawer').dataset.taskManageId=String(t.id);
+    const checks=[ensureTaskCampaignAssignmentHistory(t)];
+    if(taskCampaignIsActive(t))checks.push(ensureCompletedTemplateHistory(t.templateKey));
+    Promise.all(checks).then(()=>{
+      if(taskManageDrawerIsCurrent(t.id,sequence))openTaskRecord(t);
+    }).catch(error=>{
+      if(!taskManageDrawerIsCurrent(t.id,sequence))return;
+      openDrawer('Beta Program Task',t.title||'Required Task',`<div class="admin-detail-stack"><div class="admin-task-coverage-note is-warning"><strong>Cannot verify task recipients</strong><span>No task can be sent until completed-task and campaign-assignment history are verified. ${esc(friendlyFirebaseError(error))}</span></div><button type="button" class="admin-secondary-button" data-retry-task-manage="${esc(t.id)}">Try Again</button></div>`);
+      document.getElementById('adminDrawer').dataset.taskManageId=String(t.id);
+    });
+    return;
+  }
   const stats=taskAssignmentStats(t.id);
   const assignments=stats.rows.sort((a,b)=>String(a.name||a.email).localeCompare(String(b.name||b.email)));
   const coverage=taskRecipientCoverage(t);
-  const due=timestampToDate(t.dueAt);
   const deadlineOpen=taskCampaignIsActive(t);
   const rows=assignments.length?assignments.map(a=>{const d=timestampToDate(a.dueAt);const overdue=a.status==='Pending'&&d&&d.getTime()<Date.now();const isReview=a.status==='Review Required';const reminderCount=Number(a.reminderCount||0);const reminderLabel=a.emailStatus==='Error'?'Send Unified Update':'Send Unified Update';const reminder=a.status==='Pending'?`<button hidden class="admin-task-remind-button" data-remind-assignment="${esc(a.id)}" type="button">${reminderLabel}</button>`:'';const remove=(a.status==='Pending'||a.status==='Completed')?`<button class="admin-task-remind-button admin-task-remove-button" data-remove-task-assignment="${esc(a.id)}" type="button">Remove from Tester</button>`:'';const support=a.response?`<button class="admin-task-remind-button" data-task-support-contact="${esc(a.id)}" type="button">Reach Out via Support</button>`:'';const reviewActions='';const sentAt=a.emailSentAt?` · Sent ${esc(relativeDate(a.emailSentAt))}`:'';const displayStatus=isReview?'Review Required':overdue?'Deadline Passed':a.status;return `<div class="admin-task-assignment${isReview?' admin-task-unassigned':''}"><div class="admin-task-assignment-top"><div><span class="admin-person-name-with-star"><strong>${esc(a.name||'Tester')}</strong>${meaningfulTesterStarHtml(meaningfulLinkedTester(a)||a)}</span><small>${esc(a.email||'')} · ${esc(a.platform||'')}</small></div><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></div><div class="admin-task-assignment-reminder">Assignment: ${esc(a.status==='Removed by Admin'?'Previously received — removed by Admin':a.status==='Missed - Reviewed'?'Missed deadline — reviewed and kept active':'Received')}${sentAt}</div><div class="admin-task-assignment-reminder">Unified email: ${esc((a.status==='Completed'&&!a.emailSentAt&&/Queued|Pending|Sending/i.test(a.emailStatus||'')?'Skipped — task completed':a.emailStatus||'Unknown'))}${a.emailError?` · ${esc(a.emailError)}`:''}</div>${a.response?`<div class="admin-task-assignment-response"><strong>Response:</strong><br>${esc(a.response)}</div>`:''}${a.status==='Pending'?`<div class="admin-task-assignment-reminder">${overdue?'Deadline passed — this tester will move to Review Required when the deadline check runs.':esc(assignmentReminderText(a))}</div>`:''}${isReview?'<div class="admin-task-assignment-reminder"><strong>No access change has been made.</strong> This tester is listed in Review Testers on the Testers page for the access decision.</div>':''}<div class="admin-task-assignment-actions">${support}${reminder}${remove}${reviewActions}</div></div>`;}).join(''):'<div class="admin-empty-inline">No task assignments found.</div>';
   const newRows=coverage.notAssigned.length?coverage.notAssigned.map(x=>`<div class="admin-task-assignment admin-task-unassigned"><div class="admin-task-assignment-top"><div><strong>${esc(x.name||'Tester')}</strong><small>${esc(x.email||'')} · ${esc(x.platform||'')}</small></div><span class="admin-status-pill status-pending">Not sent</span></div><div class="admin-task-assignment-reminder">This tester is eligible and has not been assigned this campaign. Unfinished assignments in older campaigns do not prevent a new assignment.</div>${deadlineOpen?`<div class="admin-task-assignment-actions"><button class="admin-task-remind-button" data-assign-existing-task="${esc(t.id)}" data-task-tester="${esc(x.uid)}" type="button">Send Task</button></div>`:''}</div>`).join(''):'<div class="admin-empty-inline">Every currently eligible tester has an assignment in this campaign.</div>';
   const addNew=coverage.notAssigned.length&&deadlineOpen?`<button class="admin-action-button approve" data-task-action="assign-new-eligible" data-task-id="${esc(t.id)}" type="button">Send to Newly Eligible (${coverage.notAssigned.length})</button>`:'';
-  const deadlineNote=coverage.notAssigned.length&&!deadlineOpen?'<div class="admin-task-coverage-note is-warning"><strong>New eligible testers detected</strong><span>The original task deadline has passed or the task was cancelled, so it cannot be sent to them without creating a new task.</span></div>':'';
+  const deadlineNote=!deadlineOpen?'<div class="admin-task-coverage-note is-warning"><strong>Task closed — sending disabled</strong><span>This campaign is closed, cancelled, or past its deadline. Its history remains available, but recipients cannot be added.</span></div>':'';
   const cancel=(taskCampaignIsActive(t)&&stats.pending>0)?`<button class="admin-action-button danger-soft" data-task-action="cancel" data-task-id="${esc(t.id)}" type="button">Cancel Task</button>`:'';
   const remind=(taskCampaignIsActive(t)&&stats.pending>0)?`<button hidden class="admin-action-button approve" data-task-action="remind-pending" data-task-id="${esc(t.id)}" type="button">Remind Pending Testers (${stats.pending})</button>`:'';
   const deleteTask=`<button class="admin-action-button danger" data-task-action="delete-task" data-task-id="${esc(t.id)}" type="button">Delete Task from All Testers</button>`;
-  openDrawer('Beta Program Task',t.title||'Required Task',`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-status-pill ${statusClass(taskDisplayStatus(t,stats))}">${esc(taskDisplayStatus(t,stats))}</span><span class="admin-subtle-chip">Due ${esc(formatDate(t.dueAt))}</span></div>${t.objective?`<div class="admin-feedback-detail"><span>Testing Objective</span><p>${esc(t.objective)}</p></div>`:''}<div class="admin-feedback-detail"><span>Instructions</span><p>${esc(t.instructions||'')}</p></div><div class="admin-task-coverage"><div><span>Already received</span><strong>${coverage.assigned}</strong></div><div><span>Currently eligible</span><strong>${coverage.eligible}</strong></div><div class="${coverage.notAssigned.length?'needs-send':''}"><span>Eligible · not sent</span><strong>${coverage.notAssigned.length}</strong></div></div>${deadlineNote}<div class="admin-detail-grid"><div><span>Template</span><strong>${esc(t.templateLabel||'Custom')}</strong></div><div><span>Response Type</span><strong>${esc(t.responseType||'Acknowledgement')}</strong></div><div><span>Recipients</span><strong>${stats.total}</strong></div><div><span>Completed</span><strong>${stats.completed}</strong></div><div><span>Pending</span><strong>${taskCampaignIsActive(t)?stats.pending:0}</strong></div><div><span>Review Required</span><strong>${stats.reviewRequired}</strong></div><div><span>Reminded</span><strong>${stats.reminded}</strong></div><div><span>Removed from Task</span><strong>${stats.removedByAdmin}</strong></div><div><span>Missed · Kept Active</span><strong>${stats.reviewedKept}</strong></div><div><span>Closed After Tester Removal</span><strong>${stats.accessEnded}</strong></div><div><span>Automatic Reminders</span><strong>${t.autoReminders===false?'Off':'On'}</strong></div></div><div><label class="admin-detail-label">Newly eligible — not yet sent</label><div class="admin-task-response-list">${newRows}</div></div><div><label class="admin-detail-label">Assignment history</label><div class="admin-task-response-list">${rows}</div></div><div class="admin-drawer-actions">${addNew}${remind}${cancel}${deleteTask}</div></div>`);
+  openDrawer('Beta Program Task',t.title||'Required Task',`<div class="admin-detail-stack"><div class="admin-detail-status-row"><span class="admin-status-pill ${statusClass(taskDisplayStatus(t,stats))}">${esc(taskDisplayStatus(t,stats))}</span><span class="admin-subtle-chip">Due ${esc(formatDate(t.dueAt))}</span></div>${t.objective?`<div class="admin-feedback-detail"><span>Testing Objective</span><p>${esc(t.objective)}</p></div>`:''}<div class="admin-feedback-detail"><span>Instructions</span><p>${esc(t.instructions||'')}</p></div><div class="admin-task-coverage"><div><span>Already received</span><strong>${coverage.assigned}</strong></div><div><span>Currently eligible</span><strong>${coverage.eligible}</strong></div><div class="${coverage.notAssigned.length?'needs-send':''}"><span>Eligible · not sent</span><strong>${coverage.notAssigned.length}</strong></div></div>${coverage.completedPreviously?`<div class="admin-task-coverage-note"><strong>Completed previously · excluded (${coverage.completedPreviously})</strong><span>These testers already completed this task template in an earlier campaign. They cannot receive it again.</span></div>`:''}${deadlineNote}<div class="admin-detail-grid"><div><span>Template</span><strong>${esc(t.templateLabel||'Custom')}</strong></div><div><span>Response Type</span><strong>${esc(t.responseType||'Acknowledgement')}</strong></div><div><span>Recipients</span><strong>${stats.total}</strong></div><div><span>Completed</span><strong>${stats.completed}</strong></div><div><span>Pending</span><strong>${taskCampaignIsActive(t)?stats.pending:0}</strong></div><div><span>Review Required</span><strong>${stats.reviewRequired}</strong></div><div><span>Reminded</span><strong>${stats.reminded}</strong></div><div><span>Removed from Task</span><strong>${stats.removedByAdmin}</strong></div><div><span>Missed · Kept Active</span><strong>${stats.reviewedKept}</strong></div><div><span>Closed After Tester Removal</span><strong>${stats.accessEnded}</strong></div><div><span>Automatic Reminders</span><strong>${t.autoReminders===false?'Off':'On'}</strong></div></div><div><label class="admin-detail-label">Newly eligible — not yet sent</label><div class="admin-task-response-list">${newRows}</div></div><div><label class="admin-detail-label">Assignment history</label><div class="admin-task-response-list">${rows}</div></div><div class="admin-drawer-actions">${addNew}${remind}${cancel}${deleteTask}</div></div>`);
+  document.getElementById('adminDrawer').dataset.taskManageId=String(t.id);
 }
+function verifiedExistingTaskRecipients(t,testers){
+  const assigned=taskReceiptHistoryTesterIds(t);
+  const completed=taskTemplateHistoryTesterIds(t.templateKey);
+  const eligibleByUid=new Map(activeTaskTesters().map(x=>[String(x.uid),x]));
+  const requested=[...new Set((testers||[]).map(x=>String(x?.uid||x||'')).filter(Boolean))];
+  const candidates=requested.map(uid=>eligibleByUid.get(uid));
+  if(candidates.some(x=>!x))throw new Error('A selected tester is no longer eligible. Reopen Manage and review the recipients.');
+  if(candidates.some(x=>testerCompletedTemplate(x,completed)))throw new Error('One or more selected testers already completed this task template. No assignments were created. Reopen Manage to review the updated list.');
+  if(candidates.some(x=>testerMatchesTaskIdentities(x,assigned)))throw new Error('One or more selected testers already received this campaign task. No assignments were created. Reopen Manage to refresh the list.');
+  if(!candidates.length)throw new Error('There are no eligible testers without an assignment in this campaign.');
+  return candidates;
+}
+const taskAssignmentSendLocks=new Set();
 async function assignExistingTaskToTesters(t,testers){
   if(!t)throw new Error('Task not found.');
   const due=timestampToDate(t.dueAt);
   if(!due||due.getTime()<=Date.now())throw new Error('This task deadline has already passed. Create a new task with a new deadline for these testers.');
   if(t.status==='Cancelled')throw new Error('This task has been cancelled.');
   if(!emailWorkerEndpoint)throw new Error('Connect the Cloudflare email service before sending a required task.');
-  const assigned=taskReceiptHistoryTesterIds(t);
-  const eligibleByUid=new Map(activeTaskTesters().map(x=>[String(x.uid),x]));
-  const targets=(testers||[]).map(x=>eligibleByUid.get(String(x.uid||x))).filter(Boolean).filter(x=>!assigned.has(String(x.uid)));
-  if(!targets.length)throw new Error('There are no eligible testers without an assignment in this campaign.');
+  if(taskAssignmentSendLocks.has(String(t.id)))throw new Error('This task is already being assigned. Wait for the current send to finish.');
+  taskAssignmentSendLocks.add(String(t.id));
+  try{
+  // Re-verify immediately before sending: the preview cache can become stale if
+  // another tester finishes the task or another admin assigns it in the meantime.
+  // Exactly one template-specific and one campaign-specific query; no broad reload.
+  await Promise.all([ensureCompletedTemplateHistory(t.templateKey,true),ensureTaskCampaignAssignmentHistory(t,true)]);
+  const targets=verifiedExistingTaskRecipients(t,testers);
   const batch=writeBatch(db);
   for(const x of targets){
     const ref=doc(db,'betaTaskAssignments',t.id+'_'+x.uid);
@@ -2268,8 +2358,11 @@ async function assignExistingTaskToTesters(t,testers){
       else{await updateDoc(ref,{emailStatus:'No email needed',emailError:deleteField(),updatedAt:serverTimestamp()});}
     }catch(err){const message=String(err&&err.message||'Email delivery failed.').slice(0,500);errors.push(message);await updateDoc(ref,{emailStatus:'Error',emailError:message,updatedAt:serverTimestamp()}).catch(()=>{});failed++;}
   }
-  state.loaded.tasks=false;await loadTasks(true);renderTasks();
+  t.status='Active';t.recipientCount=newTotal;t.updatedAt=new Date();
+  await ensureTaskCampaignAssignmentHistory(t,true);
+  renderTasks();
   return {sent,failed,total:targets.length,errors};
+  }finally{taskAssignmentSendLocks.delete(String(t.id));}
 }
 async function createRequiredTask(){
   const templateKey=String(document.getElementById('taskTemplateSelect').value||'').trim();
@@ -2435,8 +2528,8 @@ async function switchView(view){
   }catch(e){showToast('Could not load '+view+'. '+friendlyFirebaseError(e),'error');}
   updateSupportInboxAutoSync();
 }
-function openDrawer(kicker,title,html){document.getElementById('drawerKicker').textContent=kicker;document.getElementById('drawerTitle').textContent=title;document.getElementById('adminDrawerContent').innerHTML=html;document.getElementById('adminDrawerBackdrop').hidden=false;document.getElementById('adminDrawer').classList.add('is-open');document.getElementById('adminDrawer').setAttribute('aria-hidden','false');}
-function closeDrawer(){if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}adminConversationMessageCount=0;adminConversationHistoryExpanded=false;adminConversationOlderRows=[];adminConversationOlderCursor=null;adminConversationLiveCursor=null;activeDrawerFeedbackId=null;const drawer=document.getElementById('adminDrawer');if(drawer){delete drawer.dataset.testerUid;drawer.classList.remove('is-open');drawer.setAttribute('aria-hidden','true');}document.getElementById('adminDrawerBackdrop').hidden=true;}
+function openDrawer(kicker,title,html){delete document.getElementById('adminDrawer').dataset.taskManageId;document.getElementById('drawerKicker').textContent=kicker;document.getElementById('drawerTitle').textContent=title;document.getElementById('adminDrawerContent').innerHTML=html;document.getElementById('adminDrawerBackdrop').hidden=false;document.getElementById('adminDrawer').classList.add('is-open');document.getElementById('adminDrawer').setAttribute('aria-hidden','false');}
+function closeDrawer(){if(adminConversationUnsubscribe){adminConversationUnsubscribe();adminConversationUnsubscribe=null;}adminConversationMessageCount=0;adminConversationHistoryExpanded=false;adminConversationOlderRows=[];adminConversationOlderCursor=null;adminConversationLiveCursor=null;activeDrawerFeedbackId=null;const drawer=document.getElementById('adminDrawer');if(drawer){delete drawer.dataset.testerUid;delete drawer.dataset.taskManageId;drawer.classList.remove('is-open');drawer.setAttribute('aria-hidden','true');}document.getElementById('adminDrawerBackdrop').hidden=true;}
 function findApp(id){return state.applications.find(a=>a.id===id)||state.recentApplications.find(a=>a.id===id);}
 function findFeedback(id){return state.feedback.find(f=>f.id===id)||state.recentFeedback.find(f=>f.id===id);}
 function findTester(uid){return state.testers.find(t=>t.uid===uid);}
@@ -3307,7 +3400,7 @@ async function changeBetaEmail(applicationId,newEmail){
   state.recentApplications=rename(state.recentApplications);
   state.recentFeedback=rename(state.recentFeedback);
   // Previously cached email-only completion identities must not survive a rename.
-  completedTemplateCache.clear();
+  invalidateTaskHistoryCaches();
   if(activeView==='applications')renderApplications();
   if(activeView==='testers')renderTesters();
   if(activeView==='tasks'){renderTasks();renderTaskRecipientPicker();}
@@ -3455,6 +3548,7 @@ document.addEventListener('click',async e=>{
   const upcomingTester=e.target.closest('[data-upcoming-tester]');if(upcomingTester){const t=findTester(upcomingTester.dataset.upcomingTester);if(t)openTesterRecord(t);return;}
   const testerBtn=e.target.closest('[data-open-tester]');if(testerBtn){if(!state.loaded.applications)await loadApplications();if(!state.loaded.tasks)await loadTasks();if(!state.loaded.feedback)await loadFeedback();const t=findTester(testerBtn.dataset.openTester);if(t)openTesterRecord(t);return;}
   const taskOpenBtn=e.target.closest('[data-open-task]');if(taskOpenBtn){if(!state.loaded.tasks)await loadTasks();const t=findTask(taskOpenBtn.dataset.openTask);if(t)openTaskRecord(t);return;}
+  const retryTaskManageBtn=e.target.closest('[data-retry-task-manage]');if(retryTaskManageBtn){const t=findTask(retryTaskManageBtn.dataset.retryTaskManage);if(t){completedTemplateCache.delete(String(t.templateKey||''));completedTemplateLoadedAt.delete(String(t.templateKey||''));campaignAssignmentCache.delete(String(t.id));campaignAssignmentLoadedAt.delete(String(t.id));openTaskRecord(t);}return;}
   const taskSupportBtn=e.target.closest('[data-task-support-contact]');if(taskSupportBtn){const a=state.taskAssignments.find(x=>x.id===taskSupportBtn.dataset.taskSupportContact);if(a)openTaskSupportComposer(a);return;}
   const createTaskSupportBtn=e.target.closest('[data-create-task-support]');if(createTaskSupportBtn){const a=state.taskAssignments.find(x=>x.id===createTaskSupportBtn.dataset.createTaskSupport);if(!a)return;const subject=String(document.getElementById('taskSupportSubject')?.value||'').trim();const message=String(document.getElementById('taskSupportMessage')?.value||'').trim();const original=createTaskSupportBtn.textContent;createTaskSupportBtn.disabled=true;createTaskSupportBtn.textContent='Creating…';try{const result=await createTaskSupportConversation(a,subject,message);const f=state.feedback.find(x=>x.id===result.feedbackId);if(f){markFeedbackViewed(f);openFeedbackRecord(f);}else closeDrawer();showToast(result.emailFailed?`Support ticket created, but the tester email could not be sent. ${result.emailError}`:'Support ticket created and sent to the tester.',result.emailFailed?'error':'success');}catch(err){showToast(friendlyFirebaseError(err),'error');createTaskSupportBtn.disabled=false;createTaskSupportBtn.textContent=original;}return;}
   const feedbackBtn=e.target.closest('[data-open-feedback]');if(feedbackBtn){try{const f=await ensureFeedbackLoaded(feedbackBtn.dataset.openFeedback);if(f){markFeedbackViewed(f);openFeedbackRecord(f);}}catch(err){showToast('Could not open that feedback.','error');}return;}
@@ -3537,6 +3631,7 @@ document.addEventListener('click',async e=>{
   const taskActionBtn=e.target.closest('[data-task-action]');if(taskActionBtn){
     const t=findTask(taskActionBtn.dataset.taskId);
     if(t&&taskActionBtn.dataset.taskAction==='assign-new-eligible'){
+      if(!taskManageHistoryReady(t)){openTaskRecord(t);showToast('Checking completed task history before sending.','error');return;}
       const newcomers=newlyEligibleTaskTesters(t);
       if(!newcomers.length){showToast('Every currently eligible tester has an assignment in this campaign.','success');openTaskRecord(t);return;}
       if(!(await confirmAction(`Send this task to ${newcomers.length} newly eligible tester${newcomers.length===1?'':'s'} who have never received it? Existing recipients will not be duplicated.`,'')))return;

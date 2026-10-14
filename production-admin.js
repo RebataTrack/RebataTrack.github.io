@@ -211,7 +211,8 @@ async function loadClientPolicy(){
   const data=await callProduction('client-policy-get');const p=data.policy||{};
   for(const [field,id] of [['minimumSupportedBuildIOS','policyBuildIOS'],['minimumSupportedBuildAndroid','policyBuildAndroid'],['minimumSupportedBuildWeb','policyBuildWeb']])
     if($(id))$(id).value=Number.isInteger(p[field])?String(p[field]):'0';
-  for(const [field,id] of [['iosUpdateURL','policyURLIOS'],['androidUpdateURL','policyURLAndroid']])if($(id))$(id).value=String(p[field]||'');
+  // iOS beta distribution is managed in TestFlight; there is no user-supplied update link.
+  if($('policyURLAndroid'))$('policyURLAndroid').value=String(p.androidUpdateURL||'');
   if(status)status.textContent=data.exists?'Configured':'Not created';
   policyMessage(data.exists?'Loaded current production policy.':'No clientPolicy document exists. Save here to create it.');
 }
@@ -223,14 +224,15 @@ async function saveClientPolicy(){
     if(!raw.trim()||!Number.isSafeInteger(value)||value<0){policyMessage('All minimum builds must be nonnegative whole numbers.','error');return;}
     policy[field]=value;
   }
-  policy.iosUpdateURL=String($('policyURLIOS')?.value||'').trim();
+  // Production Worker schema still accepts iosUpdateURL; clear obsolete links without changing the schema.
+  policy.iosUpdateURL='';
   policy.androidUpdateURL=String($('policyURLAndroid')?.value||'').trim();
   const reason=String($('policyChangeReason')?.value||'').trim();
   if(!reason){policyMessage('Enter a reason for the audit log.','error');return;}
-  for(const key of ['iosUpdateURL','androidUpdateURL']){
+  for(const key of ['androidUpdateURL']){
     if(policy[key]&&!/^https:\/\//i.test(policy[key])){policyMessage('Update links must use HTTPS.','error');return;}
   }
-  const confirmation=`Save the production minimum builds?\niOS: ${policy.minimumSupportedBuildIOS}\nAndroid: ${policy.minimumSupportedBuildAndroid}\nWeb: ${policy.minimumSupportedBuildWeb}\n\nOlder versions may immediately be blocked.`;
+  const confirmation=`Save the production minimum builds?\niOS (TestFlight): ${policy.minimumSupportedBuildIOS}\nAndroid: ${policy.minimumSupportedBuildAndroid}\nWeb: ${policy.minimumSupportedBuildWeb}\n\nOlder versions may immediately be blocked.`;
   if(!window.confirm(confirmation))return;
   btn.disabled=true;policyMessage('Saving policy securely…');
   try{
