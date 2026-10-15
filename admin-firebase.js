@@ -1,4 +1,4 @@
-// RebataTrack Website Build 266 dependency sync.
+// RebataTrack Website Build 267 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 266
+// RebataTrack Admin Portal — Website Build 267
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -182,10 +182,74 @@ async function submitBetaDisable(){
   if(!betaDisableApplicationId)throw new Error('No tester is selected.');
   const a=state.applications.find(x=>x.id===betaDisableApplicationId);if(!a)throw new Error('Beta application not found.');
   const reason=String(document.getElementById('adminBetaDisableReason')?.value||'').trim();const details=String(document.getElementById('adminBetaDisableDetails')?.value||'').trim();
-  const result=await callWorkerAdminAction('admin-disable-beta',{applicationId:a.id,testerUid:a.testerUid||'',email:a.email||'',name:a.fullName||a.name||'Tester',platform:a.platform||'',reason,details});
-  await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);
-  await syncBetaProgramAfterTesterMutation().catch(()=>null);
+  let result;
+  try{
+    result=await callWorkerAdminAction('admin-disable-beta',{applicationId:a.id,testerUid:a.testerUid||'',email:a.email||'',name:a.fullName||a.name||'Tester',platform:a.platform||'',reason,details});
+  }catch(error){
+    // The Beta Worker updates the tester before trying to send the email. If
+    // sending fails, we must not leave a now-inactive Beta tester's Production
+    // entitlement active merely because their notification failed. This exact
+    // document read happens ONLY on the exceptional Worker-error path.
+    const snap=await getDoc(doc(db,'betaApplications',a.id),'disable failure: verify changed application (1)').catch(()=>null);
+    const saved=snap?.exists()?snap.data():null;
+    if(saved?.status==='Inactive'&&saved?.portalAccess==='Disabled'){
+      const revocation=await revokeDisabledTesterProductionAccess(a);
+      if(revocation?.error)throw new Error('Beta access was disabled, but notification and Production revocation need attention: '+revocation.error);
+      throw new Error('Beta access was disabled and Production entitlement revoked, but the tester notification or another Beta Worker step failed. Review the Worker email log before retrying.');
+    }
+    throw error;
+  }
+  // The Worker only changed this application, matching tester records, and that
+  // tester's assignments. Never reload 100 applications + 100 testers + 500
+  // assignments after EACH deactivation. Refresh those exact records instead.
+  await refreshDisabledTesterAdminData(a);
+  // Targeted Production revocation is available in Production Admin Worker 132.
+  // If an older Worker is still deployed, recover using the existing full-roster
+  // sync so that no disabled tester retains Beta-originated Production access.
+  const betaSync=await revokeDisabledTesterProductionAccess(a);
+  if(betaSync?.error)result.betaSyncError=betaSync.error;
   closeBetaDisableModal();renderTesters();return result;
+}
+
+async function refreshDisabledTesterAdminData(application){
+  const appId=String(application?.id||'').trim();
+  const uid=String(application?.testerUid||'').trim();
+  const email=String(application?.email||'').trim().toLowerCase();
+  if(!appId)throw new Error('The disabled tester application ID is missing.');
+  const appSnap=await getDoc(doc(db,'betaApplications',appId),'disable: changed application (1)');
+  if(state.loaded.applications){
+    state.applications=state.applications.filter(a=>a.id!==appId);
+    if(appSnap.exists())state.applications.unshift(normalizeDoc(appSnap));
+  }
+  // The Beta Worker updates matching tester profiles; exact getDoc reads also
+  // handle duplicates that already exist in the Admin workspace.
+  if(state.loaded.testers){
+    const uids=new Set([uid,...state.testers.filter(t=>
+      email&&String(t.email||'').trim().toLowerCase()===email).map(t=>t.uid)].filter(Boolean));
+    const updates=await Promise.all([...uids].map(id=>getDoc(doc(db,'betaUsers',id),'disable: changed tester (1)')));
+    state.testers=state.testers.filter(t=>!uids.has(t.uid));
+    updates.forEach(snap=>{if(snap.exists())state.testers.push({uid:snap.id,...snap.data()});});
+  }
+  if(state.loaded.tasks){
+    const col=collection(db,'betaTaskAssignments');
+    const queries=[];
+    if(uid)queries.push(getDocs(query(col,where('testerUid','==',uid),limit(100)),'disable: affected task assignments by UID (100)'));
+    if(email)queries.push(getDocs(query(col,where('email','==',email),limit(100)),'disable: affected task assignments by email (100)'));
+    const snapshots=await Promise.all(queries);
+    if(snapshots.some(snap=>snap.docs.length>=100)){
+      // Prefer a single exceptional bounded reload over silently leaving
+      // out assignments when this tester has more than 99 historic records.
+      await loadTasks(true);
+    }else{
+      const updates=new Map(snapshots.flatMap(snap=>snap.docs).map(d=>[d.id,normalizeDoc(d)]));
+      state.taskAssignments=state.taskAssignments.map(a=>updates.get(a.id)||a);
+      updates.forEach((row,id)=>{if(!state.taskAssignments.some(a=>a.id===id))state.taskAssignments.push(row);});
+      invalidateTaskHistoryCaches();
+    }
+  }
+  // Existing live listeners will refresh recent views. This call is cached;
+  // it never fetches the whole application or tester collection.
+  await loadOverview(false);
 }
 
 function openEmailChangeModal(applicationId,currentEmail,prefillEmail=''){
@@ -583,9 +647,76 @@ function testerFeedbackRows(t){
   const email=String(t.email||'').trim().toLowerCase();
   return state.feedback.filter(f=>f.ownerUid===t.uid||String(f.email||'').trim().toLowerCase()===email);
 }
+// Historic participation records must survive campaign closure, deadline expiry, and
+// tester access changes. The normal Tasks workspace is a bounded preview, not a
+// complete participation ledger when it reaches its 500-document limit.
+const TASK_ASSIGNMENT_PREVIEW_LIMIT=500;
+const TESTER_COMPLETED_HISTORY_LIMIT=500;
+let testerCompletedHistoryRows=[];
+let testerCompletedHistoryLoaded=false;
+let testerCompletedHistoryComplete=false;
+let testerCompletedHistoryInFlight=null;
+function taskTesterIdentityKeys(t){
+  const email=String(t?.email||'').trim().toLowerCase();
+  const keys=new Set(completionIdentityKeys({testerUid:t?.uid,email,applicationId:t?.applicationId}));
+  // A tester may have changed email or UID. Their application ID is a stable
+  // connection when earlier assignment documents retained it.
+  for(const a of state.applications){
+    if((t?.uid&&String(a.testerUid||'')===String(t.uid))||
+      (email&&String(a.email||'').trim().toLowerCase()===email)||
+      (t?.applicationId&&String(a.id||'')===String(t.applicationId))){
+      for(const key of completionIdentityKeys({testerUid:a.testerUid,email:a.email,applicationId:a.id}))keys.add(key);
+    }
+  }
+  return keys;
+}
 function testerTaskRows(t){
-  const email=String(t.email||'').trim().toLowerCase();
-  return regularAssignments().filter(a=>a.testerUid===t.uid||String(a.email||'').trim().toLowerCase()===email);
+  const keys=taskTesterIdentityKeys(t);
+  const unique=new Map();
+  for(const a of [...state.taskAssignments,...testerCompletedHistoryRows]){
+    if(!isAnnouncementAssignment(a)&&completionIdentityKeys(a).some(key=>keys.has(key)))unique.set(String(a.id||''),a);
+  }
+  return [...unique.values()];
+}
+function testerCompletionHistoryVerified(){
+  return !!state.loaded.tasks&&(
+    state.taskAssignments.length<TASK_ASSIGNMENT_PREVIEW_LIMIT||
+    (testerCompletedHistoryLoaded&&testerCompletedHistoryComplete)
+  );
+}
+// Run only after opening the Tester workspace if the 500-assignment preview is
+// saturated. These two bounded, completion-specific queries capture both legacy
+// Completed rows and later-removed rows whose completedAt was retained. Cache the
+// result for this workspace session. Never poll or load this on Admin sign-in.
+async function ensureTesterCompletedHistory(){
+  if(!state.loaded.tasks)return;
+  if(state.taskAssignments.length<TASK_ASSIGNMENT_PREVIEW_LIMIT){
+    testerCompletedHistoryRows=[];
+    testerCompletedHistoryLoaded=true;
+    testerCompletedHistoryComplete=true;
+    return;
+  }
+  if(testerCompletedHistoryLoaded)return;
+  if(testerCompletedHistoryInFlight)return testerCompletedHistoryInFlight;
+  testerCompletedHistoryInFlight=(async()=>{
+    const col=collection(db,'betaTaskAssignments');
+    const [byStatus,byTimestamp]=await Promise.all([
+      getDocs(query(col,where('status','==','Completed'),limit(TESTER_COMPLETED_HISTORY_LIMIT)),
+        'tester participation: completed assignments (bounded)'),
+      getDocs(query(col,where('completedAt','>',Timestamp.fromDate(new Date(0))),limit(TESTER_COMPLETED_HISTORY_LIMIT)),
+        'tester participation: historic completedAt (bounded)')
+    ]);
+    const unique=new Map();
+    [...byStatus.docs,...byTimestamp.docs].forEach(d=>{
+      const row=normalizeDoc(d);
+      if(taskAssignmentWasCompleted(row)&&!isAnnouncementAssignment(row))unique.set(row.id,row);
+    });
+    testerCompletedHistoryRows=[...unique.values()];
+    testerCompletedHistoryComplete=byStatus.docs.length<TESTER_COMPLETED_HISTORY_LIMIT&&
+      byTimestamp.docs.length<TESTER_COMPLETED_HISTORY_LIMIT;
+    testerCompletedHistoryLoaded=true;
+  })().finally(()=>{testerCompletedHistoryInFlight=null;});
+  return testerCompletedHistoryInFlight;
 }
 function regularTaskById(taskId){return regularTasks().find(t=>String(t.id||'')===String(taskId||''))||null;}
 function taskCampaignIsActive(task){
@@ -615,16 +746,19 @@ function testerActivityInfo(t){
   return {label:'Inactive',className:'activity-inactive',days,hours,ageMs,anchor:anchorValue,reason:'14+ days without portal activity'};
 }
 function testerScore(t){
-  // Participation task totals are current-work totals only. Closed campaigns move unresolved
-  // testers to Review Testers and must not keep inflating the active Tasks/Participation counts.
-  const tasks=activeTesterTaskRows(t);
+  // Completed is a lifetime participation total, including expired/closed campaigns
+  // and any assignment later removed after completion. Pending remains restricted
+  // to active campaigns. Never mistake the bounded assignment preview for complete
+  // history if it reaches its limit.
+  const history=testerTaskRows(t);
+  const active=history.filter(assignmentBelongsToActiveCampaign);
   const conversations=testerFeedbackRows(t);
   const feedback=conversations.filter(f=>!isSupportConversation(f));
   const lastFeedback=mostRecentBy(feedback,'submittedAt');
-  const completed=tasks.filter(a=>a.status==='Completed').length;
-  const pending=tasks.filter(a=>a.status==='Pending').length;
+  const completed=history.filter(taskAssignmentWasCompleted).length;
+  const pending=active.filter(a=>a.status==='Pending').length;
   const retests=feedback.reduce((sum,f)=>sum+(Number(f.retestCount)||(timestampToDate(f.retestedAt)?1:0)),0);
-  return {tasksCompleted:completed,tasksPending:pending,feedbackCount:feedback.length,retests,lastFeedback};
+  return {tasksCompleted:completed,tasksPending:pending,taskCompletionHistoryVerified:testerCompletionHistoryVerified(),feedbackCount:feedback.length,retests,lastFeedback};
 }
 function testerBuild(t){const score=testerScore(t);return String(score.lastFeedback?.appVersion||t.currentBuild||'').trim();}
 function testerDeviceSummary(t){
@@ -1026,10 +1160,15 @@ async function loadTasks(force=false){
   return coalesceWorkspaceRead('tasks',async()=>{
     const [taskSnap,assignmentSnap]=await Promise.all([
       getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100)),'workspace: tasks (100)'),
-      getDocs(query(collection(db,'betaTaskAssignments'),limit(500)),'workspace: task assignments (up to 500)')
+      getDocs(query(collection(db,'betaTaskAssignments'),limit(TASK_ASSIGNMENT_PREVIEW_LIMIT)),'workspace: task assignments (up to 500)')
     ]);
     state.tasks=taskSnap.docs.map(normalizeDoc);
     state.taskAssignments=assignmentSnap.docs.map(normalizeDoc);
+    // A forced Tasks reload invalidates only the on-demand tester completion
+    // history snapshot. No new read is started until the Tester view needs it.
+    testerCompletedHistoryRows=[];
+    testerCompletedHistoryLoaded=false;
+    testerCompletedHistoryComplete=false;
     invalidateTaskHistoryCaches();
     state.loaded.tasks=true;
     // Do not silently close historical campaigns based on a 500-document
@@ -1698,7 +1837,7 @@ function renderTesters(){
       <td><div class="admin-tester-status-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small><span class="admin-last-app-activity ${esc(appActivity.className)}" title="${esc(appActivity.exact)}"><strong>App activity:</strong> ${esc(appActivity.label)}</span>${Number(t.inactivityWarningCount||0)?`<small class="admin-next-step-last">Engagement reminders: ${Number(t.engagementReminderCount||0)}${Number(t.inactivityWarningCount||0)>=3?' · Final reminder sent':''}</small>`:''}<span class="admin-last-seen">Portal ${esc(portalActivity)} · Login ${esc(loginActivity)}</span></div></td>
       <td>${testerActionHtml(t)}</td>
       <td>${testerProgressHtml(t)}</td>
-      <td><div class="admin-tester-participation-cell"><span><b>${score.tasksCompleted}</b> tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>All required tasks clear</small>'}</div></td>
+      <td><div class="admin-tester-participation-cell"><span><b>${score.taskCompletionHistoryVerified?score.tasksCompleted:'—'}</b> completed tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${!state.loaded.tasks?'<small>Task history loading</small>':!score.taskCompletionHistoryVerified?'<small>Completed history not fully verified</small>':score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No active required tasks pending</small>'}</div></td>
       <td><div class="admin-tester-access-cell"><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span><small>${esc(t.status||'Tester')}</small></div></td>
       <td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td>
     </tr>`;
@@ -2594,7 +2733,7 @@ async function switchView(view){
   try{
     if(view==='overview'){await loadOverview(false);}
     if(view==='applications')await loadApplications();
-    if(view==='testers'){await Promise.all([loadApplications(),loadTesters(),loadTasks(),loadFeedback()]);await reconcilePendingTasksForInactiveTesters();renderTesters();}
+    if(view==='testers'){await Promise.all([loadApplications(),loadTesters(),loadTasks(),loadFeedback()]);await ensureTesterCompletedHistory();await reconcilePendingTasksForInactiveTesters();renderTesters();}
     if(view==='tasks'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);await reconcilePendingTasksForInactiveTesters();await refreshTaskAutomationHealth();}
     if(view==='announcements'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);renderAnnouncements();}
     if(view==='feedback'){
@@ -2793,7 +2932,7 @@ function openTesterRecord(t){
   const lastActive=activity.anchor?formatDate(activity.anchor):'Never';
   const appActivity=testerReviewAppActivity(t);
   const lastFeedbackText=lastFeedback?`${formatDate(lastFeedback.submittedAt)} · ${lastFeedback.subject||'Feedback'}`:'No beta feedback submitted yet';
-  openDrawer('Tester Activity',t.name,`<div class="admin-detail-stack"><div class="admin-detail-status-row">${meaningfulTesterStarHtml(t)}<span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus)}</span><span class="admin-platform-pill">${esc(t.platform)}</span>${testerTimelineDisplayHtml(t)}</div><div class="admin-scorecard-drawer"><div><span>Tasks Completed</span><strong>${score.tasksCompleted}</strong><small>${score.tasksPending} pending</small></div><div><span>Feedback Submitted</span><strong>${score.feedbackCount}</strong><small>${esc(lastFeedbackText)}</small></div><div><span>Retests Completed</span><strong>${score.retests}</strong><small>Feedback fixes retested</small></div><div><span>Days Inactive</span><strong>${activity.days===999?'—':activity.days}</strong><small>${esc(activity.reason)}</small></div></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(t.email)}</strong></div><div><span>Last App Activity</span><strong>${esc(appActivity.label)}</strong><small>${esc(appActivity.exact)}</small></div><div><span>Last Portal Activity</span><strong>${esc(lastActive)}</strong></div><div><span>Last Login</span><strong>${esc(t.lastLogin?formatDate(t.lastLogin):'Never')}</strong></div><div><span>Last Feedback</span><strong>${esc(lastFeedback?formatDate(lastFeedback.submittedAt):'Never')}</strong></div><div><span>Last Reported Build</span><strong>${esc(build||'Not provided')}</strong></div><div><span>Device Model</span><strong>${esc(t.deviceModel||device||'Not provided')}</strong></div><div><span>OS Version</span><strong>${esc(t.osVersion||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(t.screenSize||'Not provided')}</strong></div><div><span>Created</span><strong>${esc(formatDate(t.createdAt))}</strong></div><div><span>Authentication</span><strong>Email verification code</strong></div></div>${testerProductionResolutionHtml(t)}<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Program timeline stage</span><p>Choose the milestone this tester has reached. Their portal will mark earlier steps complete and highlight what they should do next.</p></div><div class="beta-field"><label for="drawerTimelineStage">Current milestone</label><select id="drawerTimelineStage">${timelineStageOptions(t.platform,timelineStage)}</select></div><div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-save-timeline="${esc(t.uid)}" type="button">Set Exact Stage</button><button class="admin-primary-button" data-advance-timeline="${esc(t.uid)}" data-next-stage="${esc(TIMELINE_STAGES[nextIndex])}" type="button"${canAdvance?'':' disabled'}>${canAdvance?'Advance to Next Stage':'Active Testing'}</button></div></div><div><label class="admin-detail-label">Outstanding required tasks</label><div class="admin-task-response-list">${pendingHtml}</div></div><div class="admin-drawer-actions">${actions}</div></div>`);
+  openDrawer('Tester Activity',t.name,`<div class="admin-detail-stack"><div class="admin-detail-status-row">${meaningfulTesterStarHtml(t)}<span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus)}</span><span class="admin-platform-pill">${esc(t.platform)}</span>${testerTimelineDisplayHtml(t)}</div><div class="admin-scorecard-drawer"><div><span>Tasks Completed · All Time</span><strong>${score.taskCompletionHistoryVerified?score.tasksCompleted:'—'}</strong><small>${score.taskCompletionHistoryVerified?score.tasksPending+' active pending':'History not fully verified'}</small></div><div><span>Feedback Submitted</span><strong>${score.feedbackCount}</strong><small>${esc(lastFeedbackText)}</small></div><div><span>Retests Completed</span><strong>${score.retests}</strong><small>Feedback fixes retested</small></div><div><span>Days Inactive</span><strong>${activity.days===999?'—':activity.days}</strong><small>${esc(activity.reason)}</small></div></div><div class="admin-detail-grid"><div><span>Email</span><strong>${esc(t.email)}</strong></div><div><span>Last App Activity</span><strong>${esc(appActivity.label)}</strong><small>${esc(appActivity.exact)}</small></div><div><span>Last Portal Activity</span><strong>${esc(lastActive)}</strong></div><div><span>Last Login</span><strong>${esc(t.lastLogin?formatDate(t.lastLogin):'Never')}</strong></div><div><span>Last Feedback</span><strong>${esc(lastFeedback?formatDate(lastFeedback.submittedAt):'Never')}</strong></div><div><span>Last Reported Build</span><strong>${esc(build||'Not provided')}</strong></div><div><span>Device Model</span><strong>${esc(t.deviceModel||device||'Not provided')}</strong></div><div><span>OS Version</span><strong>${esc(t.osVersion||'Not provided')}</strong></div><div><span>Screen Size</span><strong>${esc(t.screenSize||'Not provided')}</strong></div><div><span>Created</span><strong>${esc(formatDate(t.createdAt))}</strong></div><div><span>Authentication</span><strong>Email verification code</strong></div></div>${testerProductionResolutionHtml(t)}<div class="admin-timeline-drawer-card"><div><span class="admin-detail-label">Program timeline stage</span><p>Choose the milestone this tester has reached. Their portal will mark earlier steps complete and highlight what they should do next.</p></div><div class="beta-field"><label for="drawerTimelineStage">Current milestone</label><select id="drawerTimelineStage">${timelineStageOptions(t.platform,timelineStage)}</select></div><div class="admin-timeline-drawer-actions"><button class="admin-secondary-button" data-save-timeline="${esc(t.uid)}" type="button">Set Exact Stage</button><button class="admin-primary-button" data-advance-timeline="${esc(t.uid)}" data-next-stage="${esc(TIMELINE_STAGES[nextIndex])}" type="button"${canAdvance?'':' disabled'}>${canAdvance?'Advance to Next Stage':'Active Testing'}</button></div></div><div><label class="admin-detail-label">Outstanding required tasks</label><div class="admin-task-response-list">${pendingHtml}</div></div><div class="admin-drawer-actions">${actions}</div></div>`);
   const drawer=document.getElementById('adminDrawer');if(drawer)drawer.dataset.testerUid=String(t.uid||'');
   refreshTesterReviewAppActivity([t]).catch(()=>{});
 
@@ -3196,6 +3335,37 @@ async function refreshBetaProductionMapping(options={}){
   })();
   return betaMappingInFlight;
 }
+async function revokeDisabledTesterProductionAccess(application){
+  const email=String(application?.email||'').trim().toLowerCase();
+  const bridge=window.RebataTrackProductionAdminBridge;
+  if(!bridge||typeof bridge.call!=='function'||!email){
+    return {error:'Production Admin Worker is not connected. Verify the tester’s Production beta entitlement before considering access fully revoked.'};
+  }
+  try{
+    const result=await bridge.call('beta-program-deactivate',{
+      email, betaUid:String(application?.testerUid||''),reason:'Tester access disabled in the Beta Admin Portal'
+    });
+    const current=betaProductionMapping.get(email);
+    if(current)betaProductionMapping.set(email,{...current,betaTrialActive:false,expiresAt:null});
+    betaGrantReasons.delete(email);
+    betaMappingLoadedAt=Date.now();
+    renderBetaProgramSyncChip();
+    if(result?.fullDeviceScanFallback)console.warn('Targeted Beta revocation used safe fallback device scan; verify Firestore collection-group indexes on Production.');
+    return result;
+  }catch(error){
+    // Maintain backwards compatibility with Worker 131 and recover from missing
+    // Firestore indexes or other targeted-action failures without weakening the
+    // grant revocation requirement. This fallback is intentionally more expensive.
+    console.warn('Targeted Beta revocation failed; running full Production recovery sync:',error);
+    const recovery=await syncBetaProgramAfterTesterMutation();
+    if(recovery?.error||recovery?.skipped){
+      return {error:'Targeted Production revocation failed, and full reconciliation did not complete. '+
+        (recovery?.error||'Verify the Production Worker and Beta Program settings.')};
+    }
+    return {...recovery,fallbackSync:true};
+  }
+}
+
 async function syncBetaProgramAfterTesterMutation(){
   const bridge=window.RebataTrackProductionAdminBridge;
   const dateText=normalizedBetaProgramDate(betaProgramEndDate);
@@ -3375,7 +3545,10 @@ async function runApplicationAdminAction(a,action){
   const changesEligibility=['approve','waitlist','decline','inactive','active','delete'].includes(action);
   await refreshApplicationAdminData({applicationId:a.id,skipBetaMapping:changesEligibility,assignmentsChanged:action==='delete'});
   if(changesEligibility){
-    const betaSync=await syncBetaProgramAfterTesterMutation();
+    // Removing eligibility is one-email work. Grant creation/reactivation still
+    // uses the full authoritative reconciliation path.
+    const revoking=['waitlist','decline','inactive','delete'].includes(action);
+    const betaSync=revoking?await revokeDisabledTesterProductionAccess(a):await syncBetaProgramAfterTesterMutation();
     if(betaSync&&betaSync.error)result.betaSyncError=betaSync.error;
   }
   return result;
@@ -3427,7 +3600,7 @@ async function deleteTesterOnly(t){
   const previousSuppress=suppressBetaProductionAutoRefresh;suppressBetaProductionAutoRefresh=true;
   try{await Promise.all([loadTesters(true),loadTasks(true),loadApplications(true)]);}finally{suppressBetaProductionAutoRefresh=previousSuppress;}
   await loadOverview();
-  const betaSync=await syncBetaProgramAfterTesterMutation();
+  const betaSync=await revokeDisabledTesterProductionAccess(t);
   if(activeView==='testers')renderTesters();
   if(activeView==='applications')renderApplications();
   return {...result,applicationsRemoved,betaSyncError:betaSync&&betaSync.error?betaSync.error:''};
@@ -3500,7 +3673,7 @@ async function refreshActiveView(){
   try{
     await loadOverview(true);
     if(activeView==='applications')await loadApplications(true);
-    if(activeView==='testers'){await Promise.all([loadTesters(true),loadTasks(true),loadFeedback(true)]);renderTesters();}
+    if(activeView==='testers'){await Promise.all([loadTesters(true),loadTasks(true),loadFeedback(true)]);await ensureTesterCompletedHistory();renderTesters();}
     if(activeView==='tasks'){await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);}
     if(activeView==='announcements'){await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);renderAnnouncements();}
     if(activeView==='feedback')await loadFeedback(true);
@@ -3625,7 +3798,7 @@ document.addEventListener('click',async e=>{
   }
   
   const upcomingTester=e.target.closest('[data-upcoming-tester]');if(upcomingTester){const t=findTester(upcomingTester.dataset.upcomingTester);if(t)openTesterRecord(t);return;}
-  const testerBtn=e.target.closest('[data-open-tester]');if(testerBtn){if(!state.loaded.applications)await loadApplications();if(!state.loaded.tasks)await loadTasks();if(!state.loaded.feedback)await loadFeedback();const t=findTester(testerBtn.dataset.openTester);if(t)openTesterRecord(t);return;}
+  const testerBtn=e.target.closest('[data-open-tester]');if(testerBtn){if(!state.loaded.applications)await loadApplications();if(!state.loaded.tasks)await loadTasks();await ensureTesterCompletedHistory();if(!state.loaded.feedback)await loadFeedback();const t=findTester(testerBtn.dataset.openTester);if(t)openTesterRecord(t);return;}
   const taskOpenBtn=e.target.closest('[data-open-task]');if(taskOpenBtn){if(!state.loaded.tasks)await loadTasks();const t=findTask(taskOpenBtn.dataset.openTask);if(t)openTaskRecord(t);return;}
   const retryTaskManageBtn=e.target.closest('[data-retry-task-manage]');if(retryTaskManageBtn){const t=findTask(retryTaskManageBtn.dataset.retryTaskManage);if(t){completedTemplateCache.delete(String(t.templateKey||''));completedTemplateLoadedAt.delete(String(t.templateKey||''));campaignAssignmentCache.delete(String(t.id));campaignAssignmentLoadedAt.delete(String(t.id));openTaskRecord(t);}return;}
   const taskSupportBtn=e.target.closest('[data-task-support-contact]');if(taskSupportBtn){const a=state.taskAssignments.find(x=>x.id===taskSupportBtn.dataset.taskSupportContact);if(a)openTaskSupportComposer(a);return;}
@@ -3913,7 +4086,7 @@ document.getElementById('adminBetaWarningSend')?.addEventListener('click',async(
 document.getElementById('adminBetaDisableClose')?.addEventListener('click',closeBetaDisableModal);
 document.getElementById('adminBetaDisableCancel')?.addEventListener('click',closeBetaDisableModal);
 document.getElementById('adminBetaDisableBackdrop')?.addEventListener('click',e=>{if(e.target===e.currentTarget)closeBetaDisableModal();});
-document.getElementById('adminBetaDisableSubmit')?.addEventListener('click',async()=>{const btn=document.getElementById('adminBetaDisableSubmit');btn.disabled=true;btn.textContent='Disabling…';try{await submitBetaDisable();showToast('Beta access disabled and tester emailed.');}catch(err){const msg=document.getElementById('adminBetaDisableMessage');if(msg)msg.textContent=friendlyFirebaseError(err);showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.textContent='Disable & Email Tester';}});
+document.getElementById('adminBetaDisableSubmit')?.addEventListener('click',async()=>{const btn=document.getElementById('adminBetaDisableSubmit');btn.disabled=true;btn.textContent='Disabling…';try{const result=await submitBetaDisable();showToast(result?.betaSyncError?'Beta access disabled and tester emailed, but Production entitlement reconciliation failed. Retry Production Sync Now and verify the tester grant.':'Beta access disabled and tester emailed.',result?.betaSyncError?'error':'success');}catch(err){const msg=document.getElementById('adminBetaDisableMessage');if(msg)msg.textContent=friendlyFirebaseError(err);showToast(friendlyFirebaseError(err),'error');}finally{btn.disabled=false;btn.textContent='Disable & Email Tester';}});
 ['feedbackSearch','feedbackStatusFilter','feedbackTypeFilter'].forEach(id=>document.getElementById(id).addEventListener('input',renderFeedback));
 
 
