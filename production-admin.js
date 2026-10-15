@@ -1,4 +1,4 @@
-// RebataTrack Website Build 223 dependency sync.
+// RebataTrack Website Build 268 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {auth,isAdminUser}=Core;
 const {onAuthStateChanged}=Compat;
-// RebataTrack Production Admin Console — Website Build 223
+// RebataTrack Production Admin Console - Website Build 268
 // Uses the signed-in Admin Portal Firebase session only as the administrator identity.
 // All privileged production reads/writes go through the Production Admin Worker.
 // No production service-account secret is ever present in browser code.
@@ -29,7 +29,9 @@ const state = {
   selectedUserDetail: null,
   selectedProductionUsers: new Set(),
   action: null,
-  durationPreset: '14d'
+  durationPreset: '14d',
+  overviewExpiryStale: false,
+  overviewLoadedAt: 0
 };
 
 const $ = id => document.getElementById(id);
@@ -129,6 +131,7 @@ function setScope(scope){
   if($('adminBrandScope'))$('adminBrandScope').textContent='Administration';
   if($('adminTopbarEyebrow'))$('adminTopbarEyebrow').textContent=beta?'RebataTrack Beta Program':'RebataTrack Production';
   if(beta){
+    if(productionExpiryRefreshTimer){clearTimeout(productionExpiryRefreshTimer);productionExpiryRefreshTimer=null;}
     const active=document.querySelector('[data-admin-view].is-active');
     if($('adminViewTitle'))$('adminViewTitle').textContent=active?.innerText?.trim()||'Overview';
     if($('adminLiveChip')){
@@ -142,6 +145,10 @@ function setScope(scope){
     if($('adminViewTitle'))$('adminViewTitle').textContent=label;
     setConnectionUI(state.connected);
     initializeProduction().catch(err=>showProdToast(err.message,'error'));
+    // Reusing already-fetched Production data must never trigger a background collection scan.
+    if(state.users.length)renderUsers();
+    if(state.access.premiumGrants.length||state.access.trialOverrides.length||state.access.reviewAccess.length)renderAccess();
+    scheduleProductionExpiryRefresh();
   }
 }
 
@@ -246,17 +253,17 @@ async function saveClientPolicy(){
 
 async function loadOverview(force=false){
   if(state.overview&&!force){renderOverview();return;}
-  const data=await callProduction('overview'); state.overview=data; setConnectionUI(true,data.projectLabel||'Production connected'); renderOverview();
+  const data=await callProduction('overview'); state.overview=data; state.overviewLoadedAt=Date.now(); state.overviewExpiryStale=false; setConnectionUI(true,data.projectLabel||'Production connected'); renderOverview();
 }
 function renderOverview(){
   const o=state.overview||{}; const m=o.metrics||{};
   if($('productionMetricUsers'))$('productionMetricUsers').textContent=m.users ?? '0';
   if($('productionMetricDevices'))$('productionMetricDevices').textContent=m.devices ?? '0';
-  if($('productionMetricPlus'))$('productionMetricPlus').textContent=m.plusAccess ?? '0';
-  if($('productionMetricTrials'))$('productionMetricTrials').textContent=m.activeTrials ?? '0';
+  if($('productionMetricPlus'))$('productionMetricPlus').textContent=state.overviewExpiryStale?'—':(m.plusAccess ?? '0');
+  if($('productionMetricTrials'))$('productionMetricTrials').textContent=state.overviewExpiryStale?'—':(m.activeTrials ?? '0');
   const b=m.breakdown||{};
-  if($('productionMetricPlusDetail'))$('productionMetricPlusDetail').textContent=`${b.storePlus??0} store · ${b.adminPlus??0} complimentary · ${b.reviewOnly??0} reviewer-only`;
-  if($('productionMetricTrialsDetail'))$('productionMetricTrialsDetail').textContent=`${b.standardTrials??0} standard · ${b.betaTrials??0} beta access · ${b.adminTrials??0} admin reissues`;
+  if($('productionMetricPlusDetail'))$('productionMetricPlusDetail').textContent=state.overviewExpiryStale?'Grant expired; click Refresh for current totals':`${b.storePlus??0} store · ${b.adminPlus??0} complimentary · ${b.reviewOnly??0} reviewer-only`;
+  if($('productionMetricTrialsDetail'))$('productionMetricTrialsDetail').textContent=state.overviewExpiryStale?'Trial expired; click Refresh for current totals':`${b.standardTrials??0} standard · ${b.betaTrials??0} beta access · ${b.adminTrials??0} admin reissues`;
   const users=o.recentUsers||[];
   if($('productionRecentUsers'))$('productionRecentUsers').innerHTML=users.length?users.map(u=>`<button class="production-recent-user" data-production-user="${esc(u.uid)}" type="button"><div><strong>${esc(u.name||u.email||'RebataTrack user')}</strong><span>${esc(u.email||u.uid)}</span></div><time>${esc(fmtDate(u.createdAt))}</time></button>`).join(''):'<div class="admin-empty-inline">No production users found.</div>';
   if($('productionUsersBadge')){$('productionUsersBadge').hidden=!(Number(m.users)>0);$('productionUsersBadge').textContent=Number(m.users)>999?'999+':String(m.users||0);}
@@ -265,6 +272,24 @@ function renderOverview(){
 async function loadUsers(force=false){
   if(state.users.length&&!force){renderUsers();return;}
   const data=await callProduction('users-list',{limit:500}); state.users=data.users||[]; renderUsers(); scheduleProductionExpiryRefresh();
+}
+// Expiry of cached display records is calculated locally. The Worker and app remain
+// authoritative for entitlement enforcement; these helpers perform no Firestore I/O.
+function productionTimeLimitedActive(active,expiry){
+  if(!active)return false;
+  const date=asDate(expiry);
+  return !date||date.getTime()>Date.now();
+}
+function productionGrantVisible(record){
+  return !!record?.active&&(!!record.indefinite||productionTimeLimitedActive(true,record.expiresAt));
+}
+function productionUserDisplayState(record){
+  return {...record,
+    trialActive:productionTimeLimitedActive(record.trialActive,record.trialExpiresAt),
+    trialOverrideActive:productionTimeLimitedActive(record.trialOverrideActive,record.trialOverrideExpiresAt),
+    betaAccessActive:productionTimeLimitedActive(record.betaAccessActive,record.betaAccessExpiresAt),
+    reviewAccessActive:productionTimeLimitedActive(record.reviewAccessActive,record.reviewAccessExpiresAt)
+  };
 }
 function userTrialState(u){
   if(u.trialOverrideActive)return 'trial';
@@ -393,7 +418,7 @@ function updateProductionSelectionBar(){
 }
 function renderUsers(){
   const q=String($('productionUserSearch')?.value||'').trim().toLowerCase(); const filter=$('productionUserFilter')?.value||'';
-  const rows=state.users.filter(u=>{const hay=[u.name,u.email,u.uid].join(' ').toLowerCase();return (!q||hay.includes(q))&&userMatchesFilter(u,filter);});
+  const rows=state.users.map(productionUserDisplayState).filter(u=>{const hay=[u.name,u.email,u.uid].join(' ').toLowerCase();return (!q||hay.includes(q))&&userMatchesFilter(u,filter);});
   if($('productionUsersTableBody'))$('productionUsersTableBody').innerHTML=rows.map(u=>{
     const trial=u.betaAccessActive
       ?`<div class="production-user-cell"><span class="production-status green">Beta Access</span><span>${u.betaAccessExpiresAt?`Until ${esc(fmtExactDateTime(u.betaAccessExpiresAt))}`:'Active'}${u.trialOverrideActive?' · Admin trial also active':''}</span></div>`
@@ -448,12 +473,15 @@ function accessItemHtml(item,type){
   return `<div class="production-access-item"><div><strong>${esc(title)}</strong><span>${esc(detail)}</span>${source}<span>${esc(item.reason||'')}</span></div>${item.uid?`<button class="admin-text-button" data-production-user="${esc(item.uid)}" type="button">Open</button>`:''}</div>`;
 }
 function renderAccess(){
-  const p=state.access.premiumGrants.filter(x=>x.active),t=state.access.trialOverrides.filter(x=>x.active),r=state.access.reviewAccess.filter(x=>x.active);
+  const p=state.access.premiumGrants.filter(productionGrantVisible),t=state.access.trialOverrides.filter(productionGrantVisible),r=state.access.reviewAccess.filter(productionGrantVisible);
   const b=state.access.summary||{};
-  if($('productionAccessPlusTotal'))$('productionAccessPlusTotal').textContent=b.plusAccess??'0';
-  if($('productionAccessPlusBreakdown'))$('productionAccessPlusBreakdown').textContent=`${b.storePlus??0} store · ${b.adminPlus??0} complimentary · ${b.reviewOnly??0} reviewer-only`;
-  if($('productionAccessTrialTotal'))$('productionAccessTrialTotal').textContent=b.activeTrials??'0';
-  if($('productionAccessTrialBreakdown'))$('productionAccessTrialBreakdown').textContent=`${b.standardTrials??0} standard · ${b.betaTrials??0} beta access · ${b.adminTrials??0} admin reissues`;
+  // Collection summary counts come from the last server snapshot; grant expiry
+  // does not justify an automatic users-list/trialDevices reread. Mark stale
+  // totals honestly until the admin explicitly clicks Refresh.
+  if($('productionAccessPlusTotal'))$('productionAccessPlusTotal').textContent=state.overviewExpiryStale?'—':(b.plusAccess??'0');
+  if($('productionAccessPlusBreakdown'))$('productionAccessPlusBreakdown').textContent=state.overviewExpiryStale?'Time-limited access expired; click Refresh':`${b.storePlus??0} store · ${b.adminPlus??0} complimentary · ${b.reviewOnly??0} reviewer-only`;
+  if($('productionAccessTrialTotal'))$('productionAccessTrialTotal').textContent=state.overviewExpiryStale?'—':(b.activeTrials??'0');
+  if($('productionAccessTrialBreakdown'))$('productionAccessTrialBreakdown').textContent=state.overviewExpiryStale?'Trial expiry detected; click Refresh':`${b.standardTrials??0} standard · ${b.betaTrials??0} beta access · ${b.adminTrials??0} admin reissues`;
   if($('productionGrantCount'))$('productionGrantCount').textContent=`${p.length} active`;
   if($('productionTrialOverrideCount'))$('productionTrialOverrideCount').textContent=`${t.length} active`;
   if($('productionReviewCount'))$('productionReviewCount').textContent=`${r.length} active`;
@@ -462,8 +490,29 @@ function renderAccess(){
   if($('productionReviewAccessList'))$('productionReviewAccessList').innerHTML=r.length?r.map(x=>accessItemHtml(x,'review')).join(''):'<div class="admin-empty-inline">No active App Review grants.</div>';
 }
 
+// A time-limited entitlement expiring does not change the underlying Firestore
+// record immediately. Never download the full Production users, devices and grants
+// again just because a cached expiry timestamp passed. Admin can explicitly Refresh.
+function productionExpiryPassedSinceOverview(){
+  if(!state.overview||!state.overviewLoadedAt)return false;
+  const now=Date.now(),since=state.overviewLoadedAt;
+  const passed=record=>{
+    if(!record?.active||record.indefinite)return false;
+    const date=asDate(record.expiresAt);
+    return !!date&&date.getTime()>since&&date.getTime()<=now;
+  };
+  if((state.access.premiumGrants||[]).some(passed)||
+    (state.access.trialOverrides||[]).some(passed)||
+    (state.access.reviewAccess||[]).some(passed))return true;
+  return (state.users||[]).some(user=>
+    passed({active:user.trialActive,expiresAt:user.trialExpiresAt})||
+    passed({active:user.trialOverrideActive,expiresAt:user.trialOverrideExpiresAt})||
+    passed({active:user.betaAccessActive,expiresAt:user.betaAccessExpiresAt})||
+    passed({active:user.reviewAccessActive,expiresAt:user.reviewAccessExpiresAt}));
+}
 function scheduleProductionExpiryRefresh(){
   if(productionExpiryRefreshTimer){clearTimeout(productionExpiryRefreshTimer);productionExpiryRefreshTimer=null;}
+  if(state.scope!=='production'||document.hidden)return;
   const now=Date.now(), candidates=[];
   const add=record=>{if(record?.active&&!record?.indefinite){const d=asDate(record.expiresAt);if(d&&d.getTime()>now)candidates.push(d.getTime());}};
   (state.access.premiumGrants||[]).forEach(add);
@@ -482,33 +531,24 @@ function scheduleProductionExpiryRefresh(){
   add({active:!!state.selectedUserDetail?.trial?.active,expiresAt:state.selectedUserDetail?.trial?.expiresAt});
   if(!candidates.length)return;
   const next=Math.min(...candidates);
-  productionExpiryRefreshTimer=setTimeout(()=>{void refreshProductionAfterExpiry();},Math.max(0,next-Date.now())+150);
+  // Clamp long browser timers to avoid the 32-bit timeout overflow that can
+  // create an immediate loop for expiry dates far in the future.
+  const wait=Math.min(24*60*60*1000,Math.max(0,next-now)+150);
+  productionExpiryRefreshTimer=setTimeout(()=>{
+    if(Date.now()+100<next){scheduleProductionExpiryRefresh();return;}
+    void refreshProductionAfterExpiry();
+  },wait);
 }
 async function refreshProductionAfterExpiry(){
-  const selectedUid=state.selectedUser;
-  const actionKind=state.action?.kind||'';
-  const actionReason=String($('productionActionReason')?.value||'');
-  try{
-    state.overview=null;state.users=[];state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};
-    await loadOverview(true);
-    if(state.view==='users') await loadUsers(true);
-    else if(state.view==='devices') await loadDevices(true);
-    else if(state.view==='identities') await loadIdentities(true);
-    else if(state.view==='access') await loadAccess(true);
-    else if(state.view==='audit') await loadAudit(true);
-    if(selectedUid){
-      const data=await callProduction('user-detail',{uid:selectedUid});
-      state.selectedUserDetail=data;
-      renderUserDrawer(data);
-      if(state.action?.uid===selectedUid){
-        if(actionKind==='premium')renderPremiumAction();
-        if(actionKind==='review')renderReviewAction();
-        if(actionKind==='trial')renderTrialAction();
-        if($('productionActionReason'))$('productionActionReason').value=actionReason;
-      }
-    }
-  }catch(error){showProdToast(error.message,'error');}
-  finally{scheduleProductionExpiryRefresh();}
+  if(state.scope!=='production'||document.hidden){scheduleProductionExpiryRefresh();return;}
+  // User and grant labels can be determined from the cached expiry timestamps.
+  // Do not call overview, users-list, access-list, devices-list or user-detail here.
+  // A count derived from stale server results must not be shown as definitive.
+  state.overviewExpiryStale=true;
+  renderOverview();
+  if(state.users.length)renderUsers();
+  if(state.access.premiumGrants.length||state.access.trialOverrides.length||state.access.reviewAccess.length)renderAccess();
+  scheduleProductionExpiryRefresh();
 }
 
 async function loadAudit(force=false){
@@ -809,6 +849,18 @@ async function refreshProduction(){
   catch(error){showProdToast(error.message,'error');}
   finally{if(btn)btn.classList.remove('is-spinning');}
 }
+
+// Resuming a hidden Production tab recomputes expiry labels from local data.
+// It never triggers an implicit Firestore read.
+document.addEventListener('visibilitychange',()=>{
+  if(state.scope!=='production')return;
+  if(!document.hidden){
+    if(productionExpiryPassedSinceOverview()){state.overviewExpiryStale=true;renderOverview();}
+    if(state.users.length)renderUsers();
+    if(state.access.premiumGrants.length||state.access.trialOverrides.length||state.access.reviewAccess.length)renderAccess();
+  }
+  scheduleProductionExpiryRefresh();
+});
 
 // Scope + production navigation
 for(const b of document.querySelectorAll('[data-admin-scope]'))b.addEventListener('click',()=>setScope(b.dataset.adminScope));

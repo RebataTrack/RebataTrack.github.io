@@ -69,7 +69,7 @@ vm.runInContext(historySetup+'\n'+code,ctx);
   assert.equal(score.tasksPending,0);
   await ctx.ensureTesterCompletedHistory();
   assert.equal(reads,2,'history reused, not polled');
-  assert(source.includes('await ensureTesterCompletedHistory();await reconcilePendingTasksForInactiveTesters();renderTesters();'),'Tester workspace must verify before final rendering');
+  assert(source.includes('await Promise.all([loadApplications(),loadTesters(),loadTesterParticipation(),loadFeedback()]);renderTesters();'),'Tester workspace must load scoped participation history rather than the full Tasks workspace');
   assert(source.includes("score.taskCompletionHistoryVerified?score.tasksCompleted:'—'"),'incomplete history must display unknown rather than a false 0');
   assert(source.includes("'<small>No active required tasks pending</small>'"),'pending clear should explicitly refer to active tasks');
   // A saturation on either history query cannot be presented as complete.

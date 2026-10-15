@@ -1,4 +1,4 @@
-// RebataTrack Website Build 267 dependency sync.
+// RebataTrack Website Build 268 Firebase runtime.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 267
+// RebataTrack Admin Portal — Website Build 268
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -95,7 +95,7 @@ let betaAutoSyncAttempted = false;
 // Tester eligibility mutations still reconcile immediately through syncBetaProgramAfterTesterMutation().
 let betaProgramSessionReconciled = false;
 let betaProgramSessionReconcileInFlight = null;
-const BETA_MAPPING_CACHE_TTL_MS = 2 * 60 * 1000;
+const BETA_MAPPING_CACHE_TTL_MS = 15 * 60 * 1000;
 
 let state = {
   metrics: {},
@@ -107,7 +107,7 @@ let state = {
   tasks: [],
   taskAssignments: [],
   quickReplies: [],
-  loaded: { applications:false, testers:false, feedback:false, tasks:false, quickReplies:false }
+  loaded: { applications:false, testers:false, feedback:false, tasks:false, participation:false, quickReplies:false }
 };
 
 let feedbackRealtimeUnsubscribe = null;
@@ -673,12 +673,15 @@ function taskTesterIdentityKeys(t){
 function testerTaskRows(t){
   const keys=taskTesterIdentityKeys(t);
   const unique=new Map();
-  for(const a of [...state.taskAssignments,...testerCompletedHistoryRows]){
+  for(const a of [...testerParticipationRows,...testerCompletedHistoryRows,...state.taskAssignments]){
     if(!isAnnouncementAssignment(a)&&completionIdentityKeys(a).some(key=>keys.has(key)))unique.set(String(a.id||''),a);
   }
   return [...unique.values()];
 }
 function testerCompletionHistoryVerified(){
+  // A verified, completed-only ledger is sufficient even when the full Tasks
+  // workspace has never been visited. An incomplete history is NEVER zero.
+  if(state.loaded.participation)return testerParticipationComplete;
   return !!state.loaded.tasks&&(
     state.taskAssignments.length<TASK_ASSIGNMENT_PREVIEW_LIMIT||
     (testerCompletedHistoryLoaded&&testerCompletedHistoryComplete)
@@ -717,6 +720,57 @@ async function ensureTesterCompletedHistory(){
     testerCompletedHistoryLoaded=true;
   })().finally(()=>{testerCompletedHistoryInFlight=null;});
   return testerCompletedHistoryInFlight;
+}
+
+// Tester Directory read contract: do NOT load the 500-document Tasks workspace
+// to render participation. Read only historical completions and outstanding
+// assignments, with paginated, capped collection queries. No timers/listeners.
+const TESTER_PARTICIPATION_PAGE_SIZE=100;
+const TESTER_PARTICIPATION_MAX_PAGES=8;
+let testerParticipationRows=[];
+let testerParticipationComplete=false;
+async function readTesterParticipationCategory(col,field,op,value,label){
+  const found=[];
+  let cursor=null;
+  for(let page=0;page<TESTER_PARTICIPATION_MAX_PAGES;page++){
+    let ref=query(col,where(field,op,value),limit(TESTER_PARTICIPATION_PAGE_SIZE));
+    if(cursor)ref=ref.startAfter(cursor);
+    const snap=await getDocs(ref,label+' (page '+(page+1)+')');
+    found.push(...snap.docs.map(normalizeDoc));
+    if(snap.docs.length<TESTER_PARTICIPATION_PAGE_SIZE)return {rows:found,complete:true};
+    cursor=snap.docs.at(-1);
+  }
+  // Do not silently display a partial history as a fully verified zero/count.
+  return {rows:found,complete:false};
+}
+async function loadTesterParticipation(force=false){
+  if(state.loaded.participation&&!force)return;
+  return coalesceWorkspaceRead('tester-participation',async()=>{
+    const col=collection(db,'betaTaskAssignments');
+    const [tasksSnap,completed,completedAt,pending,review,reviewed]=await Promise.all([
+      state.loaded.tasks ? Promise.resolve(null) : getDocs(query(collection(db,'betaTasks'),where('status','==','Active'),limit(100)),'tester participation: active task metadata'),
+      readTesterParticipationCategory(col,'status','==','Completed','tester participation: completed history'),
+      readTesterParticipationCategory(col,'completedAt','>',Timestamp.fromDate(new Date(0)),'tester participation: completed-then-removed history'),
+      readTesterParticipationCategory(col,'status','==','Pending','tester participation: pending'),
+      readTesterParticipationCategory(col,'status','==','Review Required','tester participation: review required'),
+      readTesterParticipationCategory(col,'status','==','Missed - Reviewed','tester participation: reviewed missed tasks')
+    ]);
+    if(tasksSnap&&!state.loaded.tasks)state.tasks=tasksSnap.docs.map(normalizeDoc);
+    const unique=new Map();
+    [...completed.rows,...completedAt.rows,...pending.rows,...review.rows,...reviewed.rows].forEach(row=>{
+      if(!isAnnouncementAssignment(row))unique.set(row.id,row);
+    });
+    testerParticipationRows=[...unique.values()];
+    testerParticipationComplete=completed.complete&&completedAt.complete&&pending.complete&&review.complete&&reviewed.complete&&
+      (state.loaded.tasks||!tasksSnap||tasksSnap.docs.length<100);
+    state.loaded.participation=true;
+    if(state.loaded.testers)renderTesters();
+  });
+}
+function invalidateTesterParticipation(){
+  state.loaded.participation=false;
+  testerParticipationRows=[];
+  testerParticipationComplete=false;
 }
 function regularTaskById(taskId){return regularTasks().find(t=>String(t.id||'')===String(taskId||''))||null;}
 function taskCampaignIsActive(task){
@@ -847,7 +901,7 @@ const ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS=10*60*1000;
 let lastLegacyMetricsAt=0;
 async function loadMetricsAggregated(){
   const apps='betaApplications',feedback='betaFeedback';
-  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount,readyForYou,fullySetUp,fullySetUpIOS,fullySetUpAndroid]=await Promise.all([
+  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount,readyForYou,fullySetUp,fullySetUpIOS,fullySetUpAndroid,enabledApproved,enabledActive]=await Promise.all([
     aggregateCount(apps),
     aggregateCount(apps,[['status','==','Applied']]),
     aggregateCount(apps,[['status','==','Approved']]),
@@ -882,10 +936,13 @@ async function loadMetricsAggregated(){
       aggregateCount('betaUsers',[['timelineStage','==','activeTesting'],['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','Android']]).catch(()=>0),
       aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Approved'],['platform','==','Android']]).catch(()=>0),
       aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','Android']]).catch(()=>0)
-    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0))
+    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)),
+    aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>null),
+    aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>null)
   ]);
   const accepted=Number(approved||0)+Number(active||0)+Number(inactive||0);
-  return {total,applied,approved,active,accepted,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0),readyForYou:Number(readyForYou||0)};
+  const activeAccess=(enabledApproved===null||enabledActive===null)?null:Number(enabledApproved||0)+Number(enabledActive||0);
+  return {total,applied,approved,active,accepted,activeAccess,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0),readyForYou:Number(readyForYou||0)};
 }
 async function loadMetricsLegacy(){
   const apps=collection(db,'betaApplications');
@@ -925,7 +982,7 @@ async function loadMetricsLegacy(){
   ]);
   const [fullySetUp,fullySetUpIOS,fullySetUpAndroid]=fullySetUpCounts;
   const accepted=Number(approved||0)+Number(active||0)+Number(inactive||0);
-  return {total,applied,approved,active,accepted,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
+  return {total,applied,approved,active,accepted,activeAccess:null,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
 }
 let metricsLoadInFlight=null;
 async function loadMetrics(force=false){
@@ -991,9 +1048,8 @@ async function loadTesters(force=false){
       try{await repairMissingAndroidInviteUrls(state.testers);}catch(error){console.warn('Could not repair missing Android testing links:',error);}
     }
     renderTesters();
-    if(!suppressBetaProductionAutoRefresh&&betaProgramEndDate&&window.RebataTrackProductionAdminBridge){
-      ensureSavedBetaProgramReconciled().catch(error=>console.warn('Could not automatically reconcile saved Beta Program access:',error));
-    }
+    // Passive tester-list refresh must never run full Production beta-program-configure.
+    // Explicit Save & Sync and targeted activation/revocation own mutations.
   });
 }
 // The default workspace is a bounded union of: recent activity, older tester
@@ -1166,6 +1222,7 @@ async function loadTasks(force=false){
     state.taskAssignments=assignmentSnap.docs.map(normalizeDoc);
     // A forced Tasks reload invalidates only the on-demand tester completion
     // history snapshot. No new read is started until the Tester view needs it.
+    invalidateTesterParticipation();
     testerCompletedHistoryRows=[];
     testerCompletedHistoryLoaded=false;
     testerCompletedHistoryComplete=false;
@@ -1229,7 +1286,15 @@ async function refreshActiveTaskNavBadge(){
 function renderMetrics(){
   const m=state.metrics||{};
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v==null?0:v;};
-  set('metricApplicationsReceived',m.total);set('metricAcceptedTesters',m.accepted);set('metricFullySetUp',m.fullySetUp);set('metricFullySetUpIOS',m.fullySetUpIOS);set('metricFullySetUpAndroid',m.fullySetUpAndroid);set('metricFeedback',m.newFeedback);
+  set('metricApplicationsReceived',m.total);
+  // Exact when the current directory page is complete; otherwise use two
+  // server-side count aggregations, not a collection-wide betaUsers download.
+  const activeAccess=state.loaded.testers&&state.testers.length<100
+    ? state.testers.filter(t=>t.accessStatus==='Enabled'&&isEnabledStatus(t.status)).length
+    : m.activeAccess;
+  set('metricAcceptedTesters',betaProgramEndDate&&betaProgramDateExpired()?0:(activeAccess==null?'—':activeAccess));
+  set('metricAcceptedHistorical',m.accepted);
+set('metricFullySetUp',m.fullySetUp);set('metricFullySetUpIOS',m.fullySetUpIOS);set('metricFullySetUpAndroid',m.fullySetUpAndroid);set('metricFeedback',m.newFeedback);
   set('metricApplied',m.applied);set('metricWaitlist',m.waitlist);set('metricDeclined',m.declined);set('metricInactive',m.inactive);set('iosCount',m.ios);set('androidCount',m.android);
   setNavBadge('navPendingCount',m.applied);setNavBadge('navTesterActionCount',m.readyForYou);/* Tasks badge has one canonical owner: active-campaign pending assignments. */setNavBadge('navFeedbackCount',m.newFeedback);
   const total=Number(m.total||0);set('platformTotal',total+' applicant'+(total===1?'':'s'));
@@ -1271,7 +1336,7 @@ function testerFiltered(){
 }
 function pendingAssignmentsForTester(t){
   const email=String(t.email||'').trim().toLowerCase();
-  return regularAssignments().filter(a=>a.status==='Pending'&&(a.testerUid===t.uid||String(a.email||'').trim().toLowerCase()===email)).sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
+  return testerTaskRows(t).filter(a=>a.status==='Pending'&&assignmentBelongsToActiveCampaign(a)).sort((a,b)=>(timestampToDate(a.dueAt)?.getTime()||0)-(timestampToDate(b.dueAt)?.getTime()||0));
 }
 function testerTaskStateHtml(t){
   const pending=pendingAssignmentsForTester(t);
@@ -1837,7 +1902,7 @@ function renderTesters(){
       <td><div class="admin-tester-status-cell"><span class="admin-activity-pill ${activity.className}">${esc(activity.label)}</span><small>${esc(activity.reason)}</small><span class="admin-last-app-activity ${esc(appActivity.className)}" title="${esc(appActivity.exact)}"><strong>App activity:</strong> ${esc(appActivity.label)}</span>${Number(t.inactivityWarningCount||0)?`<small class="admin-next-step-last">Engagement reminders: ${Number(t.engagementReminderCount||0)}${Number(t.inactivityWarningCount||0)>=3?' · Final reminder sent':''}</small>`:''}<span class="admin-last-seen">Portal ${esc(portalActivity)} · Login ${esc(loginActivity)}</span></div></td>
       <td>${testerActionHtml(t)}</td>
       <td>${testerProgressHtml(t)}</td>
-      <td><div class="admin-tester-participation-cell"><span><b>${score.taskCompletionHistoryVerified?score.tasksCompleted:'—'}</b> completed tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${!state.loaded.tasks?'<small>Task history loading</small>':!score.taskCompletionHistoryVerified?'<small>Completed history not fully verified</small>':score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No active required tasks pending</small>'}</div></td>
+      <td><div class="admin-tester-participation-cell"><span><b>${score.taskCompletionHistoryVerified?score.tasksCompleted:'—'}</b> completed tasks</span><span><b>${score.feedbackCount}</b> feedback</span><span><b>${score.retests}</b> retests</span>${!(state.loaded.tasks||state.loaded.participation)?'<small>Task history loading</small>':!score.taskCompletionHistoryVerified?'<small>Completed history not fully verified</small>':score.tasksPending?`<small>${score.tasksPending} required task${score.tasksPending===1?'':'s'} pending</small>`:'<small>No active required tasks pending</small>'}</div></td>
       <td><div class="admin-tester-access-cell"><span class="admin-status-pill ${t.accessStatus==='Enabled'?'status-active':'status-inactive'}">${esc(t.accessStatus||'Disabled')}</span><small>${esc(t.status||'Tester')}</small></div></td>
       <td><button class="admin-table-open" data-open-tester="${esc(t.uid)}" type="button">Manage</button></td>
     </tr>`;
@@ -2671,7 +2736,7 @@ async function cancelRequiredTask(t){
 async function removeTaskAssignment(a){
   if(!a)return;
   await updateDoc(doc(db,'betaTaskAssignments',a.id),{status:'Removed by Admin',removedAt:serverTimestamp(),updatedAt:serverTimestamp()});
-  a.status='Removed by Admin';a.removedAt=new Date();
+  a.status='Removed by Admin';a.removedAt=new Date();invalidateTesterParticipation();
   // Preserve durable assignment history so the tester is not later mistaken for someone who never received this task.
   renderTasks();
   if(state.loaded.testers)renderTesters();
@@ -2679,7 +2744,7 @@ async function removeTaskAssignment(a){
 async function keepTesterActiveAfterMissedTask(a){
   if(!a||a.status!=='Review Required')return;
   await updateDoc(doc(db,'betaTaskAssignments',a.id),{status:'Missed - Reviewed',reviewedAt:serverTimestamp(),reviewDecision:'Keep Active',updatedAt:serverTimestamp()});
-  a.status='Missed - Reviewed';a.reviewedAt=new Date();a.reviewDecision='Keep Active';
+  a.status='Missed - Reviewed';a.reviewedAt=new Date();a.reviewDecision='Keep Active';invalidateTesterParticipation();
   renderTasks();
   if(state.loaded.testers)renderTesters();
 }
@@ -2733,7 +2798,7 @@ async function switchView(view){
   try{
     if(view==='overview'){await loadOverview(false);}
     if(view==='applications')await loadApplications();
-    if(view==='testers'){await Promise.all([loadApplications(),loadTesters(),loadTasks(),loadFeedback()]);await ensureTesterCompletedHistory();await reconcilePendingTasksForInactiveTesters();renderTesters();}
+    if(view==='testers'){await Promise.all([loadApplications(),loadTesters(),loadTesterParticipation(),loadFeedback()]);renderTesters();if(betaProgramEndDate)await refreshBetaProductionMapping();}
     if(view==='tasks'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);await reconcilePendingTasksForInactiveTesters();await refreshTaskAutomationHealth();}
     if(view==='announcements'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);renderAnnouncements();}
     if(view==='feedback'){
@@ -3210,7 +3275,9 @@ async function loadBetaProgramSettings(){
     return;
   }
   if(message&&betaProgramEndDate){message.textContent='Saved configuration · Production access syncs automatically when tester eligibility or Production matching changes.';message.className='admin-connection-message success';}
-  if(state.loaded.testers&&betaProgramEndDate&&window.RebataTrackProductionAdminBridge){ensureSavedBetaProgramReconciled().catch(error=>console.warn('Could not automatically reconcile Beta Program settings after load:',error));}
+  // Loading configuration is read-only. Full roster sync requires an explicit
+  // Save & Sync command or a targeted eligibility mutation.
+
 }
 function eligibleBetaTesterPayload(){
   return state.testers.filter(t=>t&&t.accessStatus==='Enabled'&&['Approved','Active'].includes(t.status)&&approvedBetaApplicationForTester(t)&&String(t.email||'').trim()).map(t=>({betaUid:t.uid,email:String(t.email||'').trim().toLowerCase(),name:t.name||'',platform:t.platform||''}));
@@ -3328,7 +3395,7 @@ async function refreshBetaProductionMapping(options={}){
       await refreshTesterReviewAppActivity(state.testers,{force:options.force===true});
       renderTesters();
       renderTaskRecipientPicker();
-      await maybeAutoSyncBetaProgram();
+      // Read-only workspace navigation must not trigger whole-roster synchronization.
     }
     catch(error){console.warn('Could not refresh Beta/Production mapping:',error);}
     finally{betaMappingInFlight=null;}
@@ -3673,7 +3740,7 @@ async function refreshActiveView(){
   try{
     await loadOverview(true);
     if(activeView==='applications')await loadApplications(true);
-    if(activeView==='testers'){await Promise.all([loadTesters(true),loadTasks(true),loadFeedback(true)]);await ensureTesterCompletedHistory();renderTesters();}
+    if(activeView==='testers'){await Promise.all([loadTesters(true),loadTesterParticipation(true),loadFeedback(true)]);renderTesters();}
     if(activeView==='tasks'){await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);}
     if(activeView==='announcements'){await Promise.all([loadApplications(true),loadTesters(true),loadTasks(true)]);renderAnnouncements();}
     if(activeView==='feedback')await loadFeedback(true);
@@ -3798,7 +3865,7 @@ document.addEventListener('click',async e=>{
   }
   
   const upcomingTester=e.target.closest('[data-upcoming-tester]');if(upcomingTester){const t=findTester(upcomingTester.dataset.upcomingTester);if(t)openTesterRecord(t);return;}
-  const testerBtn=e.target.closest('[data-open-tester]');if(testerBtn){if(!state.loaded.applications)await loadApplications();if(!state.loaded.tasks)await loadTasks();await ensureTesterCompletedHistory();if(!state.loaded.feedback)await loadFeedback();const t=findTester(testerBtn.dataset.openTester);if(t)openTesterRecord(t);return;}
+  const testerBtn=e.target.closest('[data-open-tester]');if(testerBtn){if(!state.loaded.applications)await loadApplications();if(!state.loaded.participation&&!state.loaded.tasks)await loadTesterParticipation();if(!state.loaded.feedback)await loadFeedback();const t=findTester(testerBtn.dataset.openTester);if(t)openTesterRecord(t);return;}
   const taskOpenBtn=e.target.closest('[data-open-task]');if(taskOpenBtn){if(!state.loaded.tasks)await loadTasks();const t=findTask(taskOpenBtn.dataset.openTask);if(t)openTaskRecord(t);return;}
   const retryTaskManageBtn=e.target.closest('[data-retry-task-manage]');if(retryTaskManageBtn){const t=findTask(retryTaskManageBtn.dataset.retryTaskManage);if(t){completedTemplateCache.delete(String(t.templateKey||''));completedTemplateLoadedAt.delete(String(t.templateKey||''));campaignAssignmentCache.delete(String(t.id));campaignAssignmentLoadedAt.delete(String(t.id));openTaskRecord(t);}return;}
   const taskSupportBtn=e.target.closest('[data-task-support-contact]');if(taskSupportBtn){const a=state.taskAssignments.find(x=>x.id===taskSupportBtn.dataset.taskSupportContact);if(a)openTaskSupportComposer(a);return;}
@@ -3937,7 +4004,7 @@ document.addEventListener('click',async e=>{
         const deleteResult=await deleteTesterOnly(t);
         closeDrawer();
         showToast(deleteResult&&deleteResult.betaSyncError?'Tester deleted. Linked application marked Removed. Beta entitlement reconciliation needs a retry from Admin refresh.':'Tester deleted. Linked application marked Removed.',deleteResult&&deleteResult.betaSyncError?'error':'success');
-        if(activeView==='testers'){await loadTesters(true);await loadTasks(true);renderTesters();}
+        if(activeView==='testers'){await loadTesters(true);await loadTesterParticipation(true);renderTesters();}
       }catch(err){
         showToast(friendlyFirebaseError(err),'error');
       }finally{testerActionBtn.disabled=false;}
@@ -4100,14 +4167,10 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   // Activity stuck in its initial disconnected/loading state.
   const retryActivity=()=>refreshTesterReviewAppActivity(state.testers,{force:true})
     .catch(error=>console.warn('Could not refresh tester app activity after Production connection:',error));
-  if(betaProgramEndDate){
-    ensureSavedBetaProgramReconciled({force:true})
-      .then(()=>refreshBetaProductionMapping({force:true}))
-      .then(retryActivity)
-      .catch(error=>console.warn('Automatic Beta Program reconciliation failed after Production connection:',error));
-  }else{
-    retryActivity();
-  }
+  if(betaProgramEndDate&&activeView==='testers'){
+    refreshBetaProductionMapping().then(retryActivity)
+      .catch(error=>console.warn('Could not read Beta/Production status after connection:',error));
+  }else if(activeView==='testers')retryActivity();
 });
 
 
