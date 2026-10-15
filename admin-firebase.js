@@ -1,4 +1,4 @@
-// RebataTrack Website Build 268 Firebase runtime.
+// RebataTrack Website Build 269 Firebase runtime.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 268
+// RebataTrack Admin Portal — Website Build 269
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -901,7 +901,7 @@ const ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS=10*60*1000;
 let lastLegacyMetricsAt=0;
 async function loadMetricsAggregated(){
   const apps='betaApplications',feedback='betaFeedback';
-  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount,readyForYou,fullySetUp,fullySetUpIOS,fullySetUpAndroid,enabledApproved,enabledActive]=await Promise.all([
+  const [total,applied,approved,active,waitlist,declined,inactive,activeIOS,activeAndroid,newFeedback,pendingAssignmentsCount,readyForYou,fullySetUp,fullySetUpIOS,fullySetUpAndroid,enabledApproved,enabledActive]=await Promise.all([
     aggregateCount(apps),
     aggregateCount(apps,[['status','==','Applied']]),
     aggregateCount(apps,[['status','==','Approved']]),
@@ -909,8 +909,17 @@ async function loadMetricsAggregated(){
     aggregateCount(apps,[['status','==','Waitlist']]),
     aggregateCount(apps,[['status','==','Declined']]),
     aggregateCount(apps,[['status','==','Inactive']]),
-    aggregateCount(apps,[['platform','==','iOS']]),
-    aggregateCount(apps,[['platform','==','Android']]),
+    // Platform bars show enabled betaUsers, not historical betaApplications.
+    // Four cheap server-side count aggregations replace the two applicant-
+    // platform counts: no document-list scan and no extra realtime listener.
+    Promise.all([
+      aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Approved'],['platform','==','iOS']]),
+      aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','iOS']])
+    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)).catch(()=>null),
+    Promise.all([
+      aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Approved'],['platform','==','Android']]),
+      aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','Android']])
+    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)).catch(()=>null),
     Promise.all([aggregateCount(feedback,[['status','==','New']]),aggregateCount(feedback,[['status','==','Waiting for RebataTrack']])]).then(([a,b])=>a+b),
     aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']]),
     Promise.all([
@@ -942,12 +951,12 @@ async function loadMetricsAggregated(){
   ]);
   const accepted=Number(approved||0)+Number(active||0)+Number(inactive||0);
   const activeAccess=(enabledApproved===null||enabledActive===null)?null:Number(enabledApproved||0)+Number(enabledActive||0);
-  return {total,applied,approved,active,accepted,activeAccess,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0),readyForYou:Number(readyForYou||0)};
+  return {total,applied,approved,active,accepted,activeAccess,activeIOS,activeAndroid,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,newFeedback,activeTasks:Number(pendingAssignmentsCount||0),readyForYou:Number(readyForYou||0)};
 }
 async function loadMetricsLegacy(){
   const apps=collection(db,'betaApplications');
   const feedback=collection(db,'betaFeedback');
-  const [total,applied,approved,active,waitlist,declined,inactive,ios,android,newFeedback,pendingAssignmentsCount]=await Promise.all([
+  const [total,applied,approved,active,waitlist,declined,inactive,activeIOS,activeAndroid,newFeedback,pendingAssignmentsCount]=await Promise.all([
     countQuery(apps),
     countQuery(query(apps,where('status','==','Applied'))),
     countQuery(query(apps,where('status','==','Approved'))),
@@ -955,8 +964,14 @@ async function loadMetricsLegacy(){
     countQuery(query(apps,where('status','==','Waitlist'))),
     countQuery(query(apps,where('status','==','Declined'))),
     countQuery(query(apps,where('status','==','Inactive'))),
-    countQuery(query(apps,where('platform','==','iOS'))),
-    countQuery(query(apps,where('platform','==','Android'))),
+    Promise.all([
+      countQuery(query(collection(db,'betaUsers'),where('accessStatus','==','Enabled'),where('status','==','Approved'),where('platform','==','iOS'))),
+      countQuery(query(collection(db,'betaUsers'),where('accessStatus','==','Enabled'),where('status','==','Active'),where('platform','==','iOS')))
+    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)).catch(()=>null),
+    Promise.all([
+      countQuery(query(collection(db,'betaUsers'),where('accessStatus','==','Enabled'),where('status','==','Approved'),where('platform','==','Android'))),
+      countQuery(query(collection(db,'betaUsers'),where('accessStatus','==','Enabled'),where('status','==','Active'),where('platform','==','Android')))
+    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)).catch(()=>null),
     Promise.all([countQuery(query(feedback,where('status','==','New'))),countQuery(query(feedback,where('status','==','Waiting for RebataTrack')))]).then(([a,b])=>a+b),
     countQuery(query(collection(db,'betaTaskAssignments'),where('status','==','Pending'),where('recordType','==','Task'))).catch(()=>0)
   ]);
@@ -982,7 +997,7 @@ async function loadMetricsLegacy(){
   ]);
   const [fullySetUp,fullySetUpIOS,fullySetUpAndroid]=fullySetUpCounts;
   const accepted=Number(approved||0)+Number(active||0)+Number(inactive||0);
-  return {total,applied,approved,active,accepted,activeAccess:null,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,ios,android,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
+  return {total,applied,approved,active,accepted,activeAccess:null,activeIOS,activeAndroid,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,newFeedback,activeTasks:Number(pendingAssignmentsCount||0)};
 }
 let metricsLoadInFlight=null;
 async function loadMetrics(force=false){
@@ -1287,19 +1302,28 @@ function renderMetrics(){
   const m=state.metrics||{};
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v==null?0:v;};
   set('metricApplicationsReceived',m.total);
-  // Exact when the current directory page is complete; otherwise use two
-  // server-side count aggregations, not a collection-wide betaUsers download.
-  const activeAccess=state.loaded.testers&&state.testers.length<100
-    ? state.testers.filter(t=>t.accessStatus==='Enabled'&&isEnabledStatus(t.status)).length
-    : m.activeAccess;
-  set('metricAcceptedTesters',betaProgramEndDate&&betaProgramDateExpired()?0:(activeAccess==null?'—':activeAccess));
+  // The directory (limit 100) is authoritative only when it is complete.
+  // Otherwise use cached server COUNT aggregations; never fetch all testers
+  // just to draw two bar widths. This predicate is shared with the main KPI.
+  const directoryComplete=state.loaded.testers&&state.testers.length<100;
+  const enabledTesters=directoryComplete
+    ?state.testers.filter(t=>t.accessStatus==='Enabled'&&isEnabledStatus(t.status))
+    :null;
+  const ended=!!(betaProgramEndDate&&betaProgramDateExpired());
+  const activeAccess=ended?0:(enabledTesters?enabledTesters.length:m.activeAccess);
+  const activeIOS=ended?0:(enabledTesters?enabledTesters.filter(t=>t.platform==='iOS').length:m.activeIOS);
+  const activeAndroid=ended?0:(enabledTesters?enabledTesters.filter(t=>t.platform==='Android').length:m.activeAndroid);
+  set('metricAcceptedTesters',activeAccess==null?'—':activeAccess);
   set('metricAcceptedHistorical',m.accepted);
-set('metricFullySetUp',m.fullySetUp);set('metricFullySetUpIOS',m.fullySetUpIOS);set('metricFullySetUpAndroid',m.fullySetUpAndroid);set('metricFeedback',m.newFeedback);
-  set('metricApplied',m.applied);set('metricWaitlist',m.waitlist);set('metricDeclined',m.declined);set('metricInactive',m.inactive);set('iosCount',m.ios);set('androidCount',m.android);
+  set('metricFullySetUp',m.fullySetUp);set('metricFullySetUpIOS',m.fullySetUpIOS);set('metricFullySetUpAndroid',m.fullySetUpAndroid);set('metricFeedback',m.newFeedback);
+  set('metricApplied',m.applied);set('metricWaitlist',m.waitlist);set('metricDeclined',m.declined);set('metricInactive',m.inactive);
+  set('iosCount',activeIOS==null?'—':activeIOS);
+  set('androidCount',activeAndroid==null?'—':activeAndroid);
   setNavBadge('navPendingCount',m.applied);setNavBadge('navTesterActionCount',m.readyForYou);/* Tasks badge has one canonical owner: active-campaign pending assignments. */setNavBadge('navFeedbackCount',m.newFeedback);
-  const total=Number(m.total||0);set('platformTotal',total+' applicant'+(total===1?'':'s'));
-  document.getElementById('iosBar').style.width=(total?Math.round(Number(m.ios||0)/total*100):0)+'%';
-  document.getElementById('androidBar').style.width=(total?Math.round(Number(m.android||0)/total*100):0)+'%';
+  const activeTotal=Number(activeAccess||0);
+  set('platformTotal',activeAccess==null?'Active count unavailable':activeAccess+' active tester'+(activeAccess===1?'':'s'));
+  document.getElementById('iosBar').style.width=(activeIOS!=null&&activeTotal?Math.round(Number(activeIOS)/activeTotal*100):0)+'%';
+  document.getElementById('androidBar').style.width=(activeAndroid!=null&&activeTotal?Math.round(Number(activeAndroid)/activeTotal*100):0)+'%';
 }
 function renderOverview(){
   const apps=(state.recentApplications||[]).filter(a=>String(a.status||'')!=='Removed');const c=document.getElementById('overviewApplications');
