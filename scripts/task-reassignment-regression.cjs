@@ -39,5 +39,5 @@ assert(!campaign.has('uid:pending'));
 const allowed=ctx.newlyEligibleTaskTesters({id:'new',templateKey:'scan'}).map(x=>x.uid);
 assert.deepEqual([...allowed].sort(),['fresh','pending','review']);
 assert(src.includes('function verifiedExistingTaskRecipients(t,testers){'),'existing campaign send gate must share matching logic');
-assert(src.includes('await Promise.all([ensureCompletedTemplateHistory(t.templateKey,true),ensureTaskCampaignAssignmentHistory(t,true)]);'),'send gate must reverify history');
+assert(src.includes('await Promise.all([ensureTaskCompletionHistory(t.templateKey,t.title,true),ensureTaskCampaignAssignmentHistory(t,true)]);'),'send gate must reverify title, template and campaign history');
 console.log('PASS: completed across campaigns excluded; unfinished reassignable; same campaign identity/email duplicate blocked');

@@ -1,4 +1,4 @@
-// RebataTrack Website Build 265 dependency sync.
+// RebataTrack Website Build 266 dependency sync.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 265
+// RebataTrack Admin Portal — Website Build 266
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -35,7 +35,7 @@ const readMeter=(function(){
   return api;
 })();
 function docCount(snap){return snap&&snap.docs?snap.docs.length:(snap&&typeof snap.size==='number'?snap.size:0);}
-async function getDocs(ref,label='getDocs (unlabeled)'){const snap=await rawGetDocs(ref);readMeter.add(label,docCount(snap));return snap;}
+async function getDocs(ref,label='getDocs (unlabeled)',source='default'){const snap=await (source==='server'?ref.get({source:'server'}):rawGetDocs(ref));readMeter.add(label,docCount(snap));return snap;}
 async function getDoc(ref,label='getDoc'){const snap=await rawGetDoc(ref);readMeter.add(label,1);return snap;}
 async function getCountFromServer(ref){const snap=await rawGetCountFromServer(ref);readMeter.add('server count aggregation (estimated minimum)',1);return snap;}
 
@@ -1913,6 +1913,12 @@ function selectedTaskTemplateKey(){return String(document.getElementById('taskTe
 const completedTemplateCache=new Map();
 const completedTemplateLoadedAt=new Map();
 const completedTemplateInFlight=new Map();
+// Legacy assignments and Custom task campaigns may not carry a reusable
+// templateKey. Query their exact task title on demand, rather than treating
+// missing template keys as evidence that nobody completed the task.
+const completedTaskTitleCache=new Map();
+const completedTaskTitleLoadedAt=new Map();
+const completedTaskTitleInFlight=new Map();
 const campaignAssignmentCache=new Map();
 const campaignAssignmentLoadedAt=new Map();
 const campaignAssignmentInFlight=new Map();
@@ -1926,23 +1932,40 @@ const COMPLETION_HISTORY_LIMIT=1000;
 const CAMPAIGN_ASSIGNMENT_HISTORY_LIMIT=1000;
 function completionIdentityKeys(a){
   const keys=[];
-  const uid=String(a?.testerUid||a?.uid||'').trim();
-  if(uid)keys.push('uid:'+uid);
-  const email=String(a?.email||'').trim().toLowerCase();
-  if(email)keys.push('email:'+email);
+  for(const uid of [a?.testerUid,a?.uid]){
+    const value=String(uid||'').trim();if(value)keys.push('uid:'+value);
+  }
+  for(const email of [a?.email,a?.testerEmail,a?.approvedEmail]){
+    const value=String(email||'').trim().toLowerCase();if(value)keys.push('email:'+value);
+  }
+  const applicationId=String(a?.applicationId||'').trim();
+  if(applicationId)keys.push('application:'+applicationId);
   return keys;
 }
 function testerMatchesTaskIdentities(t,keys){
-  return completionIdentityKeys({testerUid:t?.uid,email:t?.email}).some(key=>keys.has(key));
+  return completionIdentityKeys({testerUid:t?.uid,email:t?.email,applicationId:t?.applicationId}).some(key=>keys.has(key));
 }
-function taskTemplateHistoryTesterIds(templateKey){
+function normalizedTaskTitle(value){
+  return String(value||'').normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase();
+}
+function taskAssignmentWasCompleted(a){
+  const status=String(a?.status||'').trim().toLowerCase();
+  return status==='completed'||status==='complete'||!!a?.completedAt;
+}
+function taskTemplateHistoryTesterIds(templateKey,taskTitle=''){
   const key=String(templateKey||'').trim();
-  if(!key||key==='custom')return new Set();
-  const taskIds=new Set(state.tasks.filter(t=>String(t.templateKey||'')===key).map(t=>t.id));
-  const result=new Set(completedTemplateCache.get(key)||[]);
+  const title=String(taskTitle||'').trim();
+  const canonical=normalizedTaskTitle(title);
+  const matchTemplate=!!key&&key!=='custom';
+  // Never equate two unrelated Custom tasks just because both say 'custom'.
+  const taskIds=new Set(state.tasks.filter(t=>(matchTemplate&&String(t.templateKey||'')===key)||
+    (canonical&&normalizedTaskTitle(t.title)===canonical)).map(t=>t.id));
+  const result=new Set(matchTemplate?(completedTemplateCache.get(key)||[]):[]);
+  if(title)for(const identity of completedTaskTitleCache.get(title)||[])result.add(identity);
   for(const a of state.taskAssignments){
-    if((String(a.templateKey||'')===key||taskIds.has(a.taskId)) &&
-        (String(a.status||'').trim().toLowerCase()==='completed'||!!a.completedAt)){
+    if(taskAssignmentWasCompleted(a)&&
+      ((matchTemplate&&String(a.templateKey||'')===key)||
+       (canonical&&normalizedTaskTitle(a.taskTitle)===canonical)||taskIds.has(a.taskId))){
       for(const identity of completionIdentityKeys(a))result.add(identity);
     }
   }
@@ -1952,16 +1975,20 @@ function testerCompletedTemplate(t,history){return testerMatchesTaskIdentities(t
 async function ensureCompletedTemplateHistory(templateKey,force=false){
   const key=String(templateKey||'').trim();
   if(!key||key==='custom'||(!force&&taskHistoryFresh(completedTemplateCache,completedTemplateLoadedAt,key)))return;
-  if(completedTemplateInFlight.has(key))return completedTemplateInFlight.get(key);
+  if(completedTemplateInFlight.has(key)){
+    if(!force)return completedTemplateInFlight.get(key);
+    await completedTemplateInFlight.get(key);
+    return ensureCompletedTemplateHistory(key,true);
+  }
   const pending=(async()=>{
     // Query ONLY the selected template, including completed assignments from closed
     // campaigns. This is one bounded, on-demand read, never a full collection scan.
-    const snap=await getDocs(query(collection(db,'betaTaskAssignments'),where('templateKey','==',key),limit(COMPLETION_HISTORY_LIMIT)), 'task history: selected template (bounded)');
+    const snap=await getDocs(query(collection(db,'betaTaskAssignments'),where('templateKey','==',key),limit(COMPLETION_HISTORY_LIMIT)), 'task history: selected template (bounded)','server');
     if(snap.docs.length>=COMPLETION_HISTORY_LIMIT)throw new Error('Task completion history exceeds the safe lookup limit. Recipient selection is blocked rather than risking a completed tester receiving this task.');
     const completed=new Set();
     for(const d of snap.docs){
       const a=normalizeDoc(d);
-      if(String(a.status||'').trim().toLowerCase()==='completed'||!!a.completedAt){
+      if(taskAssignmentWasCompleted(a)){
         for(const identity of completionIdentityKeys(a))completed.add(identity);
       }
     }
@@ -1970,6 +1997,44 @@ async function ensureCompletedTemplateHistory(templateKey,force=false){
   })();
   completedTemplateInFlight.set(key,pending);
   try{await pending;}finally{completedTemplateInFlight.delete(key);}
+}
+async function ensureCompletedTaskTitleHistory(taskTitle,force=false){
+  const title=String(taskTitle||'').trim();
+  if(!title)return;
+  if(!force&&taskHistoryFresh(completedTaskTitleCache,completedTaskTitleLoadedAt,title))return;
+  if(completedTaskTitleInFlight.has(title)){
+    if(!force)return completedTaskTitleInFlight.get(title);
+    await completedTaskTitleInFlight.get(title);
+    return ensureCompletedTaskTitleHistory(title,true);
+  }
+  const pending=(async()=>{
+    // Historical/Custom tasks can have no templateKey; all issued tasks have
+    // taskTitle. Fetch only this task title, never every tester/assignment.
+    const snap=await getDocs(query(collection(db,'betaTaskAssignments'),where('taskTitle','==',title),limit(COMPLETION_HISTORY_LIMIT)), 'task history: selected task title (bounded)','server');
+    if(snap.docs.length>=COMPLETION_HISTORY_LIMIT)throw new Error('Task title history exceeds the safe lookup limit. Sending is blocked to avoid repeating a completed task.');
+    const completed=new Set();
+    for(const d of snap.docs){
+      const a=normalizeDoc(d);
+      if(taskAssignmentWasCompleted(a))for(const identity of completionIdentityKeys(a))completed.add(identity);
+    }
+    completedTaskTitleCache.set(title,completed);
+    completedTaskTitleLoadedAt.set(title,Date.now());
+  })();
+  completedTaskTitleInFlight.set(title,pending);
+  try{await pending;}finally{completedTaskTitleInFlight.delete(title);}
+}
+function taskCompletionHistoryReady(templateKey,taskTitle){
+  const key=String(templateKey||'').trim();
+  const title=String(taskTitle||'').trim();
+  return (!!title||(!!key&&key!=='custom'))&&
+    (!key||key==='custom'||taskHistoryFresh(completedTemplateCache,completedTemplateLoadedAt,key))&&
+    (!title||taskHistoryFresh(completedTaskTitleCache,completedTaskTitleLoadedAt,title));
+}
+function ensureTaskCompletionHistory(templateKey,taskTitle,force=false){
+  const key=String(templateKey||'').trim();
+  const title=String(taskTitle||'').trim();
+  if((!key||key==='custom')&&!title)throw new Error('Cannot verify a Custom task without a title. Sending is blocked.');
+  return Promise.all([ensureCompletedTemplateHistory(key,force),ensureCompletedTaskTitleHistory(title,force)]);
 }
 function taskCampaignAssignmentRows(t){
   const id=String(t?.id||'');
@@ -1988,12 +2053,16 @@ async function ensureTaskCampaignAssignmentHistory(t,force=false){
   const id=String(t?.id||'').trim();
   if(!id)throw new Error('Cannot verify an unidentified task campaign.');
   if(!force&&taskHistoryFresh(campaignAssignmentCache,campaignAssignmentLoadedAt,id))return;
-  if(campaignAssignmentInFlight.has(id))return campaignAssignmentInFlight.get(id);
+  if(campaignAssignmentInFlight.has(id)){
+    if(!force)return campaignAssignmentInFlight.get(id);
+    await campaignAssignmentInFlight.get(id);
+    return ensureTaskCampaignAssignmentHistory(t,true);
+  }
   const pending=(async()=>{
     // The general Tasks workspace is capped at 500 assignments across ALL
     // campaigns. It cannot establish whether THIS campaign already sent a task.
     // Fetch only the selected campaign on Manage or at the actual send gate.
-    const snap=await getDocs(query(collection(db,'betaTaskAssignments'),where('taskId','==',id),limit(CAMPAIGN_ASSIGNMENT_HISTORY_LIMIT)), 'task history: selected campaign (bounded)');
+    const snap=await getDocs(query(collection(db,'betaTaskAssignments'),where('taskId','==',id),limit(CAMPAIGN_ASSIGNMENT_HISTORY_LIMIT)), 'task history: selected campaign (bounded)','server');
     if(snap.docs.length>=CAMPAIGN_ASSIGNMENT_HISTORY_LIMIT)throw new Error('Campaign assignment history exceeds the safe lookup limit. Sending is blocked to avoid duplicate assignments.');
     const rows=snap.docs.map(normalizeDoc);
     campaignAssignmentCache.set(id,rows);
@@ -2008,10 +2077,11 @@ async function ensureTaskCampaignAssignmentHistory(t,force=false){
 }
 function taskManageHistoryReady(t){
   const key=String(t?.templateKey||'').trim();
-  return !!t?.id&&taskHistoryFresh(campaignAssignmentCache,campaignAssignmentLoadedAt,String(t.id))&&(!taskCampaignIsActive(t)||!key||key==='custom'||taskHistoryFresh(completedTemplateCache,completedTemplateLoadedAt,key));
+  return !!t?.id&&taskHistoryFresh(campaignAssignmentCache,campaignAssignmentLoadedAt,String(t.id))&&(!taskCampaignIsActive(t)||taskCompletionHistoryReady(key,t.title));
 }
 function invalidateTaskHistoryCaches(){
   completedTemplateCache.clear();completedTemplateLoadedAt.clear();
+  completedTaskTitleCache.clear();completedTaskTitleLoadedAt.clear();
   campaignAssignmentCache.clear();campaignAssignmentLoadedAt.clear();
 }
 function selectTaskRecipients(platform='All'){
@@ -2029,7 +2099,8 @@ function applyTaskTemplate(key){
   const due=document.getElementById('taskDueAt');if(due&&!due.value)due.value=localDatetimeValue(new Date(Date.now()+tpl.suggestedHours*60*60*1000));
   renderTaskRecipientPicker();
   if(tpl.platform&&tpl.platform!=='All')selectTaskRecipients(tpl.platform);
-  const already=taskTemplateHistoryTesterIds(key).size;
+  const history=taskTemplateHistoryTesterIds(key,tpl.label);
+  const already=activeTaskTesters().filter(t=>testerCompletedTemplate(t,history)).length;
   if(meta)meta.textContent=`Recommended recipients: ${tpl.platform==='All'?'all active testers':tpl.platform+' testers'} · Suggested deadline: ${tpl.suggestedHours} hours.${already?` ${already} tester${already===1?' has':'s have'} already completed this template and cannot be selected again.`:''}${tpl.adminNote?' '+tpl.adminNote:''}`;
 }
 function approvedBetaApplicationForTester(t){
@@ -2076,12 +2147,20 @@ function renderTaskRecipientPicker(){
   const testers=activeTaskTesters();
   if(!testers.length){list.innerHTML='<div class="admin-empty-inline" style="padding:14px">No task-eligible testers are available. A tester must have active Beta access, completed Testing Setup, and a matched Production account.</div>';updateTaskRecipientSummary();return;}
   const templateKey=selectedTaskTemplateKey();
-  const historyReady=!templateKey||templateKey==='custom'||taskHistoryFresh(completedTemplateCache,completedTemplateLoadedAt,templateKey);
-  const received=taskTemplateHistoryTesterIds(templateKey);
+  const title=String(document.getElementById('taskTitle')?.value||'').trim();
+  const historyReady=taskCompletionHistoryReady(templateKey,title);
+  const received=taskTemplateHistoryTesterIds(templateKey,title);
   if(!historyReady){
     list.innerHTML='<div class="admin-empty-inline" style="padding:14px">Checking completed task history before enabling recipients…</div>';
     updateTaskRecipientSummary();
-    ensureCompletedTemplateHistory(templateKey).then(()=>{if(selectedTaskTemplateKey()===templateKey)renderTaskRecipientPicker();}).catch(err=>{if(selectedTaskTemplateKey()===templateKey){list.innerHTML='<div class="admin-empty-inline" style="padding:14px">Unable to verify task completion history. Recipients are blocked to prevent duplicate completed tasks. '+esc(friendlyFirebaseError(err))+'</div>';updateTaskRecipientSummary();}});
+    ensureTaskCompletionHistory(templateKey,title).then(()=>{
+      if(selectedTaskTemplateKey()===templateKey&&String(document.getElementById('taskTitle')?.value||'').trim()===title)renderTaskRecipientPicker();
+    }).catch(err=>{
+      if(selectedTaskTemplateKey()===templateKey&&String(document.getElementById('taskTitle')?.value||'').trim()===title){
+        list.innerHTML='<div class="admin-empty-inline" style="padding:14px">Unable to verify task completion history. Recipients are blocked to prevent duplicate completed tasks. '+esc(friendlyFirebaseError(err))+'</div>';
+        updateTaskRecipientSummary();
+      }
+    });
     return;
   }
   list.innerHTML=testers.map(t=>{const prior=testerCompletedTemplate(t,received);return `<label class="admin-task-recipient${prior?' already-received':''}"><input type="checkbox" data-task-recipient="${esc(t.uid)}" data-platform="${esc(t.platform||'')}"${prior?' disabled':''}><span class="admin-task-recipient-copy"><strong>${esc(t.name||'Tester')}${meaningfulTesterStarIndicatorHtml(t)}</strong><span>${esc(t.email||'')}</span></span>${prior?'<span class="admin-task-received-chip">Completed previously</span>':`<span class="admin-platform-pill">${esc(t.platform||'')}</span>`}</label>`;}).join('');
@@ -2246,7 +2325,7 @@ function taskRecipientCoverage(t){
   // A closed or expired campaign has NO newly eligible recipients. Don't show
   // anyone under a misleading "Not sent" heading on a read-only Manage screen.
   if(!taskCampaignIsActive(t))return {assigned:taskCampaignAssignmentRows(t).length,eligible:0,completedPreviously:0,notAssigned:[]};
-  const completed=taskTemplateHistoryTesterIds(t?.templateKey);
+  const completed=taskTemplateHistoryTesterIds(t?.templateKey,t?.title);
   const eligible=activeTaskTesters();
   const completedPreviously=eligible.filter(x=>!testerMatchesTaskIdentities(x,assigned)&&testerCompletedTemplate(x,completed));
   const notAssigned=eligible.filter(x=>!testerMatchesTaskIdentities(x,assigned)&&!testerCompletedTemplate(x,completed));
@@ -2288,7 +2367,7 @@ function openTaskRecord(t){
     openDrawer('Beta Program Task',t.title||'Required Task','<div class="admin-empty-inline" role="status" style="padding:18px">Checking past completions and existing campaign assignments before enabling recipients…</div>');
     document.getElementById('adminDrawer').dataset.taskManageId=String(t.id);
     const checks=[ensureTaskCampaignAssignmentHistory(t)];
-    if(taskCampaignIsActive(t))checks.push(ensureCompletedTemplateHistory(t.templateKey));
+    if(taskCampaignIsActive(t))checks.push(ensureTaskCompletionHistory(t.templateKey,t.title));
     Promise.all(checks).then(()=>{
       if(taskManageDrawerIsCurrent(t.id,sequence))openTaskRecord(t);
     }).catch(error=>{
@@ -2314,12 +2393,12 @@ function openTaskRecord(t){
 }
 function verifiedExistingTaskRecipients(t,testers){
   const assigned=taskReceiptHistoryTesterIds(t);
-  const completed=taskTemplateHistoryTesterIds(t.templateKey);
+  const completed=taskTemplateHistoryTesterIds(t.templateKey,t.title);
   const eligibleByUid=new Map(activeTaskTesters().map(x=>[String(x.uid),x]));
   const requested=[...new Set((testers||[]).map(x=>String(x?.uid||x||'')).filter(Boolean))];
   const candidates=requested.map(uid=>eligibleByUid.get(uid));
   if(candidates.some(x=>!x))throw new Error('A selected tester is no longer eligible. Reopen Manage and review the recipients.');
-  if(candidates.some(x=>testerCompletedTemplate(x,completed)))throw new Error('One or more selected testers already completed this task template. No assignments were created. Reopen Manage to review the updated list.');
+  if(candidates.some(x=>testerCompletedTemplate(x,completed)))throw new Error('One or more selected testers already completed this task. No assignments were created. Reopen Manage to review the updated list.');
   if(candidates.some(x=>testerMatchesTaskIdentities(x,assigned)))throw new Error('One or more selected testers already received this campaign task. No assignments were created. Reopen Manage to refresh the list.');
   if(!candidates.length)throw new Error('There are no eligible testers without an assignment in this campaign.');
   return candidates;
@@ -2337,7 +2416,7 @@ async function assignExistingTaskToTesters(t,testers){
   // Re-verify immediately before sending: the preview cache can become stale if
   // another tester finishes the task or another admin assigns it in the meantime.
   // Exactly one template-specific and one campaign-specific query; no broad reload.
-  await Promise.all([ensureCompletedTemplateHistory(t.templateKey,true),ensureTaskCampaignAssignmentHistory(t,true)]);
+  await Promise.all([ensureTaskCompletionHistory(t.templateKey,t.title,true),ensureTaskCampaignAssignmentHistory(t,true)]);
   const targets=verifiedExistingTaskRecipients(t,testers);
   const batch=writeBatch(db);
   for(const x of targets){
@@ -2381,13 +2460,13 @@ async function createRequiredTask(){
   const due=new Date(dueRaw); if(Number.isNaN(due.getTime())||due.getTime()<=Date.now())throw new Error('The task deadline must be in the future.');
   if(!selected.length)throw new Error('Select at least one task-eligible tester.');
   if(!emailWorkerEndpoint)throw new Error('Connect the Cloudflare email service before sending a required task.');
-  await ensureCompletedTemplateHistory(templateKey);
-  const templateHistory=taskTemplateHistoryTesterIds(templateKey);
+  await ensureTaskCompletionHistory(templateKey,title,true);
+  const templateHistory=taskTemplateHistoryTesterIds(templateKey,title);
   const candidates=activeTaskTesters();
   const duplicateSelections=selected.filter(uid=>{const t=candidates.find(x=>String(x.uid)===String(uid));return t&&testerCompletedTemplate(t,templateHistory);});
   if(duplicateSelections.length)throw new Error(`${duplicateSelections.length} selected tester${duplicateSelections.length===1?' has':'s have'} already completed this task template. Refresh the recipient list and choose testers who have not completed it.`);
   const testers=candidates.filter(t=>selected.includes(t.uid)&&!testerCompletedTemplate(t,templateHistory));
-  if(!testers.length)throw new Error(templateKey&&templateKey!=='custom'?'Every selected eligible tester has completed this task template already. Choose testers who have not completed it.':'None of the selected testers are currently eligible. Required tasks can only be sent to testers with active Beta access, completed Testing Setup, and a matched Production account.');
+  if(!testers.length)throw new Error('Every selected tester has completed this task before or is no longer eligible. Choose testers who have not completed it.');
   const taskRef=doc(collection(db,'betaTasks'));
   const batch=writeBatch(db);
   batch.set(taskRef,{recordType:'Task',title,objective,instructions,responseType,dueAt:Timestamp.fromDate(due),status:'Active',recipientCount:testers.length,templateKey:templateKey||'custom',templateLabel:template?template.label:'Custom task',autoReminders,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),createdBy:adminEmail});
@@ -3600,7 +3679,7 @@ document.addEventListener('click',async e=>{
   const assignExistingTaskBtn=e.target.closest('[data-assign-existing-task]');if(assignExistingTaskBtn){
     const t=findTask(assignExistingTaskBtn.dataset.assignExistingTask);const tester=findTester(assignExistingTaskBtn.dataset.taskTester);if(!t||!tester)return;
     const original=assignExistingTaskBtn.textContent;assignExistingTaskBtn.disabled=true;assignExistingTaskBtn.textContent='Sending…';
-    try{const result=await assignExistingTaskToTesters(t,[tester]);const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned, but the email could not be sent.${firstError}`:'Task sent to the newly eligible tester.',result.failed?'error':'success');openTaskRecord(findTask(t.id)||t);}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{assignExistingTaskBtn.disabled=false;assignExistingTaskBtn.textContent=original;}return;
+    try{const result=await assignExistingTaskToTesters(t,[tester]);const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned, but the email could not be sent.${firstError}`:'Task sent to the newly eligible tester.',result.failed?'error':'success');openTaskRecord(findTask(t.id)||t);}catch(err){showToast(friendlyFirebaseError(err),'error');openTaskRecord(t);}finally{assignExistingTaskBtn.disabled=false;assignExistingTaskBtn.textContent=original;}return;
   }
   const removeTaskAssignmentBtn=e.target.closest('[data-remove-task-assignment]');if(removeTaskAssignmentBtn){
     const a=state.taskAssignments.find(x=>x.id===removeTaskAssignmentBtn.dataset.removeTaskAssignment);if(!a)return;
@@ -3633,10 +3712,10 @@ document.addEventListener('click',async e=>{
     if(t&&taskActionBtn.dataset.taskAction==='assign-new-eligible'){
       if(!taskManageHistoryReady(t)){openTaskRecord(t);showToast('Checking completed task history before sending.','error');return;}
       const newcomers=newlyEligibleTaskTesters(t);
-      if(!newcomers.length){showToast('Every currently eligible tester has an assignment in this campaign.','success');openTaskRecord(t);return;}
+      if(!newcomers.length){showToast('No newly eligible testers remain after excluding previous completions and campaign assignments.','success');openTaskRecord(t);return;}
       if(!(await confirmAction(`Send this task to ${newcomers.length} newly eligible tester${newcomers.length===1?'':'s'} who have never received it? Existing recipients will not be duplicated.`,'')))return;
       taskActionBtn.disabled=true;const original=taskActionBtn.textContent;taskActionBtn.textContent='Sending…';
-      try{const result=await assignExistingTaskToTesters(t,newcomers);const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} newly eligible testers. ${result.failed} email${result.failed===1?'':'s'} failed.${firstError}`:`Task sent to ${result.total} newly eligible tester${result.total===1?'':'s'}.`,result.failed?'error':'success');openTaskRecord(findTask(t.id)||t);}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{taskActionBtn.disabled=false;taskActionBtn.textContent=original;}
+      try{const result=await assignExistingTaskToTesters(t,newcomers);const firstError=result.errors&&result.errors[0]?` ${result.errors[0]}`:'';showToast(result.failed?`Task assigned to ${result.total} newly eligible testers. ${result.failed} email${result.failed===1?'':'s'} failed.${firstError}`:`Task sent to ${result.total} newly eligible tester${result.total===1?'':'s'}.`,result.failed?'error':'success');openTaskRecord(findTask(t.id)||t);}catch(err){showToast(friendlyFirebaseError(err),'error');openTaskRecord(t);}finally{taskActionBtn.disabled=false;taskActionBtn.textContent=original;}
       return;
     }
     if(t&&taskActionBtn.dataset.taskAction==='remind-pending'){
@@ -3780,6 +3859,8 @@ const testersTableBody=document.getElementById('testersTableBody');if(testersTab
 const bulkTimelineApply=document.getElementById('bulkTimelineApply');if(bulkTimelineApply)bulkTimelineApply.addEventListener('click',async()=>{const original=bulkTimelineApply.textContent;bulkTimelineApply.disabled=true;bulkTimelineApply.textContent='Updating…';try{const stage=document.getElementById('bulkTimelineStage').value;const result=await bulkSetTimelineStage(stage);if(!result.cancelled){let msg=`${result.count} tester timeline${result.count===1?'':'s'} updated.`;if(result.emailSent)msg+=` ${result.emailSent} testing-access email${result.emailSent===1?'':'s'} sent.`;if(result.emailFailed)msg+=` ${result.emailFailed} email${result.emailFailed===1?'':'s'} failed.`;showToast(msg,result.emailFailed?'error':'success');}}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{bulkTimelineApply.textContent=original;updateTimelineSelectionUI();}});
 const bulkTesterDelete=document.getElementById('bulkTesterDelete');if(bulkTesterDelete)bulkTesterDelete.addEventListener('click',async()=>{const original=bulkTesterDelete.textContent;bulkTesterDelete.disabled=true;bulkTesterDelete.textContent='Deleting Selected…';try{const result=await bulkDeleteSelectedTesters();if(!result.cancelled){let msg=`${result.deleted} tester${result.deleted===1?'':'s'} deleted.`;if(result.failed)msg+=` ${result.failed} could not be deleted.`;if(result.betaSyncError)msg+=' Beta entitlement reconciliation needs a retry from Admin refresh.';showToast(msg,result.failed||result.betaSyncError?'error':'success');}}catch(err){showToast(friendlyFirebaseError(err),'error');}finally{bulkTesterDelete.textContent=original;updateTimelineSelectionUI();}});
 document.getElementById('taskTemplateSelect').addEventListener('change',e=>applyTaskTemplate(e.target.value));
+// Use change/blur, not an input-triggered Firestore lookup for every keystroke.
+document.getElementById('taskTitle').addEventListener('change',()=>renderTaskRecipientPicker());
 document.getElementById('taskSelectAll').addEventListener('click',()=>selectTaskRecipients('All'));
 document.getElementById('taskSelectIOS').addEventListener('click',()=>selectTaskRecipients('iOS'));
 document.getElementById('taskSelectAndroid').addEventListener('click',()=>selectTaskRecipients('Android'));
