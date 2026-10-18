@@ -1,4 +1,4 @@
-// RebataTrack Website Build 272 Firebase runtime.
+// RebataTrack Website Build 273 Firebase runtime.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -912,7 +912,11 @@ async function aggregateCount(collectionId,filters=[]){
   const user=auth&&auth.currentUser;if(!user)throw new Error('Administrator session is not available for server-side counts.');
   const projectId=(window.REBATIFY_FIREBASE_CONFIG||{}).projectId;if(!projectId)throw new Error('Firebase project id is unavailable.');
   const token=await user.getIdToken();
-  const fieldFilters=filters.map(([field,_op,value])=>({fieldFilter:{field:{fieldPath:field},op:'EQUAL',value:{stringValue:String(value)}}}));
+  const fieldFilters=filters.map(([field,op,value])=>({fieldFilter:{
+    field:{fieldPath:field},
+    op:op==='in'?'IN':'EQUAL',
+    value:op==='in'?{arrayValue:{values:value.map(v=>({stringValue:String(v)}))}}:{stringValue:String(value)}
+  }}));
   const structuredQuery={from:[{collectionId}]};
   if(fieldFilters.length===1)structuredQuery.where=fieldFilters[0];
   else if(fieldFilters.length>1)structuredQuery.where={compositeFilter:{op:'AND',filters:fieldFilters}};
@@ -929,9 +933,39 @@ async function aggregateCount(collectionId,filters=[]){
 }
 const ADMIN_METRICS_LEGACY_MIN_INTERVAL_MS=10*60*1000;
 let lastLegacyMetricsAt=0;
+// Combine equal-status categories into a single Firestore COUNT whenever the
+// project's existing indexes support IN filters. Some older Firebase projects
+// lack the composite indexes needed for IN: keep the original (also aggregation-
+// only) queries as a safe fallback. Never download matching documents to count.
+let groupedCountAvailable=true;
+async function aggregateGroupedCount(collectionId,fixedFilters,groupFields){
+  const keys=Object.keys(groupFields);
+  const combined=[...fixedFilters,...keys.map(field=>[field,'in',groupFields[field]])];
+  if(groupedCountAvailable){
+    try{return await aggregateCount(collectionId,combined);}
+    catch(error){
+      groupedCountAvailable=false;
+      console.warn('Combined Firestore count requires an unavailable index; using existing separate COUNT aggregations.',error?.message||error);
+    }
+  }
+  let selections=[fixedFilters];
+  for(const field of keys){
+    selections=selections.flatMap(filters=>groupFields[field].map(value=>[...filters,[field,'==',value]]));
+  }
+  const values=await Promise.all(selections.map(filters=>aggregateCount(collectionId,filters)));
+  return values.reduce((sum,value)=>sum+Number(value||0),0);
+}
 async function loadMetricsAggregated(){
   const apps='betaApplications',feedback='betaFeedback';
-  const [total,applied,approved,active,waitlist,declined,inactive,activeIOS,activeAndroid,newFeedback,pendingAssignmentsCount,readyForYou,fullySetUp,fullySetUpIOS,fullySetUpAndroid,enabledApproved,enabledActive]=await Promise.all([
+  const activeStatuses=['Approved','Active'];
+  const liveAccess=[['accessStatus','==','Enabled']];
+  const activeTesterCount=(platform)=>aggregateGroupedCount('betaUsers',
+    platform?[...liveAccess,['platform','==',platform]]:liveAccess,
+    {status:activeStatuses});
+  const fullySetupCount=(platform)=>aggregateGroupedCount('betaUsers',
+    platform?[...liveAccess,['platform','==',platform]]:liveAccess,
+    {status:activeStatuses,timelineStage:['activeTesting','installed']});
+  const [total,applied,approved,active,waitlist,declined,inactive,activeIOS,activeAndroid,newFeedback,pendingAssignmentsCount,readyForYou,fullySetUp,fullySetUpIOS,fullySetUpAndroid,activeAccess]=await Promise.all([
     aggregateCount(apps),
     aggregateCount(apps,[['status','==','Applied']]),
     aggregateCount(apps,[['status','==','Approved']]),
@@ -939,49 +973,24 @@ async function loadMetricsAggregated(){
     aggregateCount(apps,[['status','==','Waitlist']]),
     aggregateCount(apps,[['status','==','Declined']]),
     aggregateCount(apps,[['status','==','Inactive']]),
-    // Platform bars show enabled betaUsers, not historical betaApplications.
-    // Four cheap server-side count aggregations replace the two applicant-
-    // platform counts: no document-list scan and no extra realtime listener.
-    Promise.all([
-      aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Approved'],['platform','==','iOS']]),
-      aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','iOS']])
-    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)).catch(()=>null),
-    Promise.all([
-      aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Approved'],['platform','==','Android']]),
-      aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','Android']])
-    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)).catch(()=>null),
-    Promise.all([aggregateCount(feedback,[['status','==','New']]),aggregateCount(feedback,[['status','==','Waiting for RebataTrack']])]).then(([a,b])=>a+b),
+    activeTesterCount('iOS').catch(()=>null),
+    activeTesterCount('Android').catch(()=>null),
+    aggregateGroupedCount(feedback,[],{status:['New','Waiting for RebataTrack']}),
     aggregateCount('betaTaskAssignments',[['status','==','Pending'],['recordType','==','Task']]),
-    Promise.all([
-      aggregateCount('betaUsers',[['timelineStage','==','setupComplete'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','setupComplete'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','deviceReady'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','deviceReady'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0)
-    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)),
-    Promise.all([
-      aggregateCount('betaUsers',[['timelineStage','==','activeTesting'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','activeTesting'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>0)
-    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)),
-    Promise.all([
-      aggregateCount('betaUsers',[['timelineStage','==','activeTesting'],['accessStatus','==','Enabled'],['status','==','Approved'],['platform','==','iOS']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','activeTesting'],['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','iOS']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Approved'],['platform','==','iOS']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','iOS']]).catch(()=>0)
-    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)),
-    Promise.all([
-      aggregateCount('betaUsers',[['timelineStage','==','activeTesting'],['accessStatus','==','Enabled'],['status','==','Approved'],['platform','==','Android']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','activeTesting'],['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','Android']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Approved'],['platform','==','Android']]).catch(()=>0),
-      aggregateCount('betaUsers',[['timelineStage','==','installed'],['accessStatus','==','Enabled'],['status','==','Active'],['platform','==','Android']]).catch(()=>0)
-    ]).then(values=>values.reduce((sum,value)=>sum+Number(value||0),0)),
-    aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Approved']]).catch(()=>null),
-    aggregateCount('betaUsers',[['accessStatus','==','Enabled'],['status','==','Active']]).catch(()=>null)
+    aggregateGroupedCount('betaUsers',liveAccess,{status:activeStatuses,timelineStage:['setupComplete','deviceReady']}).catch(()=>0),
+    fullySetupCount().catch(()=>0),
+    fullySetupCount('iOS').catch(()=>0),
+    fullySetupCount('Android').catch(()=>0),
+    activeTesterCount().catch(()=>null)
   ]);
   const accepted=Number(approved||0)+Number(active||0)+Number(inactive||0);
-  const activeAccess=(enabledApproved===null||enabledActive===null)?null:Number(enabledApproved||0)+Number(enabledActive||0);
-  return {total,applied,approved,active,accepted,activeAccess,activeIOS,activeAndroid,fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),waitlist,declined,inactive,newFeedback,activeTasks:Number(pendingAssignmentsCount||0),readyForYou:Number(readyForYou||0)};
+  // The old Promise.all had 17 result names for 16 requests; its final active
+  // count was always undefined and the fully-setup values were shifted.
+  // The tester-action badge retains the existing setup-ready count. When
+  // Testers loads, its workspace refines the badge using current action states.
+  return {total,applied,approved,active,accepted,activeAccess,activeIOS,activeAndroid,
+    fullySetUp:Number(fullySetUp||0),fullySetUpIOS:Number(fullySetUpIOS||0),fullySetUpAndroid:Number(fullySetUpAndroid||0),
+    waitlist,declined,inactive,newFeedback,activeTasks:Number(pendingAssignmentsCount||0),readyForYou:Number(readyForYou||0)};
 }
 async function loadMetricsLegacy(){
   const apps=collection(db,'betaApplications');

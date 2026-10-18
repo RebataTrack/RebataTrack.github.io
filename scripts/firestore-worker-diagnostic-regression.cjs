@@ -13,8 +13,11 @@ assert(beta.includes("readMeter.worker('beta-email',type,result._firestoreDiagno
 assert(beta.includes("__rtReadDiagnostics:readMeter.enabled()"));
 assert(prod.includes("__rtReadDiagnostics:!!diag?.enabled?.()"));
 assert(prod.includes("diag?.worker?.('production',action,data._firestoreDiagnostics)"));
-assert(html.includes('admin-firebase.js?v=272'));
-assert(html.includes('production-admin.js?v=272'));
+const ver=fs.readFileSync(path.join(root,'website-version.js'),'utf8');
+const published=Number(ver.match(/const WEBSITE_BUILD = (\d+);/)?.[1]||0);
+assert(published>=273);
+assert(html.includes(`admin-firebase.js?v=${published}`));
+assert(html.includes(`production-admin.js?v=${published}`));
 assert(!html.includes('admin-firebase.js?v=271'));
 console.log('PASS Browser read meter records Production and Beta Worker reads separately from browser SDK estimates');
 console.log('PASS read tracing is opt-in and involves no diagnostic Firestore reads or writes');

@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {auth,isAdminUser}=Core;
 const {onAuthStateChanged}=Compat;
-// RebataTrack Production Admin Console - Website Build 268
+// RebataTrack Production Admin Console - Website Build 273
 // Uses the signed-in Admin Portal Firebase session only as the administrator identity.
 // All privileged production reads/writes go through the Production Admin Worker.
 // No production service-account secret is ever present in browser code.
@@ -255,12 +255,27 @@ async function saveClientPolicy(){
   }catch(err){policyMessage(err.message,'error');}finally{btn.disabled=false;}
 }
 
-async function loadOverview(force=false){
+async function loadOverview(force=false,explicitRecalculate=false){
   if(state.overview&&!force){renderOverview();return;}
-  const data=await callProduction('overview'); state.overview=data; state.overviewLoadedAt=Date.now(); state.overviewExpiryStale=false; setConnectionUI(true,data.projectLabel||'Production connected'); renderOverview();
+  // Startup only reads the durable summary. A deliberate Refresh may perform a
+  // full reconciliation; never trigger that scan by entering this page.
+  const data=await callProduction('overview',explicitRecalculate?{forceRefresh:true}:{});
+  state.overview=data;
+  state.overviewLoadedAt=Date.now();
+  state.overviewExpiryStale=!!data.summaryMayIncludeExpiredEntitlements;
+  setConnectionUI(true,data.projectLabel||'Production connected'); renderOverview();
 }
 function renderOverview(){
   const o=state.overview||{}; const m=o.metrics||{};
+  const summaryStatus=$('productionOverviewSnapshotStatus');
+  if(summaryStatus){
+    const at=asDate(o.summaryGeneratedAt);
+    const age=at?fmtDateTime(at):'not available';
+    const warning=(o.summaryNeedsRefresh?' The report is over 24 hours old; refresh for current totals.':'')
+      +(o.summaryMayIncludeExpiredEntitlements?' Some time-limited access may have expired since this report; refresh to recalculate.':'');
+    summaryStatus.textContent='Reporting snapshot: '+age+'. Only Refresh recalculates all Production accounts.'+warning;
+    summaryStatus.classList.toggle('production-summary-stale',!!warning);
+  }
   if($('productionMetricUsers'))$('productionMetricUsers').textContent=m.users ?? '0';
   if($('productionMetricDevices'))$('productionMetricDevices').textContent=m.devices ?? '0';
   if($('productionMetricPlus'))$('productionMetricPlus').textContent=state.overviewExpiryStale?'—':(m.plusAccess ?? '0');
@@ -505,7 +520,8 @@ function productionExpiryPassedSinceOverview(){
     const date=asDate(record.expiresAt);
     return !!date&&date.getTime()>since&&date.getTime()<=now;
   };
-  if((state.access.premiumGrants||[]).some(passed)||
+  if(passed({active:!!state.overview?.nextOverviewEntitlementExpiryAt,expiresAt:state.overview?.nextOverviewEntitlementExpiryAt})||
+    (state.access.premiumGrants||[]).some(passed)||
     (state.access.trialOverrides||[]).some(passed)||
     (state.access.reviewAccess||[]).some(passed))return true;
   return (state.users||[]).some(user=>
@@ -519,6 +535,7 @@ function scheduleProductionExpiryRefresh(){
   if(state.scope!=='production'||document.hidden)return;
   const now=Date.now(), candidates=[];
   const add=record=>{if(record?.active&&!record?.indefinite){const d=asDate(record.expiresAt);if(d&&d.getTime()>now)candidates.push(d.getTime());}};
+  add({active:!!state.overview?.nextOverviewEntitlementExpiryAt,expiresAt:state.overview?.nextOverviewEntitlementExpiryAt});
   (state.access.premiumGrants||[]).forEach(add);
   (state.access.trialOverrides||[]).forEach(add);
   (state.access.reviewAccess||[]).forEach(add);
@@ -848,9 +865,19 @@ async function deactivateProductionMessage(id,button){
 }
 
 async function refreshProduction(){
-  const btn=$('productionAdminRefresh'); if(btn)btn.classList.add('is-spinning');
-  try{state.overview=null;await loadOverview(true);if(state.view==='users'){state.users=[];await loadUsers(true);}else if(state.view==='devices'){state.devices=[];await loadDevices(true);}else if(state.view==='identities'){state.identities=[];await loadIdentities(true);}else if(state.view==='access'){state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};await loadAccess(true);}else if(state.view==='audit'){state.audit=[];await loadAudit(true);}else if(state.view==='messages'){state.messages=[];state.users=[];await Promise.all([loadUsers(true),loadMessages(true)]);renderProductionMessageUsers();}showProdToast('Production data refreshed.');}
-  catch(error){showProdToast(error.message,'error');}
+  const btn=$('productionAdminRefresh');if(btn)btn.classList.add('is-spinning');
+  try{
+    if(state.view==='overview'){
+      state.overview=null;
+      await loadOverview(true,true); // Explicit and potentially costly full recount only here.
+    }else if(state.view==='users'){state.users=[];await loadUsers(true);}
+    else if(state.view==='devices'){state.devices=[];await loadDevices(true);}
+    else if(state.view==='identities'){state.identities=[];await loadIdentities(true);}
+    else if(state.view==='access'){state.access={premiumGrants:[],trialOverrides:[],reviewAccess:[],summary:{}};await loadAccess(true);}
+    else if(state.view==='audit'){state.audit=[];await loadAudit(true);}
+    else if(state.view==='messages'){state.messages=[];state.users=[];await Promise.all([loadUsers(true),loadMessages(true)]);renderProductionMessageUsers();}
+    showProdToast('Production data refreshed.');
+  }catch(error){showProdToast(error.message,'error');}
   finally{if(btn)btn.classList.remove('is-spinning');}
 }
 
@@ -901,6 +928,24 @@ $('productionMessageAudience')?.addEventListener('change',()=>{const selected=$(
 $('productionBulkDelete')?.addEventListener('click',bulkDeleteProductionUsers);
 $('productionVersionPolicyReload')?.addEventListener('click',()=>loadClientPolicy().catch(err=>policyMessage(err.message,'error')));
 $('productionVersionPolicySave')?.addEventListener('click',saveClientPolicy);
+async function runManualGrantMigration(){
+  const button=$('productionGrantMigrationRun');
+  const reason=String($('productionGrantMigrationReason')?.value||'').trim();
+  const result=$('productionGrantMigrationResult');
+  if(!reason){if(result)result.textContent='Enter a reason for the audit log.';return;}
+  if(!window.confirm('Run the one-time legacy sharing-grant normalization? This reads legacy grant records and may update active shared-group authority. Run only when needed.'))return;
+  if(button)button.disabled=true;
+  if(result)result.textContent='Running authorized maintenance…';
+  try{
+    const data=await callProduction('maintenance-normalize-grants',{reason,confirm:'NORMALIZE_GRANTS'});
+    if(result)result.textContent=`Maintenance completed for ${Number(data.normalizedUsers||0)} eligible accounts; action recorded in Production audit history.`;
+    if($('productionGrantMigrationReason'))$('productionGrantMigrationReason').value='';
+    showProdToast('Legacy sharing-grant maintenance completed.');
+  }catch(error){if(result)result.textContent=error.message||'Maintenance failed.';}
+  finally{if(button)button.disabled=false;}
+}
+$('productionGrantMigrationRun')?.addEventListener('click',runManualGrantMigration);
+
 $('productionWorkerSave')?.addEventListener('click',async()=>{
   const value=String($('productionWorkerUrl')?.value||'').trim().replace(/\/$/,'');
   if(!/^https:\/\//i.test(value)){productionMessage('Enter the HTTPS URL for the Production Admin Worker.','error');return;}

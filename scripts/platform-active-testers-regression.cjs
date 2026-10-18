@@ -19,15 +19,33 @@ assert(publishedBuild >= 270,'website identity must preserve platform-count impl
 assert(html.includes(`admin-firebase.js?v=${publishedBuild}`),'admin asset cache must match the published website build');
 
 const aggregateCalls=[];
-const count=async (name,filters=[])=>{
+const count=async(name,filters=[])=>{
   aggregateCalls.push({name,filters});
+  // Server-side IN filters count the union of the same equality status/stage
+  // filters. This stub tests that grouping does not change the historical count.
+  const inIndex=filters.findIndex(([,op])=>op==='in');
+  if(inIndex>=0){
+    const [field,,values]=filters[inIndex];
+    const expanded=[];
+    for(const value of values)expanded.push(await count(name,[...filters.slice(0,inIndex),[field,'==',value],...filters.slice(inIndex+1)]));
+    return expanded.reduce((sum,value)=>sum+value,0);
+  }
   const f=Object.fromEntries(filters.map(([field,op,value])=>[field,value]));
   if(name==='betaApplications'){
     if(!filters.length)return 96;
-    if(f.platform)return f.platform==='iOS'?60:36;
     return {Approved:35,Active:10,Inactive:51}[f.status]||0;
   }
-  if(name==='betaUsers' && f.accessStatus==='Enabled'&&!f.timelineStage){
+  if(name==='betaUsers'&&f.accessStatus==='Enabled'){
+    if(f.timelineStage){
+      // 7 fully set-up testers, 4 iOS and 3 Android.
+      if(['setupComplete','deviceReady'].includes(f.timelineStage))return f.status==='Approved'?2:1;
+      if(!['activeTesting','installed'].includes(f.timelineStage))return 0;
+      if(f.status==='Approved'&&f.platform==='iOS')return f.timelineStage==='activeTesting'?2:1;
+      if(f.status==='Active'&&f.platform==='iOS')return f.timelineStage==='installed'?1:0;
+      if(f.status==='Approved'&&f.platform==='Android')return f.timelineStage==='activeTesting'?1:0;
+      if(f.status==='Active'&&f.platform==='Android')return f.timelineStage==='installed'?2:0;
+      return (f.platform?0:(f.status==='Approved'?4:3));
+    }
     if(f.status==='Approved'&&f.platform==='iOS')return 12;
     if(f.status==='Active'&&f.platform==='iOS')return 7;
     if(f.status==='Approved'&&f.platform==='Android')return 8;
@@ -37,22 +55,34 @@ const count=async (name,filters=[])=>{
   }
   return 0;
 };
-const aggregateContext=vm.createContext({aggregateCount:count,Promise,Number});
-vm.runInContext(fragment('async function loadMetricsAggregated(){','async function loadMetricsLegacy(){'),aggregateContext);
+const aggregateContext=vm.createContext({aggregateCount:count,Promise,Number,console,state:{metrics:null}});
+vm.runInContext(fragment('let groupedCountAvailable=true;','async function loadMetricsLegacy(){'),aggregateContext);
 (async()=>{
   const m=await aggregateContext.loadMetricsAggregated();
-  assert.equal(m.total,96,'total applications stays 96');
-  assert.equal(m.activeAccess,33,'active KPI remains independent of platform grouping');
-  assert.equal(m.activeIOS,19,'iOS active count must use betaUsers, not 60 iOS applicants');
-  assert.equal(m.activeAndroid,13,'Android active count must use betaUsers, not 36 Android applicants');
-  assert(!aggregateCalls.some(call=>call.name==='betaApplications'&&call.filters.some(([field])=>field==='platform')),'old application platform count queries removed');
-  const platformCounts=aggregateCalls.filter(call=>call.name==='betaUsers'&&call.filters.some(([field])=>field==='platform'));
-  assert.equal(platformCounts.filter(call=>call.filters.some(([field,,value])=>field==='platform'&&value==='iOS')&&!call.filters.some(([field])=>field==='timelineStage')).length,2,'exact iOS active status counts');
-  assert.equal(platformCounts.filter(call=>call.filters.some(([field,,value])=>field==='platform'&&value==='Android')&&!call.filters.some(([field])=>field==='timelineStage')).length,2,'exact Android active status counts');
-  for(const call of platformCounts.filter(call=>!call.filters.some(([field])=>field==='timelineStage'))){
-    assert(call.filters.some(([field,,value])=>field==='accessStatus'&&value==='Enabled'),'access status required');
-    assert(call.filters.some(([field,,value])=>field==='status'&&(value==='Approved'||value==='Active')),'beta status required');
-  }
+  assert.equal(m.total,96,'total applications remains 96');
+  assert.equal(m.activeAccess,33,'overall enabled access count must not be undefined');
+  assert.equal(m.activeIOS,19,'iOS counts active betaUsers, not applicants');
+  assert.equal(m.activeAndroid,13,'Android counts active betaUsers, not applicants');
+  assert.equal(m.readyForYou,6,'existing setup-ready badge must be preserved');
+  assert.equal(m.fullySetUpIOS,4,'fully setup iOS count must no longer be shifted');
+  assert.equal(m.fullySetUpAndroid,3,'fully setup Android count must no longer be shifted');
+  assert(!aggregateCalls.some(call=>call.name==='betaApplications'&&call.filters.some(([field])=>field==='platform')));
+  const groupedPlatform=aggregateCalls.filter(call=>call.name==='betaUsers'&&call.filters.some(([field,op,value])=>field==='status'&&op==='in'&&value.length===2));
+  assert(groupedPlatform.some(call=>call.filters.some(([field,,value])=>field==='platform'&&value==='iOS')),'iOS IN grouping required');
+  assert(groupedPlatform.some(call=>call.filters.some(([field,,value])=>field==='platform'&&value==='Android')),'Android IN grouping required');
+  for(const call of groupedPlatform){assert(call.filters.some(([field,op,value])=>field==='accessStatus'&&value==='Enabled'),'all grouped active counts require enabled access');}
+  // Force the feature to fall back: the existing equality-filtered COUNT queries
+  // still produce exact totals, never a full document read.
+  const fallbackContext=vm.createContext({aggregateCount:async(name,filters=[])=>{
+    if(filters.some(([,op])=>op==='in'))throw new Error('Composite index not provisioned');
+    return count(name,filters);
+  },Promise,Number,console,state:{metrics:null}});
+  vm.runInContext(fragment('let groupedCountAvailable=true;','async function loadMetricsLegacy(){'),fallbackContext);
+  const fallback=await fallbackContext.loadMetricsAggregated();
+  assert.equal(fallback.activeAccess,m.activeAccess);
+  assert.equal(fallback.activeIOS,m.activeIOS);
+  assert.equal(fallback.activeAndroid,m.activeAndroid);
+  assert.equal(fallback.fullySetUpIOS,m.fullySetUpIOS);
 
   const elements=new Map();
   const document={getElementById(id){if(!elements.has(id))elements.set(id,{textContent:'',style:{width:''}});return elements.get(id);}};
