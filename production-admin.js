@@ -96,12 +96,16 @@ async function callProduction(action, payload={}){
   if(key&&productionReadInFlight.has(key)) return productionReadInFlight.get(key);
   const job=(async()=>{
     const token=await user.getIdToken();
+    const diag=window.RebataTrackReadMeter;
     const response=await fetch(url,{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
-      body:JSON.stringify({action,...payload})
+      body:JSON.stringify({action,...payload,__rtReadDiagnostics:!!diag?.enabled?.()})
     });
     const data=await response.json().catch(()=>({}));
+    // Read diagnostics are returned in-band from the authenticated Worker.
+    // No extra Firestore request is made just to collect this trace.
+    if(data._firestoreDiagnostics)diag?.worker?.('production',action,data._firestoreDiagnostics);
     if(!response.ok||data.ok===false) throw new Error(data.error||data.message||`Production Admin request failed (${response.status}).`);
     return data;
   })();

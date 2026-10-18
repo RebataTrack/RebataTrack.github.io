@@ -1,4 +1,4 @@
-// RebataTrack Website Build 270 Firebase runtime.
+// RebataTrack Website Build 272 Firebase runtime.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,14 +6,14 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 270
+// RebataTrack Admin Portal — Website Build 272
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
 // localStorage 'rebatatrack.readmeter' to '1') to show a live "Beta reads" badge; click it to print a per-source table.
 // Console: RebataTrackReadMeter.report() / .reset() / .total(). Firestore bills one read per document returned.
 const readMeter=(function(){
-  const totals=new Map();let sessionTotal=0;let badge=null;
+  const totals=new Map();const workerTraces=[];let sessionTotal=0;let badge=null;
   const enabled=(function(){try{return /[?&]readmeter=1/.test(location.search)||localStorage.getItem('rebatatrack.readmeter')==='1';}catch(_){return false;}})();
   function paint(){
     if(!enabled)return;
@@ -25,10 +25,40 @@ const readMeter=(function(){
   const api={
     add(label,count){const n=Math.max(0,Number(count)||0);sessionTotal+=n;const r=totals.get(label)||{calls:0,reads:0};r.calls++;r.reads+=n;totals.set(label,r);paint();},
     total(){return sessionTotal;},
-    reset(){totals.clear();sessionTotal=0;paint();},
+    enabled(){return enabled;},
+    // Worker counters are displayed SEPARATELY: they are not browser SDK reads.
+    // They never cause an additional Firestore request or log personal data.
+    worker(worker, action, trace){
+      if(!enabled||!trace||!['production','beta-email'].includes(worker))return;
+      const cleanAction=String(action||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,80);
+      workerTraces.push({worker,action:cleanAction,...trace});
+      if(workerTraces.length>100)workerTraces.shift();
+      paint();
+    },
+    reset(){totals.clear();workerTraces.length=0;sessionTotal=0;paint();},
     rows(){return [...totals.entries()].map(([source,r])=>({source,calls:r.calls,reads:r.reads})).sort((a,b)=>b.reads-a.reads);},
-    summary(){return {estimatedDocumentReads:sessionTotal,operations:api.rows(),activeListeners:{applications:!!applicationRealtimeUnsubscribe,feedback:!!feedbackRealtimeUnsubscribe,openConversation:!!adminConversationUnsubscribe},loadedWorkspaces:{...state.loaded},activeView};},
-    report(){const summary=api.summary();console.table(summary.operations);console.info('RebataTrack Beta Admin read diagnostics (estimated; Worker reads excluded):',summary);return summary;}
+    summary(){
+      const workerRows=workerTraces.map(t=>({worker:t.worker,action:t.action,firestoreRequests:t.firestoreRequests||0,
+        documentReadsLowerBound:t.documentReadsLowerBound||0,cacheHits:t.cacheHits||0,cacheMisses:t.cacheMisses||0,
+        elapsedMs:t.elapsedMs||0}));
+      const workerReads=workerRows.reduce((total,row)=>total+row.documentReadsLowerBound,0);
+      const aggregationEstimate=api.rows().filter(r=>/aggregation/i.test(r.source)).reduce((total,row)=>total+row.reads,0);
+      return {estimatedBrowserReads:sessionTotal,estimatedBrowserReadsExcludingAggregations:Math.max(0,sessionTotal-aggregationEstimate),
+        browserAggregationReadEstimate:aggregationEstimate,estimatedDocumentReads:sessionTotal,workerReadsLowerBound:workerReads,
+        combinedDiagnosticEstimate:sessionTotal+workerReads,operations:api.rows(),workerRequests:workerRows,
+        workerDetails:workerTraces.map(t=>({worker:t.worker,action:t.action,operations:t.operations||[]})),
+        activeListeners:{applications:!!applicationRealtimeUnsubscribe,feedback:!!feedbackRealtimeUnsubscribe,openConversation:!!adminConversationUnsubscribe},
+        loadedWorkspaces:{...state.loaded},activeView,
+        limitations:'Browser estimates and Worker REST lower bounds exclude index-entry charges, background jobs, other clients, and reads outside instrumented code. Do not subtract from hourly Firebase Usage as exact billing.'};
+    },
+    report(){
+      const summary=api.summary();
+      console.info('RebataTrack browser read estimates');console.table(summary.operations);
+      console.info('RebataTrack Worker per-request read estimates (opt-in only)');console.table(summary.workerRequests);
+      for(const detail of summary.workerDetails){console.info('Worker detail:',detail.worker,detail.action);console.table(detail.operations);}
+      console.info('RebataTrack Firestore diagnostic summary:',summary);
+      return summary;
+    }
   };
   window.RebataTrackReadMeter=api;
   if(enabled)(document.body?paint():document.addEventListener('DOMContentLoaded',paint));
@@ -3544,8 +3574,9 @@ async function sendWorkerEmail(type,a){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),20000);
   try{
-    const response=await fetch(emailWorkerEndpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({type,name:a.fullName||'',email:a.email||'',platform:a.platform||''}),signal:controller.signal});
+    const response=await fetch(emailWorkerEndpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({type,name:a.fullName||'',email:a.email||'',platform:a.platform||'',__rtReadDiagnostics:readMeter.enabled()}),signal:controller.signal});
     let payload={};try{payload=await response.json();}catch(_){}
+    if(payload._firestoreDiagnostics)readMeter.worker('beta-email',type,payload._firestoreDiagnostics);
     if(!response.ok||payload.ok!==true){const err=new Error(payload.error||'The RebataTrack email service could not send this message.');err.code='rebatify/email-send-failed';throw err;}
     return payload;
   }finally{clearTimeout(timer);}
@@ -3557,8 +3588,9 @@ async function callWorkerAdminAction(type,payload={}){
   const timer=setTimeout(()=>controller.abort(),20000);
   const perform=async(forceRefresh)=>{
     const token=await auth.currentUser.getIdToken(forceRefresh);
-    const response=await fetch(emailWorkerEndpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({type,...payload}),signal:controller.signal});
+    const response=await fetch(emailWorkerEndpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({type,...payload,__rtReadDiagnostics:readMeter.enabled()}),signal:controller.signal});
     let result={};try{result=await response.json();}catch(_){ }
+    if(result._firestoreDiagnostics)readMeter.worker('beta-email',type,result._firestoreDiagnostics);
     return {response,result};
   };
   try{
@@ -4214,11 +4246,4 @@ window.addEventListener('rebatatrack-production-bridge-ready',()=>{
   if(window.__REBATIFY_ADMIN_BOOT){window.__REBATIFY_ADMIN_BOOT.moduleLoaded=false;window.__REBATIFY_ADMIN_BOOT.lastError=String(error&&error.message||error);}
 });
 
-
-// Website Build 222 cache/deployment stamp.
-
-// Forecasts are read-only and never send mail. Recalculate when visible; worker always rechecks at send-time.
-document.getElementById('emailCenterRefresh')?.addEventListener('click',()=>Promise.resolve());
-document.getElementById('emailCenterFilter')?.addEventListener('change',renderAutomaticEmailCenter);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&activeView==='testers')/* automated email forecast removed */;});
 
