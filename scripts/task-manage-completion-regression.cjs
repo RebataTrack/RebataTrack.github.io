@@ -42,7 +42,7 @@ const ctx=vm.createContext({Map,Set,Promise,String,Date,Number,Math,state,db:{},
   doc:(...args)=>args.slice(1).join('/'),serverTimestamp:()=>new Date(),deleteField:()=>null,
   Timestamp:{fromDate:x=>x},taskAssignmentStats:()=>({total:0}),
   updateDoc:async()=>{writes++},callWorkerAdminAction:async()=>{emailCalls++;return {sent:true}},
-  loadTasks:async()=>{},renderTasks:()=>renderCalls++});
+  loadTasks:async()=>{},invalidateTesterParticipation:()=>{},renderTasks:()=>renderCalls++});
 vm.runInContext(code,ctx);
 const ids=list=>Array.from(list,x=>x.uid).sort();
 (async()=>{

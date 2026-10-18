@@ -30,7 +30,7 @@ const getDocs=async ref=>{
  return {docs:matches.map(r=>({id:r.id,data:()=>r}))};
 };
 const context=vm.createContext({
- state,db:{},Promise,Map,Set,Date,Number,Math,String,
+ state,activeView:'testers',db:{},Promise,Map,Set,Date,Number,Math,String,
  coalesceWorkspaceRead:(_key,fn)=>fn(),
  collection:(_db,name)=>name,
  where:(field,op,value)=>({field,op,value}),limit:size=>({size}),

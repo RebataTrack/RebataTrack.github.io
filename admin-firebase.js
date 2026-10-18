@@ -1,4 +1,4 @@
-// RebataTrack Website Build 273 Firebase runtime.
+// RebataTrack Website Build 274 Firebase runtime.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 272
+// RebataTrack Admin Portal — Website Build 274
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -773,12 +773,12 @@ async function readTesterParticipationCategory(col,field,op,value,label){
   // Do not silently display a partial history as a fully verified zero/count.
   return {rows:found,complete:false};
 }
-async function loadTesterParticipation(force=false){
+async function loadTesterParticipation(force=false, taskMetadataReady=false){
   if(state.loaded.participation&&!force)return;
   return coalesceWorkspaceRead('tester-participation',async()=>{
     const col=collection(db,'betaTaskAssignments');
     const [tasksSnap,completed,completedAt,pending,review,reviewed]=await Promise.all([
-      state.loaded.tasks ? Promise.resolve(null) : getDocs(query(collection(db,'betaTasks'),where('status','==','Active'),limit(100)),'tester participation: active task metadata'),
+      (state.loaded.tasks||taskMetadataReady) ? Promise.resolve(null) : getDocs(query(collection(db,'betaTasks'),where('status','==','Active'),limit(100)),'tester participation: active task metadata'),
       readTesterParticipationCategory(col,'status','==','Completed','tester participation: completed history'),
       readTesterParticipationCategory(col,'completedAt','>',Timestamp.fromDate(new Date(0)),'tester participation: completed-then-removed history'),
       readTesterParticipationCategory(col,'status','==','Pending','tester participation: pending'),
@@ -792,9 +792,22 @@ async function loadTesterParticipation(force=false){
     });
     testerParticipationRows=[...unique.values()];
     testerParticipationComplete=completed.complete&&completedAt.complete&&pending.complete&&review.complete&&reviewed.complete&&
-      (state.loaded.tasks||!tasksSnap||tasksSnap.docs.length<100);
+      (state.loaded.tasks||taskMetadataReady||!tasksSnap||tasksSnap.docs.length<100);
+    if(state.loaded.tasks){
+      // A refreshed participation ledger supersedes old assignment statuses
+      // from prior views. Keep only fresh Manage campaign details, not stale
+      // pending rows that could overwrite a newly completed task.
+      const merged=new Map(testerParticipationRows.map(a=>[String(a.id),a]));
+      for(const [id,rows] of campaignAssignmentCache){
+        if(!taskHistoryFresh(campaignAssignmentCache,campaignAssignmentLoadedAt,id))continue;
+        for(const row of rows)merged.set(String(row.id),row);
+      }
+      state.taskAssignments=[...merged.values()];
+    }
     state.loaded.participation=true;
-    if(state.loaded.testers)renderTesters();
+    // The Tasks workspace also loads this ledger; rendering an invisible Tester
+    // workspace can initiate dozens of Production activity profile reads.
+    if(state.loaded.testers&&activeView==='testers')renderTesters();
   });
 }
 function invalidateTesterParticipation(){
@@ -1093,7 +1106,7 @@ async function repairMissingAndroidInviteUrls(testers=state.testers){
   return missing.length;
 }
 async function loadTesters(force=false){
-  if(state.loaded.testers&&!force){renderTesters();return;}
+  if(state.loaded.testers&&!force){if(activeView==='testers')renderTesters();return;}
   return coalesceWorkspaceRead('testers',async()=>{
     const snap=await getDocs(query(collection(db,'betaUsers'),orderBy('createdAt','desc'),limit(100)),'workspace: testers (100)');
     state.testers=snap.docs.map(s=>({uid:s.id,...s.data()}));state.loaded.testers=true;
@@ -1101,7 +1114,7 @@ async function loadTesters(force=false){
       androidInviteRepairAttempted=true;
       try{await repairMissingAndroidInviteUrls(state.testers);}catch(error){console.warn('Could not repair missing Android testing links:',error);}
     }
-    renderTesters();
+    if(activeView==='testers')renderTesters();
     // Passive tester-list refresh must never run full Production beta-program-configure.
     // Explicit Save & Sync and targeted activation/revocation own mutations.
   });
@@ -1265,25 +1278,32 @@ function startFeedbackRealtimeAdmin(){
   },error=>{setBetaConnectionUI(false);console.error('Realtime admin Help & Feedback listener failed:',error);});
 }
 
+// Tasks and Testers share one bounded participation ledger. Do not load another
+// 500-document global assignment preview or erase the history just because
+// the administrator navigates between workspaces.
 async function loadTasks(force=false){
   if(state.loaded.tasks&&!force){renderTasks();renderTaskRecipientPicker();return;}
   return coalesceWorkspaceRead('tasks',async()=>{
-    const [taskSnap,assignmentSnap]=await Promise.all([
-      getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100)),'workspace: tasks (100)'),
-      getDocs(query(collection(db,'betaTaskAssignments'),limit(TASK_ASSIGNMENT_PREVIEW_LIMIT)),'workspace: task assignments (up to 500)')
-    ]);
+    const taskSnap=await getDocs(query(collection(db,'betaTasks'),orderBy('createdAt','desc'),limit(100)),'workspace: tasks (100)');
     state.tasks=taskSnap.docs.map(normalizeDoc);
-    state.taskAssignments=assignmentSnap.docs.map(normalizeDoc);
-    // A forced Tasks reload invalidates only the on-demand tester completion
-    // history snapshot. No new read is started until the Tester view needs it.
-    invalidateTesterParticipation();
-    testerCompletedHistoryRows=[];
-    testerCompletedHistoryLoaded=false;
-    testerCompletedHistoryComplete=false;
-    invalidateTaskHistoryCaches();
+    // The complete task metadata is already in memory; don't query an extra
+    // active-task preview when loading the participation ledger.
+    await loadTesterParticipation(force,true);
+    const unique=new Map(testerParticipationRows.map(a=>[String(a.id),a]));
+    // Manage is the ONLY path that needs excluded/removed assignment history.
+    // Retain verified, recent campaign-specific rows without collection scans.
+    for(const [id,rows] of campaignAssignmentCache){
+      if(!taskHistoryFresh(campaignAssignmentCache,campaignAssignmentLoadedAt,id))continue;
+      for(const a of rows)unique.set(String(a.id),a);
+    }
+    state.taskAssignments=[...unique.values()];
+    if(force){
+      testerCompletedHistoryRows=[];
+      testerCompletedHistoryLoaded=false;
+      testerCompletedHistoryComplete=false;
+      invalidateTaskHistoryCaches();
+    }
     state.loaded.tasks=true;
-    // Do not silently close historical campaigns based on a 500-document
-    // truncated assignment window. Mutations must be explicit and verified.
     renderTasks();renderTaskRecipientPicker();
   });
 }
@@ -1325,6 +1345,8 @@ async function reconcilePendingTasksForInactiveTesters(){
   }));
   await batch.commit();
   stale.forEach(a=>{a.status='Cancelled - Tester Removed';a.removalReason='Tester no longer has active Beta Program access.';a.removedAt=new Date();a.updatedAt=new Date();});
+  invalidateTesterParticipation();
+  invalidateTaskHistoryCaches();
   renderTasks();renderTesters();
   return stale.length;
 }
@@ -1866,7 +1888,7 @@ async function refreshTesterReviewAppActivity(items,{force=false}={}){
   if(reviewAppActivityInFlight)return reviewAppActivityInFlight;
   reviewAppActivityInFlight=(async()=>{
     try{
-      const result=await bridge.call('meaningful-activity-list',{uids:[...needed]});
+      const result=await bridge.call('meaningful-activity-list',{uids:[...needed],forceRefresh:force===true});
       const newest=new Map();
       for(const row of (result?.activities||[])){
         const uid=String(row?.uid||'').trim();if(!uid||!needed.has(uid))continue;
@@ -2485,7 +2507,8 @@ function renderTaskDashboard(){
 function renderTasks(){
   const body=document.getElementById('tasksTableBody'); if(!body)return;
   const tasks=regularTasks();
-  body.innerHTML=tasks.map(t=>{const stats=taskAssignmentStats(t.id);const activeCampaign=taskCampaignIsActive(t);const activePending=activeCampaign?stats.pending:0;const pct=stats.total?Math.round(stats.completed/stats.total*100):0;const displayStatus=taskDisplayStatus(t,stats);const pendingLabel=String(activePending);return `<tr><td><strong>${esc(t.title||'Required task')}</strong><small style="display:block;color:#718095;margin-top:3px">${esc(t.templateLabel||t.responseType||'Custom task')}</small></td><td>${esc(formatDate(t.dueAt))}</td><td>${stats.total}</td><td><div class="admin-task-progress"><strong>${stats.completed}/${stats.total}</strong><span class="admin-task-progress-bar"><span style="width:${pct}%"></span></span></div></td><td><strong>${esc(pendingLabel)}</strong></td><td><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></td><td><button class="admin-table-open" data-open-task="${esc(t.id)}" type="button">Manage</button></td></tr>`;}).join('');
+  const countsVerified=!!(state.loaded.participation&&testerParticipationComplete);
+  body.innerHTML=tasks.map(t=>{const stats=taskAssignmentStats(t.id);const activeCampaign=taskCampaignIsActive(t);const activePending=activeCampaign?stats.pending:0;const pct=stats.total?Math.round(stats.completed/stats.total*100):0;const displayStatus=taskDisplayStatus(t,stats);const pendingLabel=String(activePending);return `<tr><td><strong>${esc(t.title||'Required task')}</strong><small style="display:block;color:#718095;margin-top:3px">${esc(t.templateLabel||t.responseType||'Custom task')}</small></td><td>${esc(formatDate(t.dueAt))}</td><td>${countsVerified?stats.total:'—'}</td><td><div class="admin-task-progress"><strong>${countsVerified?`${stats.completed}/${stats.total}`:'History incomplete'}</strong><span class="admin-task-progress-bar"><span style="width:${pct}%"></span></span></div></td><td><strong>${esc(pendingLabel)}</strong></td><td><span class="admin-status-pill ${statusClass(displayStatus)}">${esc(displayStatus)}</span></td><td><button class="admin-table-open" data-open-task="${esc(t.id)}" type="button">Manage</button></td></tr>`;}).join('');
   document.getElementById('tasksEmpty').hidden=tasks.length>0;
   renderTaskDashboard();
 }
@@ -2717,6 +2740,8 @@ async function assignExistingTaskToTesters(t,testers){
   }
   t.status='Active';t.recipientCount=newTotal;t.updatedAt=new Date();
   await ensureTaskCampaignAssignmentHistory(t,true);
+  // The send changed pending assignments, unlike ordinary Tasks navigation.
+  invalidateTesterParticipation();
   renderTasks();
   return {sent,failed,total:targets.length,errors};
   }finally{taskAssignmentSendLocks.delete(String(t.id));}
@@ -2804,6 +2829,7 @@ async function cancelRequiredTask(t){
   const batch=writeBatch(db);batch.update(doc(db,'betaTasks',t.id),{status:'Cancelled',updatedAt:serverTimestamp()});
   assignments.forEach(a=>batch.update(doc(db,'betaTaskAssignments',a.id),{status:'Cancelled',updatedAt:serverTimestamp()}));
   await batch.commit();t.status='Cancelled';assignments.forEach(a=>a.status='Cancelled');
+  invalidateTesterParticipation();invalidateTaskHistoryCaches();
   await loadMetrics();renderMetrics();renderTasks();
 }
 
@@ -2831,6 +2857,7 @@ async function deleteTaskCampaign(t){
   await batch.commit();
   state.taskAssignments=state.taskAssignments.filter(a=>a.taskId!==t.id);
   state.tasks=state.tasks.filter(x=>x.id!==t.id);
+  invalidateTesterParticipation();invalidateTaskHistoryCaches();
   renderTasks();renderAnnouncements();
   if(state.loaded.testers)renderTesters();
   await loadMetrics();renderMetrics();
@@ -2873,8 +2900,8 @@ async function switchView(view){
     if(view==='overview'){await loadOverview(false);}
     if(view==='applications')await loadApplications();
     if(view==='testers'){await Promise.all([loadApplications(),loadTesters(),loadTesterParticipation(),loadFeedback()]);renderTesters();if(betaProgramEndDate)await refreshBetaProductionMapping();}
-    if(view==='tasks'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);await reconcilePendingTasksForInactiveTesters();await refreshTaskAutomationHealth();}
-    if(view==='announcements'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);renderAnnouncements();}
+    if(view==='tasks'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);if(betaProgramEndDate)await refreshBetaProductionMapping();await reconcilePendingTasksForInactiveTesters();await refreshTaskAutomationHealth();}
+    if(view==='announcements'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);if(betaProgramEndDate)await refreshBetaProductionMapping();renderAnnouncements();}
     if(view==='feedback'){
       await Promise.all([loadQuickReplies(),loadTesters()]);
       // Build 199: sync Gmail before rendering Support so direct emails and reopened
@@ -3460,14 +3487,18 @@ async function refreshBetaProductionMapping(options={}){
   if(options.force!==true&&fresh)return;
   betaMappingInFlight=(async()=>{
     try{
-      const result=await bridge.call('beta-program-status',{testers});
+      const result=await bridge.call('beta-program-status',{testers,forceRefresh:options.force===true});
       applyBetaProductionResult(result);betaMappingLoadedAt=Date.now();
       await reconcileMatchedTesterTimelines();
       // Production mapping and meaningful app activity are separate reads. If the
       // Production bridge became available after the tester table first rendered,
       // retry app activity now that matched Production UIDs are known.
-      await refreshTesterReviewAppActivity(state.testers,{force:options.force===true});
-      renderTesters();
+      // Only the visible Tester workspace needs the expensive app-activity ledger.
+      // Tasks/Announcements need the eligibility mapping, not every profile state.
+      if(activeView==='testers'){
+        await refreshTesterReviewAppActivity(state.testers,{force:options.force===true});
+        renderTesters();
+      }
       renderTaskRecipientPicker();
       // Read-only workspace navigation must not trigger whole-roster synchronization.
     }

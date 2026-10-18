@@ -52,7 +52,7 @@ const ctx=vm.createContext({Map,Set,Promise,String,Date,Number,Math,state,db:{},
   doc:(...args)=>args.slice(1).join('/'),
   serverTimestamp:()=>new Date(),Timestamp:{fromDate:x=>x},deleteField:()=>null,
   emailWorkerEndpoint:'enabled',updateDoc:async()=>{writes++},
-  taskAssignmentStats:()=>({total:0}),callWorkerAdminAction:async()=>{emailCalls++;return {sent:true}}
+  taskAssignmentStats:()=>({total:0}),invalidateTesterParticipation:()=>{},callWorkerAdminAction:async()=>{emailCalls++;return {sent:true}}
 });
 vm.runInContext(functions,ctx);
 const selected=task=>Array.from(ctx.newlyEligibleTaskTesters(task),t=>t.uid).sort();

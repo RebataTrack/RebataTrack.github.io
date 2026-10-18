@@ -16,7 +16,7 @@ const list={innerHTML:''}, summary={textContent:'old'}, template={value:'custom'
 const inputElements={taskRecipientList:list,taskRecipientSummary:summary,taskTemplateSelect:template,taskTitle:titleInput};
 const testers=[{uid:'completed',email:'completed@example.com',name:'Completed Tester',platform:'Android'},
   {uid:'new',email:'new@example.com',name:'New Tester',platform:'iOS'}];
-const state={tasks:[],taskAssignments:[],loaded:{tasks:false}};
+const state={tasks:[],taskAssignments:[],loaded:{tasks:false,participation:true}};
 const oldAssignment={id:'old-finished',taskId:'old-campaign',taskTitle:'Rebate Reporting',templateKey:'custom',status:'Completed',testerUid:'completed',email:'completed@example.com'};
 const queries=[];
 const ctx=vm.createContext({Map,Set,Promise,String,Date,Number,Math,state,db:{},TASK_ASSIGNMENT_PREVIEW_LIMIT:500,
@@ -32,6 +32,8 @@ const ctx=vm.createContext({Map,Set,Promise,String,Date,Number,Math,state,db:{},
   },
   normalizeDoc:d=>({id:d.id,...d.data()}),
   coalesceWorkspaceRead:(_key,fn)=>fn(),
+  loadTesterParticipation:async()=>{},testerParticipationRows:[],
+  campaignAssignmentCache:new Map(),campaignAssignmentLoadedAt:new Map(),taskHistoryFresh:()=>false,
   selectedTaskTemplateKey:()=>template.value,COMPLETION_HISTORY_LIMIT:1000,
   activeTaskTesters:()=>testers,
   renderTasks:()=>{},
@@ -50,18 +52,18 @@ vm.runInContext(history+'\n'+picker+'\n'+taskLoader,ctx);
   assert.equal(summary.textContent,'0 selected');
   assert.equal(queries.length,0,'empty draft must make zero Firestore requests');
   await ctx.loadTasks(true);
-  assert.equal(queries.length,2,'Tasks reload uses only its two normal bounded workspace reads');
+  assert.equal(queries.length,1,'Tasks reload reads task metadata without a global assignment scan');
   assert.match(list.innerHTML,/Enter a task title/);
   await ctx.loadTasks();
-  assert.equal(queries.length,2,'return to cached Tasks cannot re-query blank Custom history');
+  assert.equal(queries.length,1,'return to cached Tasks cannot re-query blank Custom history');
   // The anti-duplicate safeguard remains mandatory when a real Send is attempted.
   await assert.rejects(ctx.ensureTaskCompletionHistory('custom','',true),/Cannot verify a Custom task without a title/);
-  assert.equal(queries.length,2,'invalid send cannot query all assignments');
+  assert.equal(queries.length,1,'invalid send cannot query all assignments');
   // Even non-custom untitled drafts should not start speculative history reads.
   template.value='scan';
   ctx.renderTaskRecipientPicker();
   assert.match(list.innerHTML,/Enter a task title/);
-  assert.equal(queries.length,2);
+  assert.equal(queries.length,1);
   // Once the admin names the task, query only the matching title and exclude
   // historical completed recipients. No global task/list re-download.
   template.value='custom';
@@ -70,14 +72,14 @@ vm.runInContext(history+'\n'+picker+'\n'+taskLoader,ctx);
   assert.match(list.innerHTML,/Checking completed task history/);
   await new Promise(resolve=>setImmediate(resolve));
   await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(queries.length,3,'one exact taskTitle history query after entering a title');
-  assert.equal(queries[2].field,'taskTitle');
-  assert.equal(queries[2].value,'Rebate Reporting');
+  assert.equal(queries.length,2,'one exact taskTitle history query after entering a title');
+  assert.equal(queries[1].field,'taskTitle');
+  assert.equal(queries[1].value,'Rebate Reporting');
   assert.match(list.innerHTML,/Completed previously/);
   assert.match(list.innerHTML,/data-task-recipient="completed"[^>]*disabled/);
   assert.match(list.innerHTML,/data-task-recipient="new"/);
   assert(!/data-task-recipient="new"[^>]*disabled/.test(list.innerHTML),'new tester remains eligible');
   ctx.renderTaskRecipientPicker();
-  assert.equal(queries.length,3,'re-render uses verified history cache');
+  assert.equal(queries.length,2,'re-render uses verified history cache');
   console.log('PASS: untitled Custom/templated draft does not break Refresh, no speculative reads, real send still guarded, completed testers excluded on valid title');
 })().catch(err=>{console.error(err);process.exitCode=1;});
