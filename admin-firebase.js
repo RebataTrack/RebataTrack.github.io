@@ -1,4 +1,4 @@
-// RebataTrack Website Build 269 Firebase runtime.
+// RebataTrack Website Build 270 Firebase runtime.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 269
+// RebataTrack Admin Portal — Website Build 270
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -2258,9 +2258,12 @@ function taskCompletionHistoryReady(templateKey,taskTitle){
     (!key||key==='custom'||taskHistoryFresh(completedTemplateCache,completedTemplateLoadedAt,key))&&
     (!title||taskHistoryFresh(completedTaskTitleCache,completedTaskTitleLoadedAt,title));
 }
-function ensureTaskCompletionHistory(templateKey,taskTitle,force=false){
+async function ensureTaskCompletionHistory(templateKey,taskTitle,force=false){
   const key=String(templateKey||'').trim();
   const title=String(taskTitle||'').trim();
+  // This is a strict SEND guard, not a validation requirement for an empty
+  // New Task draft. Use an async rejection so Manage can show a scoped error
+  // instead of throwing out of an unrelated Admin Portal refresh.
   if((!key||key==='custom')&&!title)throw new Error('Cannot verify a Custom task without a title. Sending is blocked.');
   return Promise.all([ensureCompletedTemplateHistory(key,force),ensureCompletedTaskTitleHistory(title,force)]);
 }
@@ -2372,10 +2375,18 @@ function updateTaskRecipientSummary(){
 }
 function renderTaskRecipientPicker(){
   const list=document.getElementById('taskRecipientList'); if(!list)return;
-  const testers=activeTaskTesters();
-  if(!testers.length){list.innerHTML='<div class="admin-empty-inline" style="padding:14px">No task-eligible testers are available. A tester must have active Beta access, completed Testing Setup, and a matched Production account.</div>';updateTaskRecipientSummary();return;}
   const templateKey=selectedTaskTemplateKey();
   const title=String(document.getElementById('taskTitle')?.value||'').trim();
+  // An untouched Custom task (or any untitled draft) is not an attempt to send.
+  // In particular, loadTasks() calls this renderer during Refresh; don't
+  // turn a blank draft into a global beta-data error or start Firestore reads.
+  if(!title){
+    list.innerHTML='<div class="admin-empty-inline" style="padding:14px">Enter a task title to check previous completions and select recipients.</div>';
+    updateTaskRecipientSummary();
+    return;
+  }
+  const testers=activeTaskTesters();
+  if(!testers.length){list.innerHTML='<div class="admin-empty-inline" style="padding:14px">No task-eligible testers are available. A tester must have active Beta access, completed Testing Setup, and a matched Production account.</div>';updateTaskRecipientSummary();return;}
   const historyReady=taskCompletionHistoryReady(templateKey,title);
   const received=taskTemplateHistoryTesterIds(templateKey,title);
   if(!historyReady){

@@ -14,8 +14,8 @@ function fragment(start,end){
 }
 assert(html.includes('Active Beta Testers</span><h3>Platforms</h3>'),'platform card labels active testers');
 assert(html.includes('id="platformTotal">0 active testers'),'platform chip does not default to applicant count');
-assert(version.includes('const WEBSITE_BUILD = 269;'),'website identity updated');
-assert(html.includes('admin-firebase.js?v=269'),'admin asset cache updated');
+assert(version.includes('const WEBSITE_BUILD = 270;'),'website identity updated');
+assert(html.includes('admin-firebase.js?v=270'),'admin asset cache updated');
 
 const aggregateCalls=[];
 const count=async (name,filters=[])=>{
