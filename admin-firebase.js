@@ -1,4 +1,4 @@
-// RebataTrack Website Build 276 Firebase runtime.
+// RebataTrack Website Build 277 Firebase runtime.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 276
+// RebataTrack Admin Portal — Website Build 277
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -2169,7 +2169,7 @@ function markFeedbackViewed(f){
 }
 function feedbackCardHtml(f){
   const status=canonicalFeedbackStatus(f.status);const publicStatus=testerFacingFeedbackStatus(f);const support=isSupportConversation(f);const emailSupport=isEmailSupportConversation(f);const workflow=support?(emailSupport?'Support · Email':'Support · Portal'):'Beta Feedback';const needsResponse=feedbackNeedsAdminResponse(f);const platform=emailSupport?'Email':(f.platform||'Not provided');const responsibility=conversationResponsibility(f,'admin');const statusContext=(emailSupport?'Email':'Tester sees: '+publicStatus)+(responsibility?' · '+responsibility:'');
-  return `<button class="admin-feedback-card${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}<strong>${esc(f.subject)}</strong>${needsResponse?'<b class="admin-feedback-update-label">Needs response</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · <span class="admin-inline-person">${esc(f.name||f.email||'Customer')}${isEmailSupportConversation(f)?'':meaningfulTesterStarIndicatorHtml(meaningfulLinkedTester(f)||f)}</span> · ${esc(platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · ${esc(statusContext)}</span><span class="admin-feedback-card-preview">${esc(f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;
+  return `<button class="admin-feedback-card${needsResponse?' has-update needs-response':''}" type="button" data-open-feedback="${esc(f.id)}"><span class="admin-feedback-icon">${typeIcon(f.type)}</span><span class="admin-feedback-card-main"><span class="admin-feedback-card-top"><span class="admin-feedback-subject-wrap">${needsResponse?'<i class="admin-feedback-update-dot" aria-label="Needs your response"></i>':''}<strong>${esc(f.subject)}</strong>${needsResponse?'<b class="admin-feedback-update-label">Needs response</b>':''}</span><span class="admin-status-pill ${statusClass(status)}">${esc(status)}</span></span><span class="admin-feedback-card-meta">${esc(workflow)} · <span class="admin-inline-person">${esc(f.name||f.email||'Customer')}${isEmailSupportConversation(f)?'':meaningfulTesterStarIndicatorHtml(meaningfulLinkedTester(f)||f)}</span> · ${esc(platform)} · ${relativeDate(f.lastMessageAt||f.updatedAt||f.submittedAt)} · ${esc(statusContext)}</span><span class="admin-feedback-card-preview">${esc((emailSupport&&typeof globalThis.rebatatrackCleanEmailReply==='function')?(globalThis.rebatatrackCleanEmailReply(f.details)||'[No new reply text.]'):f.details)}</span></span><span class="admin-feedback-chevron">›</span></button>`;
 }
 function feedbackDateMs(value){const d=timestampToDate(value);return d?d.getTime():0;}
 function feedbackLastActivityMs(f){
@@ -3125,7 +3125,7 @@ function adminConversationMessageHtml(m){
   const eventType=String(m.eventType||'');
   if(eventType==='retest-request')return `<div class="admin-chat-message admin-chat-event"><div><strong>RebataTrack · Retest requested</strong><time>${esc(formatDate(m.createdAt))}</time></div><p>${esc(m.body||'Retest requested.')}</p></div>`;
   if(eventType==='retest-submitted')return `<div class="admin-chat-message admin-chat-event is-complete"><div><strong>Tester · Retest submitted</strong><time>${esc(formatDate(m.createdAt))}</time></div><p>${esc(m.retestResult||m.body||'Retest submitted')}</p>${m.retestNotes?`<small>${esc(m.retestNotes)}</small>`:''}</div>`;
-  const admin=String(m.authorRole||'').toLowerCase()==='admin';const customer=String(m.authorRole||'').toLowerCase()==='customer';const label=admin?'RebataTrack':(customer?(m.authorName||'Customer'):(m.authorName||'Tester'));const attachmentNote=m.hasAttachments?`<small>📎 ${Number(m.attachmentCount||1)} attachment${Number(m.attachmentCount||1)===1?'':'s'} kept in Gmail${m.gmailMessageUrl?` · <a href="${esc(m.gmailMessageUrl)}" target="_blank" rel="noopener">Open email</a>`:''}</small>`:'';const accountNote=m.supportAccountEmail?`<small><strong>Account supplied:</strong> ${esc(m.supportAccountEmail)}</small>`:'';return `<div class="admin-chat-message ${admin?'from-admin':'from-tester'}${m.isInitial?' is-initial':''}"><div><strong>${esc(label)}</strong><time>${esc(formatDate(m.createdAt))}</time></div><p>${esc(m.body||'')}</p>${accountNote}${attachmentNote}</div>`;
+  const admin=String(m.authorRole||'').toLowerCase()==='admin';const customer=String(m.authorRole||'').toLowerCase()==='customer';const label=admin?'RebataTrack':(customer?(m.authorName||'Customer'):(m.authorName||'Tester'));const attachmentNote=m.hasAttachments?`<small>📎 ${Number(m.attachmentCount||1)} attachment${Number(m.attachmentCount||1)===1?'':'s'} kept in Gmail${m.gmailMessageUrl?` · <a href="${esc(m.gmailMessageUrl)}" target="_blank" rel="noopener">Open email</a>`:''}</small>`:'';const accountNote=m.supportAccountEmail?`<small><strong>Account supplied:</strong> ${esc(m.supportAccountEmail)}</small>`:'';return `<div class="admin-chat-message ${admin?'from-admin':'from-tester'}${m.isInitial?' is-initial':''}"><div><strong>${esc(label)}</strong><time>${esc(formatDate(m.createdAt))}</time></div><p>${esc((!admin&&String(m.source||'').toLowerCase()==='email'&&typeof globalThis.rebatatrackCleanEmailReply==='function')?(globalThis.rebatatrackCleanEmailReply(m.body)||'[No new reply text. Open the original email in Gmail.]'):(m.body||''))}</p>${accountNote}${attachmentNote}</div>`;
 }
 function adminInitialConversationMessageHtml(f){
   const emailSupport=isEmailSupportConversation(f);
@@ -3134,6 +3134,7 @@ function adminInitialConversationMessageHtml(f){
     authorRole:adminInitiated?'Admin':(emailSupport?'Customer':'Tester'),
     authorName:adminInitiated?'RebataTrack':(f.name||(emailSupport?'Customer':'Tester')),
     body:f.details||'No details provided.',
+    source: emailSupport?'Email':'',
     createdAt:f.submittedAt,
     supportAccountEmail:f.supportAccountEmail||'',
     hasAttachments:!!(emailSupport&&f.hasAttachments),

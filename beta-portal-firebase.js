@@ -436,7 +436,7 @@ function conversationMessageHtml(message){
     return `<div class="portal-chat-event is-complete"><div class="portal-chat-message-head"><strong>You · Retest submitted</strong><time>${escapeHtml(formatPortalMessageTime(message.createdAt))}</time></div><p>${escapeHtml(message.retestResult||message.body||'Retest submitted')}</p>${message.retestNotes?`<span class="portal-chat-event-detail">${escapeHtml(message.retestNotes)}</span>`:''}</div>`;
   }
   const admin=String(message.authorRole||'').toLowerCase()==='admin';
-  return `<div class="portal-chat-message ${admin?'from-rebatify':'from-tester'}"><div class="portal-chat-message-head"><strong>${admin?'RebataTrack':'You'}</strong><time>${escapeHtml(formatPortalMessageTime(message.createdAt))}</time></div><p>${escapeHtml(message.body||'')}</p></div>`;
+  return `<div class="portal-chat-message ${admin?'from-rebatify':'from-tester'}"><div class="portal-chat-message-head"><strong>${admin?'RebataTrack':'You'}</strong><time>${escapeHtml(formatPortalMessageTime(message.createdAt))}</time></div><p>${escapeHtml((!admin&&String(message.source||'').toLowerCase()==='email'&&typeof globalThis.rebatatrackCleanEmailReply==='function')?(globalThis.rebatatrackCleanEmailReply(message.body)||'[No new reply text. Open the original email in Gmail.]'):(message.body||''))}</p></div>`;
 }
 function scrollConversationToLatest(behavior='auto'){
   const thread=document.getElementById('portalConversationThread');
