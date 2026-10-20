@@ -417,7 +417,7 @@ function renderFeedbackHistory(){
     const publicStatus=feedbackPublicStatus(f);const support=isSupportConversation(f);const unread=conversationIsUnread(f);const needsRetest=canonicalConversationStatus(f.status)==='Needs Retest'&&!f.retestedAt;const replyNeeded=support&&!conversationIsClosed(f)&&canonicalConversationStatus(f.status)!=='Feature Request Hold'&&String(f.lastMessageBy||'')==='Admin';
     const action=needsRetest?`<button class="portal-retest-button" data-retest-feedback="${escapeHtml(f.id)}" type="button">Retest This Issue</button>`:(replyNeeded?`<button class="portal-conversation-open portal-reply-needed-button" data-open-conversation="${escapeHtml(f.id)}" type="button">Reply Needed</button>`:'');
     const workflow=support?'Support':'Beta Feedback';
-    return `<article class="portal-feedback-history-card${(needsRetest||replyNeeded)?' needs-action':''}${unread?' has-unread':''}"><div class="portal-feedback-history-top"><div><span>${escapeHtml(workflow)} · ${escapeHtml(f.type||'Conversation')}${unread?'<b class="portal-history-unread">New update</b>':''}</span><h3>${escapeHtml(f.subject||'Conversation')}</h3></div><span class="portal-feedback-public-status ${publicStatus.className}">${escapeHtml(publicStatus.label)}</span></div><p>${escapeHtml(f.details||'')}</p><div class="portal-feedback-history-meta"><span>${escapeHtml(formatPortalDate(f.lastMessageAt||f.updatedAt||f.submittedAt))}</span>${f.appVersion?`<span>${escapeHtml(f.appVersion)}</span>`:''}${f.pageFeature?`<span>${escapeHtml(f.pageFeature)}</span>`:''}${f.supportAccountEmail?`<span>${escapeHtml(f.supportAccountEmail)}</span>`:''}</div>${f.retestedAt?`<div class="portal-retest-result"><strong>${escapeHtml(f.retestResult||'Retest submitted')}</strong>${f.retestNotes?`<span>${escapeHtml(f.retestNotes)}</span>`:''}</div>`:''}<div class="portal-conversation-card-actions"><button class="portal-conversation-open" data-open-conversation="${escapeHtml(f.id)}" type="button">Open Conversation</button>${action}</div></article>`;
+    return `<article class="portal-feedback-history-card${(needsRetest||replyNeeded)?' needs-action':''}${unread?' has-unread':''}"><div class="portal-feedback-history-top"><div><span>${escapeHtml(workflow)} · ${escapeHtml(f.type||'Conversation')}${unread?'<b class="portal-history-unread">New update</b>':''}</span><h3>${escapeHtml(f.subject||'Conversation')}</h3></div><span class="portal-feedback-public-status ${publicStatus.className}">${escapeHtml(publicStatus.label)}</span></div><p>${escapeHtml(typeof f.lastMessagePreview==='string'?f.lastMessagePreview:f.details||'')}</p><div class="portal-feedback-history-meta"><span>${escapeHtml(formatPortalDate(f.lastMessageAt||f.updatedAt||f.submittedAt))}</span>${f.appVersion?`<span>${escapeHtml(f.appVersion)}</span>`:''}${f.pageFeature?`<span>${escapeHtml(f.pageFeature)}</span>`:''}${f.supportAccountEmail?`<span>${escapeHtml(f.supportAccountEmail)}</span>`:''}</div>${f.retestedAt?`<div class="portal-retest-result"><strong>${escapeHtml(f.retestResult||'Retest submitted')}</strong>${f.retestNotes?`<span>${escapeHtml(f.retestNotes)}</span>`:''}</div>`:''}<div class="portal-conversation-card-actions"><button class="portal-conversation-open" data-open-conversation="${escapeHtml(f.id)}" type="button">Open Conversation</button>${action}</div></article>`;
   }).join('');
 }
 
@@ -538,10 +538,13 @@ async function sendConversationReply(){
   const btn=document.getElementById('portalConversationSend');const original=btn.innerHTML;btn.disabled=true;btn.innerHTML='Sending…';message.textContent='';
   try{
     const feedbackId=activeConversation.id;
-    const ref=await addDoc(collection(db,'betaFeedback',feedbackId,'messages'),{authorUid:auth.currentUser.uid,authorRole:'Tester',authorName:currentProfile?.name||'Tester',body,createdAt:serverTimestamp()});
-    const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',updatedAt:serverTimestamp()};
+    const ref=doc(collection(db,'betaFeedback',feedbackId,'messages'));
+    const update={lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',lastMessagePreview:body.slice(0,500),updatedAt:serverTimestamp()};
     if(wasClosed){update.status='In Progress';update.autoClosedAt=null;update.autoClosedReason='';update.autoCloseReason='';}
-    await updateDoc(doc(db,'betaFeedback',feedbackId),update);
+    const batch=writeBatch(db);
+    batch.set(ref,{authorUid:auth.currentUser.uid,authorRole:'Tester',authorName:currentProfile?.name||'Tester',body,createdAt:serverTimestamp()});
+    batch.update(doc(db,'betaFeedback',feedbackId),update);
+    await batch.commit();
     if(wasClosed){activeConversation.status='In Progress';activeConversation.autoClosedAt=null;}
     input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));resizeConversationComposer();message.textContent='';message.className='portal-task-message';scrollConversationToLatest('smooth');
     workerPostAuthorized('conversation-reply-added',{feedbackId,messageId:ref.id}).catch(err=>console.warn('Conversation reply email failed:',err));
@@ -566,7 +569,7 @@ async function submitRetest(){
   try{
     const feedbackId=activeRetestFeedback.id;const retestCount=(Number(activeRetestFeedback.retestCount)||0)+1;
     const feedbackRef=doc(db,'betaFeedback',feedbackId);const messageRef=doc(collection(db,'betaFeedback',feedbackId,'messages'));const batch=writeBatch(db);
-    batch.update(feedbackRef,{retestResult:result,retestNotes:notes,retestedAt:serverTimestamp(),retestCount,lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',updatedAt:serverTimestamp()});
+    batch.update(feedbackRef,{retestResult:result,retestNotes:notes,retestedAt:serverTimestamp(),retestCount,lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',lastMessagePreview:`Retest submitted: ${result}`,updatedAt:serverTimestamp()});
     batch.set(messageRef,{authorUid:auth.currentUser.uid,authorRole:'Tester',authorName:currentProfile?.name||'Tester',eventType:'retest-submitted',retestResult:result,retestNotes:notes,body:`Retest submitted: ${result}`,createdAt:serverTimestamp()});
     await batch.commit();
     activeRetestFeedback.retestResult=result;activeRetestFeedback.retestNotes=notes;activeRetestFeedback.retestedAt=new Date();activeRetestFeedback.retestCount=retestCount;activeRetestFeedback.lastMessageAt=new Date();activeRetestFeedback.lastMessageBy='Tester';renderFeedbackHistory();renderPortalTaskSummary();closeRetestFeedback();setFeedbackMessage('Retest submitted. Thank you for checking the fix.','success');workerPostAuthorized('feedback-retest-submitted',{feedbackId}).catch(err=>console.warn('Retest email notification failed:',err));
@@ -986,7 +989,7 @@ if (feedbackForm) {
       ownerUid:auth.currentUser.uid,name:currentProfile.name||'',email:currentProfile.email||auth.currentUser.email||'',platform:currentProfile.platform||'',
       workflowType:support?'Support':'Feedback',type,subject:String(data.get('subject')||'').trim(),details:String(data.get('details')||'').trim(),appVersion,deviceDetails,
       deviceModel:String(currentProfile.deviceModel||'').trim(),osVersion:String(currentProfile.osVersion||'').trim(),screenSize:String(currentProfile.screenSize||detectedScreenSize()||'').trim(),pageFeature:support?'':String(data.get('pageFeature')||'').trim(),
-      supportAccountEmail:support?String(data.get('supportAccountEmail')||'').trim():'',status:'New',adminNotes:'',lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',submittedAt:serverTimestamp(),updatedAt:serverTimestamp()
+      supportAccountEmail:support?String(data.get('supportAccountEmail')||'').trim():'',lastMessagePreview:String(data.get('details')||'').trim().slice(0,500),status:'New',adminNotes:'',lastMessageAt:serverTimestamp(),lastMessageBy:'Tester',submittedAt:serverTimestamp(),updatedAt:serverTimestamp()
     };
     try{
       const ref=await addDoc(collection(db,'betaFeedback'),payload);const local={id:ref.id,...payload,submittedAt:new Date(),updatedAt:new Date(),lastMessageAt:new Date()};feedbackHistory.unshift(local);renderFeedbackHistory();

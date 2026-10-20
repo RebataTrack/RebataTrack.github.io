@@ -2838,3 +2838,7 @@ body.portal-conversation-active .portal-support-launcher{opacity:0;pointer-event
 .admin-action-card-send:disabled{opacity:.5;cursor:not-allowed}
 .admin-tester-action-bulk{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:14px 0}
 .admin-tester-action-bulk small{color:#72849a;font-size:.74rem}
+
+/* Website 278: combine reply composition and status selection without separate email alerts. */
+.admin-conversation-reply .beta-field{margin:3px 0 8px}
+.admin-conversation-reply .admin-detail-help{display:block;margin:0 0 11px;color:#6e7f94;font-size:.72rem;line-height:1.5}
