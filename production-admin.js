@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {auth,isAdminUser}=Core;
 const {onAuthStateChanged}=Compat;
-// RebataTrack Production Admin Console - Website Build 274
+// RebataTrack Production Admin Console - Website Build 276
 // Uses the signed-in Admin Portal Firebase session only as the administrator identity.
 // All privileged production reads/writes go through the Production Admin Worker.
 // No production service-account secret is ever present in browser code.

@@ -1,4 +1,4 @@
-// RebataTrack Website Build 274 Firebase runtime.
+// RebataTrack Website Build 276 Firebase runtime.
 (async function(){
 'use strict';
 var Core=window.RebataTrackFirebaseCore;
@@ -6,7 +6,7 @@ var Compat=window.RebataTrackFirebaseCompat;
 if(!Core||!Compat){throw new Error(window.__REBATATRACK_FIREBASE_RUNTIME_ERROR||'RebataTrack Firebase runtime is unavailable.');}
 const {firebaseConfigured,firebaseMissingFields,auth,db,isAdminUser,adminEmail,emailAutomationEnabled,timestampToDate,friendlyFirebaseError}=Core;
 const {onAuthStateChanged,signOut,collection,doc,getDocs:rawGetDocs,getDoc:rawGetDoc,getCountFromServer:rawGetCountFromServer,query,where,orderBy,limit,setDoc,updateDoc,deleteDoc,serverTimestamp,deleteField,writeBatch,Timestamp,addDoc,onSnapshot}=Compat;
-// RebataTrack Admin Portal — Website Build 274
+// RebataTrack Admin Portal — Website Build 276
 'use strict';
 
 // Build 180 read meter (diagnostic only; it never changes what is read). Add ?readmeter=1 to the admin URL (or set
@@ -156,7 +156,7 @@ let feedbackRealtimeReady = false;
 let supportInboxSyncTimer = null;
 let supportInboxSyncInFlight = null;
 let supportInboxLastSyncAt=0;
-const SUPPORT_INBOX_SYNC_MIN_MS=5*60*1000;
+const SUPPORT_INBOX_SYNC_MIN_MS=50*1000;
 const workspaceReadInFlight=new Map();
 function coalesceWorkspaceRead(key, read){
   if(workspaceReadInFlight.has(key))return workspaceReadInFlight.get(key);
@@ -2904,9 +2904,9 @@ async function switchView(view){
     if(view==='announcements'){await Promise.all([loadApplications(),loadTesters(),loadTasks()]);if(betaProgramEndDate)await refreshBetaProductionMapping();renderAnnouncements();}
     if(view==='feedback'){
       await Promise.all([loadQuickReplies(),loadTesters()]);
-      // Build 199: sync Gmail before rendering Support so direct emails and reopened
-      // conversations do not depend solely on the Cloudflare cron cadence.
-      await syncSupportInboxNow({silent:true});
+      // Worker Build 198 independently polls Gmail with a KV checkpoint. The
+      // existing narrow Firestore realtime listener delivers actual ticket
+      // changes; opening the portal must not launch another competing importer.
       await loadFeedback();
     }
   }catch(e){showToast('Could not load '+view+'. '+friendlyFirebaseError(e),'error');}
@@ -3668,13 +3668,11 @@ async function syncSupportInboxNow(options={}){
   return supportInboxSyncInFlight;
 }
 function updateSupportInboxAutoSync(){
+  // The Cloudflare email worker is the single scheduled Gmail importer. Avoid
+  // duplicate browser IMAP jobs and repeated Firestore checkpoint reads.
   if(supportInboxSyncTimer){clearInterval(supportInboxSyncTimer);supportInboxSyncTimer=null;}
-  if(activeView!=='feedback'||!emailWorkerEndpoint)return;
-  // Sync only while the Support workspace is open. The Worker cron remains the background
-  // path; this one-minute foreground sync makes the queue feel live without permanent polling.
-  supportInboxSyncTimer=setInterval(()=>{
-    if(activeView==='feedback'&&!document.hidden)syncSupportInboxNow({silent:true});
-  },300000);
+  // Help & Feedback already listens for new/changed tickets through Firestore;
+  // a new reply appears automatically after the worker imports that one message.
 }
 
 // Application decisions normally change one application and one tester. Refresh only

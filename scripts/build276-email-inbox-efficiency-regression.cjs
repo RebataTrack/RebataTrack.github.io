@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.join(__dirname,'..');
+const admin=fs.readFileSync(path.join(root,'admin-firebase.js'),'utf8');
+const html=fs.readFileSync(path.join(root,'admin.html'),'utf8');
+const version=fs.readFileSync(path.join(root,'website-version.js'),'utf8');
+assert.match(admin,/function updateSupportInboxAutoSync\(\)/);
+assert.doesNotMatch(admin,/supportInboxSyncTimer=setInterval/);
+assert.doesNotMatch(admin,/await syncSupportInboxNow\(\{silent:true\}\)/);
+assert.match(admin,/await loadFeedback\(\)/);
+assert.match(html,/admin-firebase\.js\?v=276/);
+assert.match(html,/website-version\.js\?v=276/);
+assert.match(version,/const WEBSITE_BUILD = 276/);
+console.log('PASS: Website Build 276 listens for Firestore ticket changes; redundant Gmail polling disabled and scripts cache-busted');
